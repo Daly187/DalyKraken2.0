@@ -16,6 +16,7 @@ import Portfolio from '@/pages/Portfolio';
 import DalyDCA from '@/pages/DalyDCA';
 import ManualTrade from '@/pages/ManualTrade';
 import AuditLog from '@/pages/AuditLog';
+import Stats from '@/pages/Stats';
 import Settings from '@/pages/Settings';
 
 function App() {
@@ -44,6 +45,7 @@ function App() {
           <Route path="/daly-dca" element={<DalyDCA />} />
           <Route path="/manual-trade" element={<ManualTrade />} />
           <Route path="/audit-log" element={<AuditLog />} />
+          <Route path="/stats" element={<Stats />} />
           <Route path="/settings" element={<Settings />} />
         </Route>
 
