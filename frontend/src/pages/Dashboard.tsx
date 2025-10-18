@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useStore } from '@/store/useStore';
+import { getCommonName } from '@/utils/assetNames';
 import {
   TrendingUp,
   TrendingDown,
@@ -350,7 +351,9 @@ export default function Dashboard() {
               </h3>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {topMovers.map((holding, idx) => (
+              {topMovers.map((holding, idx) => {
+                const commonName = getCommonName(holding.asset);
+                return (
                 <div
                   key={holding.asset}
                   className="flex items-center justify-between p-4 rounded-lg bg-slate-900/50 border border-slate-700/30 hover:border-purple-500/30 transition-all duration-300"
@@ -362,10 +365,10 @@ export default function Dashboard() {
                         ? 'bg-green-500/20 text-green-400'
                         : 'bg-red-500/20 text-red-400'
                     }`}>
-                      {holding.asset?.substring(0, 2) || '??'}
+                      {commonName?.substring(0, 2) || '??'}
                     </div>
                     <div>
-                      <p className="font-semibold text-white">{holding.asset}</p>
+                      <p className="font-semibold text-white">{commonName}</p>
                       <p className="text-xs text-slate-400">{formatCurrency(holding.value)}</p>
                     </div>
                   </div>
@@ -377,7 +380,8 @@ export default function Dashboard() {
                     </p>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
@@ -397,13 +401,16 @@ export default function Dashboard() {
                   <tr className="text-left text-slate-400 text-sm border-b border-slate-700/50">
                     <th className="pb-4 pt-4 pl-6 font-semibold">Asset</th>
                     <th className="pb-4 pt-4 font-semibold">Amount</th>
+                    <th className="pb-4 pt-4 font-semibold">Price</th>
                     <th className="pb-4 pt-4 font-semibold">Value</th>
                     <th className="pb-4 pt-4 font-semibold">P&L</th>
                     <th className="pb-4 pt-4 pr-6 font-semibold">Allocation</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {portfolio.holdings.slice(0, 5).map((holding, idx) => (
+                  {portfolio.holdings.slice(0, 5).map((holding, idx) => {
+                    const commonName = getCommonName(holding.asset);
+                    return (
                     <tr
                       key={holding.symbol || holding.asset}
                       className="border-b border-slate-700/30 hover:bg-slate-700/20 transition-colors duration-200"
@@ -412,15 +419,18 @@ export default function Dashboard() {
                       <td className="py-4 pl-6">
                         <div className="flex items-center space-x-3">
                           <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-cyan-500 flex items-center justify-center text-white font-bold text-sm">
-                            {holding.asset?.substring(0, 2) || '??'}
+                            {commonName?.substring(0, 2) || '??'}
                           </div>
-                          <span className="font-semibold text-white">{holding.asset || 'N/A'}</span>
+                          <span className="font-semibold text-white">{commonName || 'N/A'}</span>
                         </div>
                       </td>
                       <td className="py-4 text-slate-300 font-mono">
                         {holding.amount !== undefined && holding.amount !== null
                           ? holding.amount.toFixed(6)
                           : '0.000000'}
+                      </td>
+                      <td className="py-4 text-slate-300 font-mono">
+                        {formatCurrency(holding.currentPrice)}
                       </td>
                       <td className="py-4 text-white font-semibold">
                         {formatCurrency(holding.value)}
@@ -461,7 +471,8 @@ export default function Dashboard() {
                         </div>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
