@@ -23,6 +23,14 @@ const app = express();
 app.use(cors({ origin: true }));
 app.use(express.json());
 
+// Strip /api prefix when requests come from Firebase Hosting rewrites
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/')) {
+    req.url = req.url.replace('/api', '');
+  }
+  next();
+});
+
 // Simple in-memory cache
 const cache = new Map<string, { data: any; timestamp: number }>();
 const CACHE_TTL = 30000; // 30 seconds
