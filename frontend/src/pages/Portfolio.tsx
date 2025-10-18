@@ -194,7 +194,7 @@ export default function Portfolio() {
           cached
             ? 'Unable to connect to backend server. Showing cached data from ' +
               (cachedTimestamp ? new Date(cachedTimestamp).toLocaleString() : 'earlier') + '.'
-            : 'Unable to connect to backend server. Make sure the backend is running on http://localhost:5001'
+            : 'Unable to connect to backend server. Please check your connection and try again.'
         );
       } else {
         setError(

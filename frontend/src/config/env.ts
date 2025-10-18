@@ -21,9 +21,11 @@ export const config = {
   isDevelopment,
   api: {
     // Main backend API
+    // In production, Firebase Hosting rewrites /api/** to the Cloud Function
+    // So we use /api as the base URL and the function routes handle the rest
     mainUrl: isDevelopment
       ? 'http://localhost:5001/api'
-      : `${getProductionBaseUrl()}/api`,
+      : '/api',
 
     // Cache API (fallback)
     cacheUrl: isDevelopment
