@@ -1,0 +1,69 @@
+{
+  "instructions": "Edit this file with your historical bot data from the audit log, then run the populate script",
+  "bots": [
+    {
+      "symbol": "BTC/USD",
+      "initialOrderAmount": 10,
+      "tradeMultiplier": 2,
+      "reEntryCount": 8,
+      "stepPercent": 1,
+      "stepMultiplier": 2,
+      "tpTarget": 3,
+      "supportResistanceEnabled": false,
+      "reEntryDelay": 888,
+      "trendAlignmentEnabled": true,
+      "status": "completed",
+      "userId": "default-user",
+      "comment": "This is an example bot. Replace with your actual data from audit log.",
+      "entries": [
+        {
+          "entryNumber": 1,
+          "orderAmount": 10,
+          "price": 45000,
+          "quantity": 0.00022222,
+          "timestamp": "2025-01-01T00:00:00.000Z",
+          "orderId": "REPLACE_WITH_KRAKEN_ORDER_ID",
+          "txid": "REPLACE_WITH_KRAKEN_TXID",
+          "status": "filled"
+        },
+        {
+          "entryNumber": 2,
+          "orderAmount": 20,
+          "price": 44550,
+          "quantity": 0.00044888,
+          "timestamp": "2025-01-02T00:00:00.000Z",
+          "orderId": "REPLACE_WITH_KRAKEN_ORDER_ID",
+          "txid": "REPLACE_WITH_KRAKEN_TXID",
+          "status": "filled"
+        }
+      ]
+    },
+    {
+      "symbol": "ETH/USD",
+      "initialOrderAmount": 10,
+      "tradeMultiplier": 2,
+      "reEntryCount": 8,
+      "stepPercent": 1,
+      "stepMultiplier": 2,
+      "tpTarget": 3,
+      "supportResistanceEnabled": false,
+      "reEntryDelay": 888,
+      "trendAlignmentEnabled": true,
+      "status": "active",
+      "userId": "default-user",
+      "comment": "Another example - add your ETH trades here",
+      "entries": []
+    }
+  ],
+  "notes": [
+    "To populate bots from your audit log:",
+    "1. Go to the Audit Log page in your app",
+    "2. Review your historical trades",
+    "3. Group trades by symbol (BTC/USD, ETH/USD, etc.)",
+    "4. For each symbol, create a bot entry above",
+    "5. Add all trades for that symbol as 'entries'",
+    "6. Match the configuration (initialOrderAmount, stepPercent, etc.) to your actual strategy",
+    "7. Set status to 'completed' if you've already exited, 'active' if still running",
+    "8. Save this file and run: npm run populate-bots"
+  ]
+}

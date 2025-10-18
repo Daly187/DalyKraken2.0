@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DalyDCA - Extract Trade Data</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #1a1a2e;
+            color: #eee;
+        }
+        .container {
+            background: #16213e;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        h1 { color: #00d4ff; margin-top: 0; }
+        h2 { color: #00d4ff; border-bottom: 2px solid #00d4ff; padding-bottom: 10px; }
+        .step {
+            background: #0f3460;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+            border-left: 4px solid #00d4ff;
+        }
+        button {
+            background: #00d4ff;
+            color: #1a1a2e;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            margin: 10px 5px;
+        }
+        button:hover { background: #00b8d4; }
+        button:disabled {
+            background: #555;
+            cursor: not-allowed;
+        }
+        textarea {
+            width: 100%;
+            height: 400px;
+            background: #0a1929;
+            color: #00ff00;
+            border: 1px solid #00d4ff;
+            border-radius: 6px;
+            padding: 15px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+        }
+        .success { color: #4caf50; }
+        .error { color: #f44336; }
+        .warning { color: #ff9800; }
+        .info { color: #2196f3; }
+        #status {
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 6px;
+            display: none;
+        }
+        #status.show { display: block; }
+        .trade-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        .trade-table th, .trade-table td {
+            padding: 10px;
+            text-align: left;
+            border-bottom: 1px solid #333;
+        }
+        .trade-table th {
+            background: #0f3460;
+            color: #00d4ff;
+        }
+        .buy { color: #4caf50; }
+        .sell { color: #f44336; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🤖 DalyDCA Trade Data Extractor</h1>
+        <p>This tool will help you extract your Kraken trade data and generate the JSON file for bot population.</p>
+
+        <div class="step">
+            <h2>Step 1: Get Your Kraken API Keys</h2>
+            <p>We need your API keys to fetch trade history from Kraken.</p>
+            <button onclick="getKeysFromLocalStorage()">Load API Keys from App</button>
+            <div id="keyStatus"></div>
+        </div>
+
+        <div class="step">
+            <h2>Step 2: Fetch Trade History</h2>
+            <button id="fetchBtn" onclick="fetchTrades()" disabled>Fetch Trades from Kraken</button>
+            <div id="tradeStatus"></div>
+            <div id="tradesPreview"></div>
+        </div>
+
+        <div class="step">
+            <h2>Step 3: Generate Bot Configuration</h2>
+            <p>Review the detected trading patterns and configure your bots:</p>
+            <div id="botConfig"></div>
+            <button id="generateBtn" onclick="generateJSON()" disabled>Generate historical-bots.json</button>
+        </div>
+
+        <div class="step">
+            <h2>Step 4: Download & Save</h2>
+            <textarea id="jsonOutput" placeholder="Generated JSON will appear here..."></textarea>
+            <br>
+            <button id="downloadBtn" onclick="downloadJSON()" disabled>Download JSON File</button>
+            <button onclick="copyToClipboard()">Copy to Clipboard</button>
+            <div id="status"></div>
+        </div>
+    </div>
+
+    <script>
+        let apiKey = '';
+        let apiSecret = '';
+        let trades = [];
+        let botConfigs = {};
+
+        function getKeysFromLocalStorage() {
+            try {
+                const keysJson = localStorage.getItem('kraken_api_keys');
+                if (!keysJson) {
+                    document.getElementById('keyStatus').innerHTML =
+                        '<p class="error">❌ No API keys found in localStorage.</p>' +
+                        '<p>Please set up your Kraken API keys in the Settings page first.</p>';
+                    return;
+                }
+
+                const keys = JSON.parse(keysJson);
+                const primaryKey = keys.find(k => k.type === 'primary' && k.isActive);
+
+                if (primaryKey && primaryKey.apiKey && primaryKey.apiSecret) {
+                    apiKey = primaryKey.apiKey;
+                    apiSecret = primaryKey.apiSecret;
+                    document.getElementById('keyStatus').innerHTML =
+                        '<p class="success">✅ API keys loaded successfully!</p>';
+                    document.getElementById('fetchBtn').disabled = false;
+                } else {
+                    document.getElementById('keyStatus').innerHTML =
+                        '<p class="error">❌ No active primary API key found.</p>';
+                }
+            } catch (error) {
+                document.getElementById('keyStatus').innerHTML =
+                    '<p class="error">❌ Error: ' + error.message + '</p>';
+            }
+        }
+
+        async function fetchTrades() {
+            document.getElementById('tradeStatus').innerHTML =
+                '<p class="info">⏳ Fetching trades from Kraken...</p>';
+
+            try {
+                // Use your backend API endpoint
+                const response = await fetch('/api/audit/trades?limit=100', {
+                    headers: {
+                        'x-kraken-api-key': apiKey,
+                        'x-kraken-api-secret': apiSecret
+                    }
+                });
+
+                const data = await response.json();
+
+                if (!data.success) {
+                    throw new Error(data.error || 'Failed to fetch trades');
+                }
+
+                const tradeData = data.data || {};
+                trades = Object.entries(tradeData).map(([txid, trade]) => ({
+                    txid,
+                    ...trade,
+                    time: new Date(trade.time * 1000)
+                }));
+
+                // Filter only BUY trades
+                const buyTrades = trades.filter(t => t.type === 'buy');
+
+                document.getElementById('tradeStatus').innerHTML =
+                    `<p class="success">✅ Found ${buyTrades.length} BUY trades!</p>`;
+
+                displayTrades(buyTrades);
+                analyzeTrades(buyTrades);
+                document.getElementById('generateBtn').disabled = false;
+
+            } catch (error) {
+                document.getElementById('tradeStatus').innerHTML =
+                    '<p class="error">❌ Error: ' + error.message + '</p>';
+            }
+        }
+
+        function displayTrades(buyTrades) {
+            if (buyTrades.length === 0) {
+                document.getElementById('tradesPreview').innerHTML =
+                    '<p class="warning">No BUY trades found.</p>';
+                return;
+            }
+
+            let html = '<table class="trade-table"><thead><tr>' +
+                '<th>Date</th><th>Pair</th><th>Price</th><th>Volume</th><th>Cost</th>' +
+                '</tr></thead><tbody>';
+
+            buyTrades.forEach(trade => {
+                html += `<tr>
+                    <td>${trade.time.toLocaleString()}</td>
+                    <td>${trade.pair}</td>
+                    <td>$${parseFloat(trade.price).toFixed(2)}</td>
+                    <td>${parseFloat(trade.vol).toFixed(8)}</td>
+                    <td>$${parseFloat(trade.cost).toFixed(2)}</td>
+                </tr>`;
+            });
+
+            html += '</tbody></table>';
+            document.getElementById('tradesPreview').innerHTML = html;
+        }
+
+        function analyzeTrades(buyTrades) {
+            // Group trades by pair
+            const grouped = {};
+            buyTrades.forEach(trade => {
+                const symbol = trade.pair.replace(/XBT/, 'BTC').replace(/XDG/, 'DOGE');
+                if (!grouped[symbol]) {
+                    grouped[symbol] = [];
+                }
+                grouped[symbol].push(trade);
+            });
+
+            botConfigs = grouped;
+
+            let html = '<div>';
+            Object.keys(grouped).forEach(symbol => {
+                const tradelist = grouped[symbol];
+                html += `<div style="background: #0a1929; padding: 15px; margin: 10px 0; border-radius: 6px;">
+                    <h3 style="color: #00d4ff; margin-top: 0;">${symbol}</h3>
+                    <p><strong>${tradelist.length}</strong> trades found</p>
+                    <p>First trade: ${tradelist[0].time.toLocaleDateString()}</p>
+                    <p>Last trade: ${tradelist[tradelist.length-1].time.toLocaleDateString()}</p>
+                    <p>Total cost: $${tradelist.reduce((sum, t) => sum + parseFloat(t.cost), 0).toFixed(2)}</p>
+                </div>`;
+            });
+            html += '</div>';
+            document.getElementById('botConfig').innerHTML = html;
+        }
+
+        function generateJSON() {
+            const bots = Object.entries(botConfigs).map(([symbol, trades]) => {
+                // Sort trades by time
+                trades.sort((a, b) => a.time - b.time);
+
+                const entries = trades.map((trade, index) => ({
+                    entryNumber: index + 1,
+                    orderAmount: parseFloat(trade.cost),
+                    price: parseFloat(trade.price),
+                    quantity: parseFloat(trade.vol),
+                    timestamp: trade.time.toISOString(),
+                    orderId: trade.ordertxid || trade.txid,
+                    txid: trade.txid,
+                    status: "filled"
+                }));
+
+                // Estimate initial order amount from first trade
+                const initialAmount = parseFloat(trades[0].cost);
+
+                return {
+                    symbol: symbol,
+                    initialOrderAmount: Math.round(initialAmount),
+                    tradeMultiplier: 2,
+                    reEntryCount: 8,
+                    stepPercent: 1,
+                    stepMultiplier: 2,
+                    tpTarget: 3,
+                    supportResistanceEnabled: false,
+                    reEntryDelay: 888,
+                    trendAlignmentEnabled: true,
+                    status: "active", // Change to "completed" if you've exited
+                    userId: "default-user",
+                    entries: entries
+                };
+            });
+
+            const output = {
+                instructions: "Auto-generated from your Kraken trade history",
+                bots: bots,
+                generatedAt: new Date().toISOString()
+            };
+
+            const jsonString = JSON.stringify(output, null, 2);
+            document.getElementById('jsonOutput').value = jsonString;
+            document.getElementById('downloadBtn').disabled = false;
+
+            showStatus('✅ JSON generated successfully! Review and download below.', 'success');
+        }
+
+        function downloadJSON() {
+            const jsonString = document.getElementById('jsonOutput').value;
+            const blob = new Blob([jsonString], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'historical-bots.json';
+            a.click();
+            URL.revokeObjectURL(url);
+
+            showStatus('✅ File downloaded! Now save it to: scripts/historical-bots.json', 'success');
+        }
+
+        function copyToClipboard() {
+            const textarea = document.getElementById('jsonOutput');
+            textarea.select();
+            document.execCommand('copy');
+            showStatus('✅ Copied to clipboard!', 'success');
+        }
+
+        function showStatus(message, type) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.className = 'show ' + type;
+            statusDiv.style.background = type === 'success' ? '#1b5e20' :
+                                        type === 'error' ? '#b71c1c' : '#01579b';
+            statusDiv.textContent = message;
+            setTimeout(() => statusDiv.classList.remove('show'), 5000);
+        }
+
+        // Auto-load keys on page load
+        window.addEventListener('DOMContentLoaded', () => {
+            getKeysFromLocalStorage();
+        });
+    </script>
+</body>
+</html>

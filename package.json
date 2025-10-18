@@ -21,7 +21,9 @@
     "firebase:deploy": "npm run build:frontend && firebase deploy",
     "firebase:deploy:hosting": "npm run build:frontend && firebase deploy --only hosting",
     "firebase:deploy:functions": "firebase deploy --only functions",
-    "firebase:logs": "firebase functions:log"
+    "firebase:logs": "firebase functions:log",
+    "populate-bots": "npx ts-node scripts/populate-from-json.ts",
+    "populate-bots:help": "cat scripts/README.md"
   },
   "keywords": [
     "crypto",

@@ -1,240 +1,109 @@
-# DalyKraken 2.0 - Quick Start Guide
+# DCA Bot Database - Quick Start
 
-Get up and running with DalyKraken in 5 minutes!
+## 🚀 5-Minute Setup
 
-## 🚀 Quick Installation
+### 1. Get Firebase Key
+```bash
+# Download from Firebase Console > Project Settings > Service Accounts
+# Save as: backend/functions/serviceAccountKey.json
+```
 
-### Step 1: Install All Dependencies
+### 2. Prepare Bot Data
+```bash
+# Copy template
+cp scripts/historical-bots-template.json scripts/historical-bots.json
 
-From the root directory:
+# Edit with your audit log data
+code scripts/historical-bots.json  # or use nano/vim
+```
+
+### 3. Populate Database
+```bash
+npm run populate-bots
+```
+
+### 4. View in App
+Open DalyDCA page → See your bots!
+
+## 📋 Bot Entry Template
+
+```json
+{
+  "symbol": "BTC/USD",
+  "initialOrderAmount": 10,
+  "tradeMultiplier": 2,
+  "reEntryCount": 8,
+  "stepPercent": 1,
+  "stepMultiplier": 2,
+  "tpTarget": 3,
+  "supportResistanceEnabled": false,
+  "reEntryDelay": 888,
+  "trendAlignmentEnabled": true,
+  "status": "active",
+  "userId": "default-user",
+  "entries": [
+    {
+      "entryNumber": 1,
+      "orderAmount": 10,
+      "price": 45000,
+      "quantity": 0.00022222,
+      "timestamp": "2025-01-15T10:30:00.000Z",
+      "orderId": "KRAKEN-ORDER-ID",
+      "status": "filled"
+    }
+  ]
+}
+```
+
+## 🔑 Key Fields
+
+| Field | What It Does | Example |
+|-------|--------------|---------|
+| `initialOrderAmount` | First entry size ($) | `10` |
+| `tradeMultiplier` | Entry size growth | `2` → $10, $20, $40... |
+| `stepPercent` | Price drop for re-entry | `1` → 1% drop |
+| `tpTarget` | Take profit % | `3` → 3% gain |
+| `status` | Bot state | `active`, `paused`, `completed` |
+
+## 📊 Where to Get Data
+
+1. **Open Audit Log** in your app
+2. **Find trades** for each symbol
+3. **Copy to JSON**:
+   - Price → `price`
+   - Volume → `quantity`
+   - Cost → `orderAmount`
+   - Time → `timestamp` (convert to ISO 8601)
+   - Order ID → `orderId`
+
+## ⚡ Commands
 
 ```bash
-npm run install:all
+# Populate bots
+npm run populate-bots
+
+# View help
+npm run populate-bots:help
+
+# Or manually
+npx ts-node scripts/populate-from-json.ts
 ```
 
-Or install individually:
+## ❓ Troubleshooting
 
-```bash
-# Frontend
-cd frontend && npm install
+| Error | Fix |
+|-------|-----|
+| Service key not found | Download from Firebase Console |
+| JSON file not found | Copy template: `cp scripts/historical-bots-template.json scripts/historical-bots.json` |
+| Bots not showing | Hard refresh app (Cmd+Shift+R) |
+| Invalid JSON | Check at jsonlint.com |
 
-# Main Backend
-cd backend/services/main && npm install
+## 📚 Full Documentation
 
-# Snapshot Service
-cd backend/services/snapshot && npm install
+See [DCA_BOT_SETUP_GUIDE.md](./DCA_BOT_SETUP_GUIDE.md) for complete instructions.
 
-# Cache API
-cd backend/services/cache && npm install
-```
-
-### Step 2: Configure Environment (Optional)
-
-For development, the app works with mock data. For production, configure:
-
-```bash
-cd backend/services/main
-cp .env.example .env
-# Edit .env with your API keys
-```
-
-### Step 3: Start All Services
-
-Open 4 terminal windows and run:
-
-**Terminal 1 - Frontend:**
-```bash
-npm run dev:frontend
-# Or: cd frontend && npm run dev
-```
-✅ Frontend: http://localhost:3000
-
-**Terminal 2 - Main Backend:**
-```bash
-npm run dev:backend
-# Or: cd backend/services/main && npm run dev
-```
-✅ Backend: http://localhost:5001
-
-**Terminal 3 - Snapshot Service:**
-```bash
-npm run dev:snapshot
-# Or: cd backend/services/snapshot && npm run dev
-```
-✅ Snapshots: http://localhost:5002
-
-**Terminal 4 - Cache API:**
-```bash
-npm run dev:cache
-# Or: cd backend/services/cache && npm run dev
-```
-✅ Cache: http://localhost:5055
-
-### Step 4: Access the Dashboard
-
-Open your browser and navigate to:
-```
-http://localhost:3000
-```
-
-**Login with default credentials:**
-- Username: `admin`
-- Password: `admin`
-
-🎉 **You're ready!**
+See [scripts/README.md](./scripts/README.md) for detailed examples.
 
 ---
 
-## 📋 Quick Test Checklist
-
-After starting all services:
-
-### 1. Check Services Health
-```bash
-# Main backend
-curl http://localhost:5001/health
-
-# Snapshot service
-curl http://localhost:5002/health
-
-# Cache API
-curl http://localhost:5055/health
-```
-
-### 2. Test API Endpoints
-```bash
-# Market overview
-curl http://localhost:5001/api/market/overview
-
-# Portfolio
-curl http://localhost:5001/api/portfolio/overview
-
-# DCA status
-curl http://localhost:5001/api/dca/status
-```
-
-### 3. Test Frontend
-1. Open http://localhost:3000
-2. Login (admin/admin)
-3. Navigate to Dashboard
-4. Check Portfolio page
-5. Open Crypto Market page
-6. Verify live data streaming
-
----
-
-## 🎯 Common Tasks
-
-### View Logs
-```bash
-# Backend logs
-tail -f backend/services/main/logs/combined.log
-
-# View errors only
-tail -f backend/services/main/logs/error.log
-```
-
-### Clear Cache
-```bash
-curl -X POST http://localhost:5055/clear-cache
-```
-
-### Force Snapshot
-```bash
-curl -X POST http://localhost:5002/snapshot
-```
-
-### View Snapshots
-```bash
-curl http://localhost:5002/snapshots
-```
-
----
-
-## 🔧 Troubleshooting
-
-### Port Already in Use
-
-If you get "port in use" errors:
-
-```bash
-# Find process using port
-lsof -ti:3000  # Frontend
-lsof -ti:5001  # Backend
-lsof -ti:5002  # Snapshot
-lsof -ti:5055  # Cache
-
-# Kill process
-kill -9 $(lsof -ti:3000)
-```
-
-### Frontend Won't Connect
-
-1. Check all backend services are running
-2. Check browser console for errors
-3. Verify CORS is enabled
-4. Try clearing browser cache
-
-### No Data Showing
-
-1. Check WebSocket connection (see console)
-2. Verify services are running
-3. Check API endpoints manually
-4. Review backend logs
-
-### WebSocket Connection Failed
-
-The app will automatically fall back to:
-1. Cache API (5055)
-2. Snapshot Service (5002)
-3. Legacy REST API
-4. localStorage cache
-
----
-
-## 📦 Project Structure
-
-```
-DalyKraken2.0/
-├── frontend/              # React app (Port 3000)
-├── backend/
-│   └── services/
-│       ├── main/         # Main backend (Port 5001)
-│       ├── snapshot/     # Snapshot service (Port 5002)
-│       └── cache/        # Cache API (Port 5055)
-├── data/                 # Data storage
-└── README.md
-```
-
----
-
-## 🎓 Next Steps
-
-1. **Configure API Keys** - Edit `backend/services/main/.env` for live data
-2. **Explore Pages** - Navigate through all dashboard pages
-3. **Test DCA** - Configure and test automated DCA strategy
-4. **Review API Docs** - See `backend/services/main/docs/API_DOCUMENTATION.md`
-5. **Customize Settings** - Configure preferences in Settings page
-
----
-
-## 💡 Tips
-
-- **Development Mode**: App works without API keys using mock data
-- **Live Prices**: Crypto Market page connects directly to Kraken WebSocket
-- **Fallback System**: UI works even if backends are down (uses cache)
-- **Real-time Updates**: Portfolio and market data update automatically
-- **Export Data**: Use Audit Log page to export transaction history
-
----
-
-## 🆘 Need Help?
-
-1. Check the main [README.md](README.md)
-2. Review [API_DOCUMENTATION.md](backend/services/main/docs/API_DOCUMENTATION.md)
-3. Check backend logs in `logs/` directory
-4. Verify all services are running with health checks
-
----
-
-**Happy Trading! 🚀📈**
+**Ready?** Let's populate your bots! 🎯

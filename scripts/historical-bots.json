@@ -1,0 +1,111 @@
+{
+  "instructions": "Auto-generated from portfolio screenshot - First entry sequences",
+  "generatedAt": "2025-10-18T19:50:00.000Z",
+  "source": "Portfolio screenshot with 4 active positions",
+  "bots": [
+    {
+      "symbol": "XRP/USD",
+      "initialOrderAmount": 10,
+      "tradeMultiplier": 2,
+      "reEntryCount": 8,
+      "stepPercent": 1,
+      "stepMultiplier": 2,
+      "tpTarget": 3,
+      "supportResistanceEnabled": false,
+      "reEntryDelay": 888,
+      "trendAlignmentEnabled": true,
+      "status": "active",
+      "userId": "default-user",
+      "comment": "First entry sequence - XRP position from portfolio",
+      "entries": [
+        {
+          "entryNumber": 1,
+          "orderAmount": 47.64,
+          "price": 2.65,
+          "quantity": 20.05775,
+          "timestamp": "2025-10-18T00:00:00.000Z",
+          "orderId": "XRP-ENTRY-1",
+          "status": "filled"
+        }
+      ]
+    },
+    {
+      "symbol": "ADA/USD",
+      "initialOrderAmount": 10,
+      "tradeMultiplier": 2,
+      "reEntryCount": 8,
+      "stepPercent": 1,
+      "stepMultiplier": 2,
+      "tpTarget": 3,
+      "supportResistanceEnabled": false,
+      "reEntryDelay": 888,
+      "trendAlignmentEnabled": true,
+      "status": "active",
+      "userId": "default-user",
+      "comment": "First entry sequence - ADA/Cardano position from portfolio",
+      "entries": [
+        {
+          "entryNumber": 1,
+          "orderAmount": 9.56,
+          "price": 0.6449,
+          "quantity": 15.003371,
+          "timestamp": "2025-10-18T00:00:00.000Z",
+          "orderId": "ADA-ENTRY-1",
+          "status": "filled"
+        }
+      ]
+    },
+    {
+      "symbol": "SOL/USD",
+      "initialOrderAmount": 10,
+      "tradeMultiplier": 2,
+      "reEntryCount": 8,
+      "stepPercent": 1,
+      "stepMultiplier": 2,
+      "tpTarget": 3,
+      "supportResistanceEnabled": false,
+      "reEntryDelay": 888,
+      "trendAlignmentEnabled": true,
+      "status": "active",
+      "userId": "default-user",
+      "comment": "First entry sequence - SOL/Solana position from portfolio",
+      "entries": [
+        {
+          "entryNumber": 1,
+          "orderAmount": 8.05,
+          "price": 231.11,
+          "quantity": 0.04331,
+          "timestamp": "2025-10-18T00:00:00.000Z",
+          "orderId": "SOL-ENTRY-1",
+          "status": "filled"
+        }
+      ]
+    },
+    {
+      "symbol": "LTC/USD",
+      "initialOrderAmount": 10,
+      "tradeMultiplier": 2,
+      "reEntryCount": 8,
+      "stepPercent": 1,
+      "stepMultiplier": 2,
+      "tpTarget": 3,
+      "supportResistanceEnabled": false,
+      "reEntryDelay": 888,
+      "trendAlignmentEnabled": true,
+      "status": "active",
+      "userId": "default-user",
+      "comment": "First entry sequence - LTC/Litecoin position from portfolio",
+      "entries": [
+        {
+          "entryNumber": 1,
+          "orderAmount": 7.74,
+          "price": 118.05,
+          "quantity": 0.08473,
+          "timestamp": "2025-10-18T00:00:00.000Z",
+          "orderId": "LTC-ENTRY-1",
+          "status": "filled"
+        }
+      ]
+    }
+  ]
+}
