@@ -347,6 +347,192 @@ export class MarketAnalysisService {
       analysis,
     };
   }
+
+  /**
+   * Calculate volatility score (0-100) from OHLC data
+   */
+  private calculateVolatility(ohlcData: any[]): number {
+    if (ohlcData.length < 24) return 50;
+
+    // Get recent 24 hour candles
+    const recent24h = ohlcData.slice(-24);
+
+    // Calculate hourly price changes
+    const hourlyChanges = recent24h.map((candle, i) => {
+      if (i === 0) return 0;
+      const prevClose = parseFloat(recent24h[i - 1][4]);
+      const currentClose = parseFloat(candle[4]);
+      return Math.abs((currentClose - prevClose) / prevClose) * 100;
+    });
+
+    // Average hourly volatility
+    const avgHourlyChange = hourlyChanges.reduce((a, b) => a + b, 0) / hourlyChanges.length;
+
+    // Get 24h high-low range
+    const highs = recent24h.map(c => parseFloat(c[2]));
+    const lows = recent24h.map(c => parseFloat(c[3]));
+    const high24h = Math.max(...highs);
+    const low24h = Math.min(...lows);
+    const range24h = ((high24h - low24h) / low24h) * 100;
+
+    // Combine metrics into volatility score (0-100)
+    // Higher score = more volatile
+    const volatilityScore = Math.min(100, (avgHourlyChange * 6) + (range24h * 2));
+
+    return volatilityScore;
+  }
+
+  /**
+   * Get enhanced trends for multiple crypto pairs from Kraken
+   */
+  async getEnhancedTrendsFromKraken(limit: number = 20): Promise<any> {
+    try {
+      // Popular crypto pairs on Kraken (USD pairs)
+      const cryptoPairs = [
+        'XXBTZUSD',  // BTC/USD
+        'XETHZUSD',  // ETH/USD
+        'SOLUSD',    // SOL/USD
+        'ADAUSD',    // ADA/USD
+        'DOTUSD',    // DOT/USD
+        'MATICUSD',  // MATIC/USD
+        'LINKUSD',   // LINK/USD
+        'UNIUSD',    // UNI/USD
+        'ATOMUSD',   // ATOM/USD
+        'AVAXUSD',   // AVAX/USD
+        'XLMUSD',    // XLM/USD
+        'ALGOUSD',   // ALGO/USD
+        'SANDUSD',   // SAND/USD
+        'MANAUSD',   // MANA/USD
+        'AAVEUSD',   // AAVE/USD
+        'GRTUSD',    // GRT/USD
+        'XRPUSD',    // XRP/USD
+        'LTCUSD',    // LTC/USD
+        'BCHUSD',    // BCH/USD
+        'XMRUSD',    // XMR/USD
+      ];
+
+      const trends: any[] = [];
+      const promises = cryptoPairs.slice(0, limit).map(async (pair) => {
+        try {
+          // Get ticker data
+          const ticker = await this.krakenService.getTicker(pair);
+
+          // Get OHLC data for technical analysis
+          const ohlcData = await this.krakenService.getOHLC(pair, 60);
+
+          if (!ohlcData || ohlcData.length < 20) {
+            console.warn(`[MarketAnalysis] Insufficient OHLC data for ${pair}`);
+            return null;
+          }
+
+          // Extract closing prices
+          const closingPrices = ohlcData.map((d: any) => parseFloat(d[4]));
+          const currentPrice = ticker.price;
+
+          // Calculate all indicators
+          const rsi = this.calculateRSI(closingPrices);
+          const techScore = this.calculateTechnicalScore(currentPrice, closingPrices, ohlcData);
+          const trendScore = this.calculateTrendScore(closingPrices);
+          const { support, resistance } = this.detectSupportResistance(ohlcData);
+          const volatility = this.calculateVolatility(ohlcData);
+          const { macd, signal } = this.calculateMACD(closingPrices);
+
+          // Calculate SMAs
+          const sma50 = this.calculateMA(closingPrices, Math.min(50, closingPrices.length));
+          const sma200 = this.calculateMA(closingPrices, Math.min(200, closingPrices.length));
+          const goldenCross = sma50 > sma200 && closingPrices.length >= 200;
+
+          // Determine MACD state
+          let macdState: 'bullish' | 'bearish' | 'neutral' = 'neutral';
+          if (macd > signal && macd > 0) macdState = 'bullish';
+          else if (macd < signal && macd < 0) macdState = 'bearish';
+
+          // Determine trend signal
+          let trendSignal: 'bullish' | 'bearish' | 'neutral' = 'neutral';
+          if (ticker.changePercent24h > 2) trendSignal = 'bullish';
+          else if (ticker.changePercent24h < -2) trendSignal = 'bearish';
+
+          // Extract symbol name (remove USD suffix and X prefix)
+          const symbol = pair.replace('XXBTZ', 'BTC').replace('XETHZ', 'ETH').replace('USD', '').replace(/^X/, '');
+
+          return {
+            symbol,
+            price: currentPrice,
+            change_24h_percent: ticker.changePercent24h,
+            volume_24h: ticker.volume24h,
+            trend_score: trendScore,
+            technical_score: techScore,
+            support_level: support || currentPrice * 0.95,
+            resistance_level: resistance || currentPrice * 1.05,
+            momentum: rsi,
+            volatility,
+            rsi,
+            macd_state: macdState,
+            trend_signal: trendSignal,
+            sma_50: sma50,
+            sma_200: sma200,
+            golden_cross: goldenCross,
+          };
+        } catch (error: any) {
+          console.error(`[MarketAnalysis] Error analyzing ${pair}:`, error.message);
+          return null;
+        }
+      });
+
+      const results = await Promise.all(promises);
+      const validTrends = results.filter((r): r is NonNullable<typeof r> => r !== null);
+
+      // Sort by trend score descending
+      validTrends.sort((a, b) => b.trend_score - a.trend_score);
+
+      // Calculate market overview
+      const totalVolume24h = validTrends.reduce((sum, t) => sum + t.volume_24h, 0);
+      const btcData = validTrends.find(t => t.symbol === 'BTC');
+
+      // Get top gainers and losers
+      const sortedByChange = [...validTrends].sort((a, b) => b.change_24h_percent - a.change_24h_percent);
+      const topGainers = sortedByChange.slice(0, 5).map(t => ({
+        symbol: t.symbol,
+        name: `${t.symbol}`,
+        price: t.price,
+        change_24h_percent: t.change_24h_percent,
+        volume_24h: t.volume_24h,
+      }));
+
+      const topLosers = sortedByChange.slice(-5).reverse().map(t => ({
+        symbol: t.symbol,
+        name: `${t.symbol}`,
+        price: t.price,
+        change_24h_percent: t.change_24h_percent,
+        volume_24h: t.volume_24h,
+      }));
+
+      // Determine market sentiment
+      const bullishCount = validTrends.filter(t => t.trend_signal === 'bullish').length;
+      const bearishCount = validTrends.filter(t => t.trend_signal === 'bearish').length;
+      let sentiment = 'neutral';
+      if (bullishCount > bearishCount * 1.5) sentiment = 'bullish';
+      else if (bearishCount > bullishCount * 1.5) sentiment = 'bearish';
+
+      return {
+        success: true,
+        data: {
+          trends: validTrends,
+          overview: {
+            total_volume_24h: totalVolume24h,
+            btc_dominance: btcData ? 45 : null, // Simplified - would need market cap data
+            active_cryptos: validTrends.length,
+            sentiment,
+          },
+          top_gainers: topGainers,
+          top_losers: topLosers,
+        },
+      };
+    } catch (error: any) {
+      console.error('[MarketAnalysis] Error generating enhanced trends:', error);
+      throw error;
+    }
+  }
 }
 
 export default MarketAnalysisService;

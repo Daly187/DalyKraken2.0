@@ -10,6 +10,7 @@ import cors from 'cors';
 import { createDCABotsRouter } from './routes/dcaBots.js';
 import { DCABotService } from './services/dcaBotService.js';
 import { KrakenService } from './services/krakenService.js';
+import { MarketAnalysisService } from './services/marketAnalysisService.js';
 import { quantifyCryptoService } from './services/quantifyCryptoService.js';
 import { settingsStore, encryptKey, maskApiKey } from './services/settingsStore.js';
 
@@ -48,8 +49,9 @@ function setCache(key: string, data: any) {
   cache.set(key, { data, timestamp: Date.now() });
 }
 
-// Initialize Kraken service
+// Initialize Kraken service and Market Analysis service
 const krakenService = new KrakenService();
+const marketAnalysisService = new MarketAnalysisService();
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -195,16 +197,17 @@ app.get('/market/ticker/:pair', async (req, res) => {
   }
 });
 
-// Enhanced trends endpoint with Quantify Crypto integration
+// Enhanced trends endpoint using Kraken data
 app.get('/market/quantify-crypto/enhanced-trends', async (req, res) => {
   try {
     const limit = parseInt(req.query.limit as string) || 20;
-    console.log('[API] Fetching enhanced trends (limit:', limit, ')');
+    console.log('[API] Fetching enhanced trends from Kraken (limit:', limit, ')');
 
     // Check cache first (60 second TTL for trends)
-    const cacheKey = `enhanced_trends_${limit}`;
+    const cacheKey = `enhanced_trends_kraken_${limit}`;
     const cached = getCache(cacheKey);
     if (cached) {
+      console.log('[API] Returning cached enhanced trends');
       return res.json({
         ...cached,
         cached: true,
@@ -212,9 +215,11 @@ app.get('/market/quantify-crypto/enhanced-trends', async (req, res) => {
       });
     }
 
-    const result = await quantifyCryptoService.getEnhancedTrends(limit);
+    // Use Kraken-based market analysis instead of Quantify Crypto
+    const result = await marketAnalysisService.getEnhancedTrendsFromKraken(limit);
     setCache(cacheKey, result);
 
+    console.log(`[API] Successfully generated ${result.data.trends.length} enhanced trends from Kraken`);
     res.json({
       ...result,
       cached: false,
