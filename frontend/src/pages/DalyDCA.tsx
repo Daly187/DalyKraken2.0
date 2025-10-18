@@ -15,6 +15,12 @@ import {
   Edit,
   Plus,
   Activity,
+  ChevronDown,
+  ChevronUp,
+  X,
+  Save,
+  BarChart3,
+  Zap,
 } from 'lucide-react';
 import type { DCABotConfig } from '@/types';
 
@@ -30,6 +36,9 @@ export default function DalyDCA() {
   const [showCreateForm, setShowCreateForm] = useState(true);
   const [creating, setCreating] = useState(false);
   const [lastRefreshTime, setLastRefreshTime] = useState<Date>(new Date());
+  const [expandedBotId, setExpandedBotId] = useState<string | null>(null);
+  const [editingBotId, setEditingBotId] = useState<string | null>(null);
+  const [editFormData, setEditFormData] = useState<any>({});
 
   // Available trading pairs (only pairs supported by Kraken)
   const availableSymbols = [
@@ -149,10 +158,86 @@ export default function DalyDCA() {
     if (window.confirm('Are you sure you want to delete this bot?')) {
       try {
         await deleteDCABot(botId);
+        setExpandedBotId(null);
+        setEditingBotId(null);
       } catch (error) {
         console.error('Failed to delete bot:', error);
       }
     }
+  };
+
+  const handleEditBot = (bot: any) => {
+    setEditingBotId(bot.id);
+    setEditFormData({
+      initialOrderAmount: bot.initialOrderAmount,
+      tradeMultiplier: bot.tradeMultiplier,
+      reEntryCount: bot.reEntryCount,
+      stepPercent: bot.stepPercent,
+      stepMultiplier: bot.stepMultiplier,
+      tpTarget: bot.tpTarget,
+      supportResistanceEnabled: bot.supportResistanceEnabled,
+      reEntryDelay: bot.reEntryDelay,
+      trendAlignmentEnabled: bot.trendAlignmentEnabled,
+    });
+  };
+
+  const handleSaveEdit = async (botId: string) => {
+    // TODO: Implement update bot API call
+    console.log('Saving bot:', botId, editFormData);
+    setEditingBotId(null);
+  };
+
+  const toggleBotExpanded = (botId: string) => {
+    setExpandedBotId(expandedBotId === botId ? null : botId);
+    if (editingBotId === botId) {
+      setEditingBotId(null);
+    }
+  };
+
+  const getNextActionMessage = (bot: any) => {
+    if (bot.status !== 'active') {
+      return { message: 'Bot is paused', color: 'text-yellow-500' };
+    }
+
+    if (bot.currentEntryCount >= bot.reEntryCount) {
+      return { message: 'Max entries reached', color: 'text-orange-500' };
+    }
+
+    // Check if trend alignment is enabled and not met
+    if (bot.trendAlignmentEnabled && (bot.techScore <= 50 || bot.trendScore <= 50)) {
+      return { message: 'Waiting for trend alignment', color: 'text-blue-400' };
+    }
+
+    // Check if support/resistance is enabled
+    if (bot.supportResistanceEnabled) {
+      return { message: 'Waiting for support level', color: 'text-purple-400' };
+    }
+
+    // Check if re-entry delay is active
+    if (bot.lastEntryTime) {
+      const lastEntryTime = new Date(bot.lastEntryTime).getTime();
+      const timeSinceLastEntry = Date.now() - lastEntryTime;
+      const delayMs = bot.reEntryDelay * 60 * 1000;
+
+      if (timeSinceLastEntry < delayMs) {
+        const minutesRemaining = Math.ceil((delayMs - timeSinceLastEntry) / 60000);
+        return { message: `Cooldown: ${minutesRemaining}m remaining`, color: 'text-cyan-400' };
+      }
+    }
+
+    // Check if price condition is met
+    if (bot.nextEntryPrice && bot.currentPrice > bot.nextEntryPrice) {
+      const dropNeeded = ((bot.currentPrice - bot.nextEntryPrice) / bot.currentPrice * 100).toFixed(2);
+      return { message: `Waiting for ${dropNeeded}% price drop`, color: 'text-gray-400' };
+    }
+
+    // Check if funds are available (mock check)
+    const nextOrderAmount = bot.initialOrderAmount * Math.pow(bot.tradeMultiplier, bot.currentEntryCount);
+    if (nextOrderAmount > 1000) { // Mock insufficient funds check
+      return { message: 'Insufficient funds available', color: 'text-red-400' };
+    }
+
+    return { message: 'Ready to enter on next trigger', color: 'text-green-400' };
   };
 
   const formatCurrency = (value: number | undefined | null) => {
@@ -637,7 +722,7 @@ export default function DalyDCA() {
         </div>
       )}
 
-      {/* Live Bots Table */}
+      {/* Live Bots Section */}
       <div className="card">
         <div className="flex justify-between items-center mb-4">
           <div>
@@ -664,82 +749,58 @@ export default function DalyDCA() {
         </div>
 
         {dcaBots.length > 0 ? (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="text-left text-gray-400 text-sm">
-                  <th className="pb-3">Symbol</th>
-                  <th className="pb-3">Status</th>
-                  <th className="pb-3">Entries</th>
-                  <th className="pb-3">Avg Price</th>
-                  <th className="pb-3">Current Price</th>
-                  <th className="pb-3">Invested</th>
-                  <th className="pb-3">P&L</th>
-                  <th className="pb-3">TP Target</th>
-                  <th className="pb-3">Next Entry</th>
-                  <th className="pb-3">Trend</th>
-                  <th className="pb-3">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {dcaBots.map((bot) => (
-                  <tr key={bot.id} className="border-t border-slate-700">
-                    <td className="py-3 font-medium">{bot.symbol}</td>
-                    <td className="py-3">
-                      <span className={`px-2 py-1 rounded text-xs font-medium ${getStatusColor(bot.status)}`}>
-                        {bot.status}
-                      </span>
-                    </td>
-                    <td className="py-3 text-gray-400">
-                      {bot.currentEntryCount || 0}/{bot.reEntryCount}
-                    </td>
-                    <td className="py-3 text-gray-400">
-                      {formatCurrency(bot.averagePurchasePrice || 0)}
-                    </td>
-                    <td className="py-3 text-gray-400">
-                      {formatCurrency(bot.currentPrice || 0)}
-                    </td>
-                    <td className="py-3 text-gray-400">
-                      {formatCurrency(bot.totalInvested || 0)}
-                    </td>
-                    <td className="py-3">
-                      <div className={bot.unrealizedPnL >= 0 ? 'text-green-500' : 'text-red-500'}>
-                        <div className="font-medium">{formatCurrency(bot.unrealizedPnL || 0)}</div>
-                        <div className="text-xs">
-                          {bot.unrealizedPnLPercent ? bot.unrealizedPnLPercent.toFixed(2) : '0.00'}%
-                        </div>
-                      </div>
-                    </td>
-                    <td className="py-3 text-gray-400">
-                      {bot.currentTpPrice ? formatCurrency(bot.currentTpPrice) : 'N/A'}
-                    </td>
-                    <td className="py-3 text-gray-400">
-                      {bot.nextEntryPrice ? formatCurrency(bot.nextEntryPrice) : 'N/A'}
-                    </td>
-                    <td className="py-3">
-                      <div className="flex items-center gap-1">
-                        {bot.trendAlignmentEnabled ? (
-                          <>
-                            {bot.techScore > 50 && bot.trendScore > 50 ? (
-                              <CheckCircle className="h-4 w-4 text-green-500" />
-                            ) : (
-                              <AlertTriangle className="h-4 w-4 text-yellow-500" />
-                            )}
-                            <span className="text-xs text-gray-400">
-                              {bot.techScore || 0}/{bot.trendScore || 0}
+          <div className="space-y-3">
+            {dcaBots.map((bot) => {
+              const isExpanded = expandedBotId === bot.id;
+              const isEditing = editingBotId === bot.id;
+              const nextAction = getNextActionMessage(bot);
+
+              return (
+                <div
+                  key={bot.id}
+                  className={`border rounded-xl transition-all duration-200 ${
+                    isExpanded
+                      ? 'border-primary-500/50 bg-gradient-to-br from-primary-500/5 to-purple-500/5'
+                      : 'border-slate-700 bg-slate-800/30 hover:border-slate-600'
+                  }`}
+                >
+                  {/* Bot Header - Always Visible */}
+                  <div
+                    className="p-4 cursor-pointer"
+                    onClick={() => toggleBotExpanded(bot.id)}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-2">
+                            <h3 className="text-lg font-bold text-white">{bot.symbol}</h3>
+                            <span className={`px-2 py-0.5 rounded text-xs font-medium ${getStatusColor(bot.status)}`}>
+                              {bot.status}
                             </span>
-                          </>
-                        ) : (
-                          <span className="text-xs text-gray-500">Off</span>
-                        )}
+                          </div>
+                          {!isExpanded && (
+                            <div className="flex items-center gap-4 text-sm">
+                              <div className="text-gray-400">
+                                {bot.currentEntryCount || 0}/{bot.reEntryCount} entries
+                              </div>
+                              <div className={bot.unrealizedPnL >= 0 ? 'text-green-400 font-medium' : 'text-red-400 font-medium'}>
+                                {formatCurrency(bot.unrealizedPnL || 0)}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                        <p className={`text-xs mt-1 ${nextAction.color}`}>
+                          {nextAction.message}
+                        </p>
                       </div>
-                    </td>
-                    <td className="py-3">
-                      <div className="flex gap-2">
+
+                      <div className="flex items-center gap-2">
                         <button
-                          onClick={() => handlePauseResume(bot)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handlePauseResume(bot);
+                          }}
                           className="btn btn-sm btn-secondary"
-                          title={bot.status === 'active' ? 'Pause' : 'Resume'}
                         >
                           {bot.status === 'active' ? (
                             <Pause className="h-3 w-3" />
@@ -747,19 +808,320 @@ export default function DalyDCA() {
                             <Play className="h-3 w-3" />
                           )}
                         </button>
+                        {isExpanded ? (
+                          <ChevronUp className="h-5 w-5 text-gray-400" />
+                        ) : (
+                          <ChevronDown className="h-5 w-5 text-gray-400" />
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Expanded Details */}
+                  {isExpanded && (
+                    <div className="border-t border-slate-700 p-4 space-y-4">
+                      {/* Performance Section */}
+                      <div>
+                        <h4 className="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2">
+                          <BarChart3 className="h-4 w-4 text-blue-400" />
+                          Current Performance
+                        </h4>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                          <div>
+                            <p className="text-xs text-gray-400">Invested</p>
+                            <p className="text-lg font-bold text-white">{formatCurrency(bot.totalInvested || 0)}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-gray-400">Current Value</p>
+                            <p className="text-lg font-bold text-white">
+                              {formatCurrency((bot.totalInvested || 0) + (bot.unrealizedPnL || 0))}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-gray-400">Unrealized P&L</p>
+                            <p className={`text-lg font-bold ${bot.unrealizedPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                              {formatCurrency(bot.unrealizedPnL || 0)}
+                            </p>
+                            <p className={`text-xs ${bot.unrealizedPnLPercent >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                              {bot.unrealizedPnLPercent >= 0 ? '+' : ''}{bot.unrealizedPnLPercent?.toFixed(2)}%
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-gray-400">Avg Price</p>
+                            <p className="text-lg font-bold text-white">{formatCurrency(bot.averagePurchasePrice || 0)}</p>
+                            <p className="text-xs text-gray-500">Current: {formatCurrency(bot.currentPrice || 0)}</p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Market Analysis */}
+                      <div>
+                        <h4 className="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2">
+                          <Zap className="h-4 w-4 text-yellow-400" />
+                          Market Analysis
+                        </h4>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                          <div>
+                            <p className="text-xs text-gray-400">Tech Score</p>
+                            <div className="flex items-center gap-2">
+                              <p className={`text-lg font-bold ${(bot.techScore || 0) > 50 ? 'text-green-400' : 'text-red-400'}`}>
+                                {bot.techScore || 0}
+                              </p>
+                              <div className="flex-1 h-2 bg-slate-700 rounded-full overflow-hidden">
+                                <div
+                                  className={`h-full ${(bot.techScore || 0) > 50 ? 'bg-green-500' : 'bg-red-500'}`}
+                                  style={{ width: `${bot.techScore || 0}%` }}
+                                />
+                              </div>
+                            </div>
+                          </div>
+                          <div>
+                            <p className="text-xs text-gray-400">Trend Score</p>
+                            <div className="flex items-center gap-2">
+                              <p className={`text-lg font-bold ${(bot.trendScore || 0) > 50 ? 'text-green-400' : 'text-red-400'}`}>
+                                {bot.trendScore || 0}
+                              </p>
+                              <div className="flex-1 h-2 bg-slate-700 rounded-full overflow-hidden">
+                                <div
+                                  className={`h-full ${(bot.trendScore || 0) > 50 ? 'bg-green-500' : 'bg-red-500'}`}
+                                  style={{ width: `${bot.trendScore || 0}%` }}
+                                />
+                              </div>
+                            </div>
+                          </div>
+                          <div>
+                            <p className="text-xs text-gray-400">Next Entry Price</p>
+                            <p className="text-lg font-bold text-blue-400">
+                              {bot.nextEntryPrice ? formatCurrency(bot.nextEntryPrice) : 'N/A'}
+                            </p>
+                            {bot.nextEntryPrice && bot.currentPrice && (
+                              <p className="text-xs text-gray-500">
+                                {((1 - bot.nextEntryPrice / bot.currentPrice) * 100).toFixed(2)}% drop needed
+                              </p>
+                            )}
+                          </div>
+                          <div>
+                            <p className="text-xs text-gray-400">TP Target Price</p>
+                            <p className="text-lg font-bold text-green-400">
+                              {bot.currentTpPrice ? formatCurrency(bot.currentTpPrice) : 'N/A'}
+                            </p>
+                            <p className="text-xs text-gray-500">Min {bot.tpTarget}% profit</p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Bot Configuration */}
+                      {isEditing ? (
+                        <div>
+                          <h4 className="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2">
+                            <Edit className="h-4 w-4 text-orange-400" />
+                            Edit Configuration
+                          </h4>
+                          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                            <div>
+                              <label className="text-xs text-gray-400 block mb-1">Initial Amount ($)</label>
+                              <input
+                                type="number"
+                                value={editFormData.initialOrderAmount}
+                                onChange={(e) => setEditFormData({ ...editFormData, initialOrderAmount: parseFloat(e.target.value) })}
+                                className="w-full bg-slate-700/50 border border-slate-600 text-white px-3 py-2 rounded-lg text-sm"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-xs text-gray-400 block mb-1">Trade Multiplier</label>
+                              <input
+                                type="number"
+                                step="0.1"
+                                value={editFormData.tradeMultiplier}
+                                onChange={(e) => setEditFormData({ ...editFormData, tradeMultiplier: parseFloat(e.target.value) })}
+                                className="w-full bg-slate-700/50 border border-slate-600 text-white px-3 py-2 rounded-lg text-sm"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-xs text-gray-400 block mb-1">Max Entries</label>
+                              <input
+                                type="number"
+                                value={editFormData.reEntryCount}
+                                onChange={(e) => setEditFormData({ ...editFormData, reEntryCount: parseInt(e.target.value) })}
+                                className="w-full bg-slate-700/50 border border-slate-600 text-white px-3 py-2 rounded-lg text-sm"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-xs text-gray-400 block mb-1">Step %</label>
+                              <input
+                                type="number"
+                                step="0.1"
+                                value={editFormData.stepPercent}
+                                onChange={(e) => setEditFormData({ ...editFormData, stepPercent: parseFloat(e.target.value) })}
+                                className="w-full bg-slate-700/50 border border-slate-600 text-white px-3 py-2 rounded-lg text-sm"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-xs text-gray-400 block mb-1">Step Multiplier</label>
+                              <input
+                                type="number"
+                                step="0.1"
+                                value={editFormData.stepMultiplier}
+                                onChange={(e) => setEditFormData({ ...editFormData, stepMultiplier: parseFloat(e.target.value) })}
+                                className="w-full bg-slate-700/50 border border-slate-600 text-white px-3 py-2 rounded-lg text-sm"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-xs text-gray-400 block mb-1">TP Target %</label>
+                              <input
+                                type="number"
+                                step="0.1"
+                                value={editFormData.tpTarget}
+                                onChange={(e) => setEditFormData({ ...editFormData, tpTarget: parseFloat(e.target.value) })}
+                                className="w-full bg-slate-700/50 border border-slate-600 text-white px-3 py-2 rounded-lg text-sm"
+                              />
+                            </div>
+                            <div className="md:col-span-3">
+                              <label className="text-xs text-gray-400 block mb-1">Re-Entry Delay (minutes)</label>
+                              <input
+                                type="number"
+                                value={editFormData.reEntryDelay}
+                                onChange={(e) => setEditFormData({ ...editFormData, reEntryDelay: parseInt(e.target.value) })}
+                                className="w-full bg-slate-700/50 border border-slate-600 text-white px-3 py-2 rounded-lg text-sm"
+                              />
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="checkbox"
+                                checked={editFormData.trendAlignmentEnabled}
+                                onChange={(e) => setEditFormData({ ...editFormData, trendAlignmentEnabled: e.target.checked })}
+                                className="rounded"
+                              />
+                              <label className="text-xs text-gray-400">Trend Alignment</label>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="checkbox"
+                                checked={editFormData.supportResistanceEnabled}
+                                onChange={(e) => setEditFormData({ ...editFormData, supportResistanceEnabled: e.target.checked })}
+                                className="rounded"
+                              />
+                              <label className="text-xs text-gray-400">Support/Resistance</label>
+                            </div>
+                          </div>
+                          <div className="flex gap-2 mt-4">
+                            <button
+                              onClick={() => handleSaveEdit(bot.id)}
+                              className="btn btn-primary btn-sm flex items-center gap-2"
+                            >
+                              <Save className="h-3 w-3" />
+                              Save Changes
+                            </button>
+                            <button
+                              onClick={() => setEditingBotId(null)}
+                              className="btn btn-secondary btn-sm flex items-center gap-2"
+                            >
+                              <X className="h-3 w-3" />
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div>
+                          <h4 className="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2">
+                            <Settings className="h-4 w-4 text-gray-400" />
+                            Bot Configuration
+                          </h4>
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                            <div>
+                              <p className="text-xs text-gray-400">Initial Amount</p>
+                              <p className="text-white font-medium">${bot.initialOrderAmount}</p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-gray-400">Trade Multiplier</p>
+                              <p className="text-white font-medium">{bot.tradeMultiplier}x</p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-gray-400">Step %</p>
+                              <p className="text-white font-medium">{bot.stepPercent}%</p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-gray-400">Step Multiplier</p>
+                              <p className="text-white font-medium">{bot.stepMultiplier}x</p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-gray-400">Max Entries</p>
+                              <p className="text-white font-medium">{bot.reEntryCount}</p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-gray-400">TP Target</p>
+                              <p className="text-white font-medium">{bot.tpTarget}%</p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-gray-400">Re-Entry Delay</p>
+                              <p className="text-white font-medium">{bot.reEntryDelay}m</p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-gray-400">Features</p>
+                              <div className="flex gap-1 mt-1">
+                                {bot.trendAlignmentEnabled && (
+                                  <span className="px-1.5 py-0.5 bg-green-500/20 text-green-300 text-xs rounded">Trend</span>
+                                )}
+                                {bot.supportResistanceEnabled && (
+                                  <span className="px-1.5 py-0.5 bg-blue-500/20 text-blue-300 text-xs rounded">S/R</span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Entry History */}
+                      {bot.entries && bot.entries.length > 0 && (
+                        <div>
+                          <h4 className="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2">
+                            <Target className="h-4 w-4 text-purple-400" />
+                            Entry History ({bot.entries.length})
+                          </h4>
+                          <div className="space-y-2 max-h-40 overflow-y-auto">
+                            {bot.entries.map((entry: any, index: number) => (
+                              <div key={entry.id} className="flex items-center justify-between p-2 bg-slate-700/30 rounded-lg text-sm">
+                                <div className="flex items-center gap-3">
+                                  <span className="text-xs text-gray-400">#{entry.entryNumber}</span>
+                                  <span className="text-white font-medium">{formatCurrency(entry.price)}</span>
+                                  <span className="text-gray-400">{entry.quantity?.toFixed(6)}</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-gray-400">{formatCurrency(entry.orderAmount)}</span>
+                                  <span className={`px-2 py-0.5 rounded text-xs ${entry.status === 'filled' ? 'bg-green-500/20 text-green-300' : 'bg-yellow-500/20 text-yellow-300'}`}>
+                                    {entry.status}
+                                  </span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Actions */}
+                      <div className="flex gap-2 pt-2 border-t border-slate-700">
+                        {!isEditing && (
+                          <button
+                            onClick={() => handleEditBot(bot)}
+                            className="btn btn-secondary btn-sm flex items-center gap-2"
+                          >
+                            <Edit className="h-3 w-3" />
+                            Edit Bot
+                          </button>
+                        )}
                         <button
                           onClick={() => handleDelete(bot.id)}
-                          className="btn btn-sm btn-danger"
-                          title="Delete"
+                          className="btn btn-danger btn-sm flex items-center gap-2"
                         >
                           <Trash2 className="h-3 w-3" />
+                          Delete Bot
                         </button>
                       </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         ) : loading ? (
           <div className="text-center py-16">
