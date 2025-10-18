@@ -10,7 +10,15 @@ class SocketClient {
   private reconnectDelay = 1000;
   private isConnecting = false;
 
-  connect(url: string = 'http://localhost:5001'): Promise<void> {
+  connect(url?: string): Promise<void> {
+    // Determine the WebSocket URL based on environment
+    const isDevelopment = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    const defaultUrl = isDevelopment
+      ? 'http://localhost:5001'
+      : window.location.origin; // Use same origin for production
+
+    const wsUrl = url || defaultUrl;
+
     if (this.socket?.connected) {
       return Promise.resolve();
     }
@@ -30,7 +38,8 @@ class SocketClient {
 
     return new Promise((resolve, reject) => {
       try {
-        this.socket = io(url, {
+        console.log('[SocketClient] Connecting to:', wsUrl);
+        this.socket = io(wsUrl, {
           transports: ['websocket', 'polling'],
           reconnection: true,
           reconnectionAttempts: this.maxReconnectAttempts,
