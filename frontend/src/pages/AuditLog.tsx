@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { krakenApiService } from '@/services/krakenApiService';
+import config from '@/config/env';
 import {
   RefreshCw,
   Download,
@@ -58,6 +59,15 @@ export default function AuditLog() {
   useEffect(() => {
     refreshData();
     loadLocalAuditLogs();
+
+    // Set up automatic refresh every 5 minutes
+    const refreshInterval = setInterval(() => {
+      console.log('[AuditLog] Auto-refreshing trade history...');
+      refreshData();
+    }, 5 * 60 * 1000); // 5 minutes in milliseconds
+
+    // Cleanup interval on unmount
+    return () => clearInterval(refreshInterval);
   }, []);
 
   const refreshData = async () => {
@@ -65,25 +75,65 @@ export default function AuditLog() {
     setError(null);
 
     try {
-      // Note: Kraken API doesn't have a direct "get trades" endpoint in the free tier
-      // This is a placeholder - in production you'd use /0/private/TradesHistory
-      // For now, we'll show audit logs from local storage
+      // Fetch actual trade history from Kraken via backend
+      const response = await fetch(`${config.api.mainUrl}/audit/trades?limit=100`);
 
-      addAuditLog({
-        type: 'sync',
-        action: 'Data Refresh',
-        details: 'Refreshed audit log data',
-        status: 'success',
-      });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to fetch trade history');
+      }
+
+      // Convert Kraken trades to our audit log format
+      const tradeData = data.data || {};
+      const tradeCount = Object.keys(tradeData).length;
+
+      if (tradeCount === 0) {
+        // No trades found - this might indicate no API keys or no trading history
+        addAuditLog({
+          type: 'sync',
+          action: 'Data Refresh',
+          details: 'No historical trades found. Please check that Kraken API keys are configured with "Query Funds" and "Query Closed Orders and Trades" permissions.',
+          status: 'info',
+        });
+      } else {
+        // Log each recent trade
+        Object.entries(tradeData).slice(0, 10).forEach(([txid, trade]: [string, any]) => {
+          addAuditLog({
+            type: 'trade',
+            action: `${trade.type?.toUpperCase()} ${trade.pair}`,
+            details: `Volume: ${trade.vol}, Price: ${trade.price}, Fee: ${trade.fee}`,
+            status: 'success',
+            metadata: { txid, trade },
+          });
+        });
+
+        addAuditLog({
+          type: 'sync',
+          action: 'Data Refresh',
+          details: `Successfully loaded ${tradeCount} historical trades from Kraken`,
+          status: 'success',
+        });
+      }
+
+      setTrades(Object.entries(tradeData).map(([txid, trade]: [string, any]) => ({
+        txid,
+        ...trade,
+      })));
 
     } catch (err: any) {
       console.error('[AuditLog] Error fetching data:', err);
-      setError(err.message || 'Failed to fetch audit data');
+      const errorMsg = err.message || 'Failed to fetch audit data';
+      setError(errorMsg);
 
       addAuditLog({
         type: 'sync',
         action: 'Data Refresh Failed',
-        details: err.message || 'Unknown error',
+        details: errorMsg,
         status: 'error',
       });
     } finally {

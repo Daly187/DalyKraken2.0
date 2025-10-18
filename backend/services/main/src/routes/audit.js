@@ -69,7 +69,7 @@ export function setupAuditRoutes(router) {
 
       logger.info('Fetching trade history', { pair, limit, offset });
 
-      const trades = await krakenService.getTradeHistory({
+      const result = await krakenService.getTradeHistory({
         pair,
         startDate,
         endDate,
@@ -77,13 +77,18 @@ export function setupAuditRoutes(router) {
         offset: parseInt(offset),
       });
 
+      // Kraken returns { trades: {...}, count: N }
+      const trades = result?.trades || result || {};
+      const tradeCount = result?.count || Object.keys(trades).length;
+
       res.json({
         success: true,
         data: trades,
+        count: tradeCount,
         pagination: {
           limit: parseInt(limit),
           offset: parseInt(offset),
-          hasMore: trades.length === parseInt(limit),
+          hasMore: tradeCount === parseInt(limit),
         },
         timestamp: new Date().toISOString(),
       });
@@ -159,7 +164,7 @@ export function setupAuditRoutes(router) {
           startDate.setDate(startDate.getDate() - 30);
       }
 
-      const [trades, transactions] = await Promise.all([
+      const [tradesResult, transactions] = await Promise.all([
         krakenService.getTradeHistory({
           startDate: startDate.toISOString(),
           endDate: endDate.toISOString(),
@@ -172,19 +177,23 @@ export function setupAuditRoutes(router) {
         }),
       ]);
 
+      // Extract trades from Kraken response format
+      const tradesData = tradesResult?.trades || tradesResult || {};
+      const tradesArray = Object.values(tradesData);
+
       // Calculate summary statistics
       const summary = {
         period,
-        totalTrades: trades.length,
-        totalVolume: trades.reduce((sum, trade) => sum + (trade.volume || 0), 0),
-        totalFees: trades.reduce((sum, trade) => sum + (trade.fee || 0), 0),
-        buyTrades: trades.filter(t => t.type === 'buy').length,
-        sellTrades: trades.filter(t => t.type === 'sell').length,
-        totalTransactions: transactions.length,
-        deposits: transactions.filter(t => t.type === 'deposit').length,
-        withdrawals: transactions.filter(t => t.type === 'withdrawal').length,
-        avgTradeSize: trades.length > 0
-          ? trades.reduce((sum, trade) => sum + (trade.volume || 0), 0) / trades.length
+        totalTrades: tradesArray.length,
+        totalVolume: tradesArray.reduce((sum, trade) => sum + (parseFloat(trade.vol) || 0), 0),
+        totalFees: tradesArray.reduce((sum, trade) => sum + (parseFloat(trade.fee) || 0), 0),
+        buyTrades: tradesArray.filter(t => t.type === 'buy').length,
+        sellTrades: tradesArray.filter(t => t.type === 'sell').length,
+        totalTransactions: Array.isArray(transactions) ? transactions.length : 0,
+        deposits: Array.isArray(transactions) ? transactions.filter(t => t.type === 'deposit').length : 0,
+        withdrawals: Array.isArray(transactions) ? transactions.filter(t => t.type === 'withdrawal').length : 0,
+        avgTradeSize: tradesArray.length > 0
+          ? tradesArray.reduce((sum, trade) => sum + (parseFloat(trade.vol) || 0), 0) / tradesArray.length
           : 0,
         dateRange: {
           start: startDate.toISOString(),

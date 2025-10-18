@@ -1,4 +1,5 @@
 import config from '../config/env';
+import { getCommonName, getKrakenPair } from '../utils/assetNames';
 
 interface Balance {
   asset: string;
@@ -313,59 +314,13 @@ class KrakenApiService {
   }
 
   private formatAssetName(krakenAsset: string): string {
-    // Kraken uses special prefixes
-    const assetMap: Record<string, string> = {
-      'XXBT': 'BTC',
-      'XBT': 'BTC',
-      'XETH': 'ETH',
-      'XXRP': 'XRP',
-      'XLTC': 'LTC',
-      'XXLM': 'XLM',
-      'XDAO': 'DAO',
-      'XETC': 'ETC',
-      'XMLN': 'MLN',
-      'XREP': 'REP',
-      'XXDG': 'DOGE',
-      'XDG': 'DOGE',
-      'ZEUR': 'EUR',
-      'ZUSD': 'USD',
-      'ZGBP': 'GBP',
-      'ZCAD': 'CAD',
-      'ZJPY': 'JPY',
-    };
-
-    return assetMap[krakenAsset] || krakenAsset;
+    // Use centralized asset name mapping
+    return getCommonName(krakenAsset);
   }
 
   private getSymbol(asset: string): string {
-    // Map assets to trading symbols
-    const symbolMap: Record<string, string> = {
-      'BTC': 'BTC/USD',
-      'ETH': 'ETH/USD',
-      'SOL': 'SOL/USD',
-      'XRP': 'XRP/USD',
-      'ADA': 'ADA/USD',
-      'DOT': 'DOT/USD',
-      'MATIC': 'MATIC/USD',
-      'AVAX': 'AVAX/USD',
-      'LINK': 'LINK/USD',
-      'UNI': 'UNI/USD',
-      'ATOM': 'ATOM/USD',
-      'LTC': 'LTC/USD',
-      'DOGE': 'DOGE/USD',
-      'BCH': 'BCH/USD',
-      'AAVE': 'AAVE/USD',
-      'ALGO': 'ALGO/USD',
-      'XLM': 'XLM/USD',
-      // Stablecoins
-      'USDT': 'USDT/USD',
-      'USDC': 'USDC/USD',
-      'DAI': 'DAI/USD',
-      'USD': 'USD',
-      'EUR': 'EUR/USD',
-    };
-
-    return symbolMap[asset] || `${asset}/USD`;
+    // Use centralized pair mapping
+    return getKrakenPair(asset);
   }
 
   async getTradeBalance(): Promise<any> {

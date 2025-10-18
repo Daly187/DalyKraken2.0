@@ -2,10 +2,12 @@ import { useEffect, useState, useMemo } from 'react';
 import { useStore } from '@/store/useStore';
 import { TrendingUp, TrendingDown, Minus, RefreshCw, Activity, AlertTriangle, Info } from 'lucide-react';
 import { apiService } from '@/services/apiService';
+import { getCommonName } from '@/utils/assetNames';
 
 // Enhanced trend data structure matching backend output
 interface EnhancedTrendData {
   symbol: string;
+  commonName?: string; // Display name
   price: number;
   change_24h_percent: number;
   volume_24h: number;
@@ -21,6 +23,7 @@ interface EnhancedTrendData {
   sma_50?: number;
   sma_200?: number;
   golden_cross?: boolean;
+  isLivePrice?: boolean; // Whether price is from live WebSocket
 }
 
 // Market overview from trends stream
@@ -43,6 +46,8 @@ interface TopCoin {
 
 export default function CryptoTrends() {
   const subscribeTrendStream = useStore((state) => state.subscribeTrendStream);
+  // Get global live prices from store
+  const livePrices = useStore((state) => state.livePrices);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -103,6 +108,33 @@ export default function CryptoTrends() {
     loadInitialData();
   };
 
+  // Merge global live prices with trend data
+  const trendsWithLivePrices = useMemo(() => {
+    return enhancedTrends.map(trend => {
+      const commonName = getCommonName(trend.symbol);
+      // Try to find matching live price (could be symbol/USD or XXBT format)
+      const livePrice = livePrices.get(`${trend.symbol}/USD`) ||
+                       livePrices.get(trend.symbol);
+
+      if (livePrice) {
+        return {
+          ...trend,
+          commonName,
+          price: livePrice.price || trend.price,
+          change_24h_percent: livePrice.changePercent24h || trend.change_24h_percent,
+          volume_24h: livePrice.volume24h || trend.volume_24h,
+          isLivePrice: true,
+        };
+      }
+
+      return {
+        ...trend,
+        commonName,
+        isLivePrice: false,
+      };
+    });
+  }, [enhancedTrends, livePrices]);
+
   // Get trend direction based on trend_signal or change_24h
   const getTrendDirection = (trend: EnhancedTrendData): 'bullish' | 'bearish' | 'neutral' => {
     if (trend.trend_signal) return trend.trend_signal;
@@ -113,7 +145,7 @@ export default function CryptoTrends() {
 
   // Filter and sort trends
   const filteredAndSortedTrends = useMemo(() => {
-    let filtered = [...enhancedTrends];
+    let filtered = [...trendsWithLivePrices];
 
     // Apply signal filter
     if (filterSignal !== 'all') {
@@ -129,15 +161,15 @@ export default function CryptoTrends() {
     });
 
     return filtered;
-  }, [enhancedTrends, sortBy, sortOrder, filterSignal]);
+  }, [trendsWithLivePrices, sortBy, sortOrder, filterSignal]);
 
   // Count signals
   const signalCounts = useMemo(() => {
-    const bullish = enhancedTrends.filter(t => getTrendDirection(t) === 'bullish').length;
-    const bearish = enhancedTrends.filter(t => getTrendDirection(t) === 'bearish').length;
-    const neutral = enhancedTrends.filter(t => getTrendDirection(t) === 'neutral').length;
+    const bullish = trendsWithLivePrices.filter(t => getTrendDirection(t) === 'bullish').length;
+    const bearish = trendsWithLivePrices.filter(t => getTrendDirection(t) === 'bearish').length;
+    const neutral = trendsWithLivePrices.filter(t => getTrendDirection(t) === 'neutral').length;
     return { bullish, bearish, neutral };
-  }, [enhancedTrends]);
+  }, [trendsWithLivePrices]);
 
   // Format helpers
   const formatCurrency = (value: number | undefined) => {
@@ -215,9 +247,17 @@ export default function CryptoTrends() {
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold">Crypto Trends</h1>
-          <p className="text-sm text-gray-400 mt-1">
-            Powered by Quantify Crypto - Advanced technical analysis and market scoring
-          </p>
+          <div className="flex items-center gap-3 mt-1">
+            <p className="text-sm text-gray-400">
+              Powered by Kraken OHLC - Advanced technical analysis and market scoring
+            </p>
+            {livePrices.size > 0 && (
+              <div className="flex items-center gap-1 text-xs text-green-500">
+                <Activity className="h-3 w-3 animate-pulse" />
+                <span>{trendsWithLivePrices.filter(t => t.isLivePrice).length} live prices</span>
+              </div>
+            )}
+          </div>
         </div>
         <button
           onClick={handleRefresh}
@@ -440,7 +480,10 @@ export default function CryptoTrends() {
                       <td className="py-3 pr-4">
                         <div className="flex items-center gap-2">
                           {getTrendIcon(direction)}
-                          <span className="font-semibold">{trend.symbol}</span>
+                          <span className="font-semibold">{trend.commonName || trend.symbol}</span>
+                          {trend.isLivePrice && (
+                            <Activity className="h-3 w-3 text-green-500 animate-pulse" />
+                          )}
                         </div>
                       </td>
                       <td className="py-3 pr-4 font-medium">

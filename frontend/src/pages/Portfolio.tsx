@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { krakenApiService } from '@/services/krakenApiService';
-import { livePriceService } from '@/services/livePriceService';
+import { useStore } from '@/store/useStore';
+import { getCommonName } from '@/utils/assetNames';
 import type { LivePrice } from '@/types';
 import {
   RefreshCw,
@@ -21,6 +22,7 @@ interface Balance {
 }
 
 interface HoldingWithPrice extends Balance {
+  commonName: string;
   currentPrice: number;
   value: number;
   weight: number;
@@ -32,6 +34,9 @@ const CACHE_KEY = 'portfolio_balances_cache';
 const CACHE_TIMESTAMP_KEY = 'portfolio_balances_timestamp';
 
 export default function Portfolio() {
+  // Get global live prices from store
+  const livePrices = useStore((state) => state.livePrices);
+
   const [balances, setBalances] = useState<Balance[]>(() => {
     // Initialize from localStorage cache if available
     const cached = localStorage.getItem(CACHE_KEY);
@@ -45,7 +50,6 @@ export default function Portfolio() {
     }
     return [];
   });
-  const [livePrices, setLivePrices] = useState<Map<string, LivePrice>>(new Map());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(() => {
@@ -53,90 +57,11 @@ export default function Portfolio() {
     const timestamp = localStorage.getItem(CACHE_TIMESTAMP_KEY);
     return timestamp ? new Date(timestamp) : null;
   });
-  const [wsConnected, setWsConnected] = useState(false);
 
   useEffect(() => {
-    // Load cached prices from livePriceService on mount
-    livePriceService.loadCachedPrices();
-
-    // Subscribe to live prices
-    const unsubscribe = livePriceService.subscribe((prices) => {
-      setLivePrices(prices);
-    });
-
-    // Subscribe to connection status
-    const unsubscribeStatus = livePriceService.subscribeStatus((status) => {
-      setWsConnected(status.connected);
-    });
-
     // Fetch initial balances (will use cache if API fails)
     fetchBalances();
-
-    return () => {
-      unsubscribe();
-      unsubscribeStatus();
-    };
   }, []);
-
-  // Connect to WebSocket when balances are loaded
-  useEffect(() => {
-    if (balances.length > 0) {
-      // Extract symbols from balances and connect to WebSocket
-      const symbols = balances
-        .filter(b => !['USD', 'USDT', 'USDC', 'DAI', 'BUSD', 'EUR'].includes(b.asset))
-        .map(b => b.symbol);
-
-      if (symbols.length > 0) {
-        console.log('[Portfolio] Connecting to WebSocket for symbols:', symbols);
-        livePriceService.connectKraken(symbols);
-
-        // If we don't have WebSocket prices after 3 seconds, try REST API as fallback
-        const fallbackTimeout = setTimeout(() => {
-          if (livePrices.size === 0) {
-            console.log('[Portfolio] WebSocket prices not available, fetching from REST API');
-            fetchFallbackPrices(symbols);
-          }
-        }, 3000);
-
-        return () => clearTimeout(fallbackTimeout);
-      }
-    }
-  }, [balances]);
-
-  const fetchFallbackPrices = async (symbols: string[]) => {
-    try {
-      // Import apiService dynamically to avoid circular dependencies
-      const { apiService } = await import('@/services/apiService');
-      const response = await apiService.getLivePrices();
-
-      if (response && response.prices) {
-        // Update livePriceService with REST API prices
-        const pricesMap = new Map<string, LivePrice>();
-
-        symbols.forEach(symbol => {
-          const priceData = response.prices[symbol];
-          if (priceData) {
-            const livePrice: LivePrice = {
-              symbol,
-              price: priceData.price || 0,
-              change24h: priceData.change24h || 0,
-              changePercent24h: priceData.changePercent24h || 0,
-              high24h: priceData.high24h || 0,
-              low24h: priceData.low24h || 0,
-              volume24h: priceData.volume24h || 0,
-              timestamp: Date.now(),
-            };
-            pricesMap.set(symbol, livePrice);
-            livePriceService.updatePrice(symbol, livePrice);
-          }
-        });
-
-        console.log('[Portfolio] Fetched', pricesMap.size, 'fallback prices from REST API');
-      }
-    } catch (err) {
-      console.error('[Portfolio] Failed to fetch fallback prices:', err);
-    }
-  };
 
   const fetchBalances = async () => {
     setLoading(true);
@@ -213,9 +138,10 @@ export default function Portfolio() {
   const holdings: HoldingWithPrice[] = balances.map((balance) => {
     const livePrice = livePrices.get(balance.symbol);
     const currentPrice = livePrice?.price || 0;
+    const commonName = getCommonName(balance.asset);
 
     // For stablecoins and USD, price is 1
-    const isStable = ['USD', 'USDT', 'USDC', 'DAI', 'BUSD'].includes(balance.asset);
+    const isStable = ['USD', 'USDT', 'USDC', 'DAI', 'BUSD'].includes(commonName);
     const price = isStable ? 1 : currentPrice;
 
     const value = balance.amount * price;
@@ -224,6 +150,7 @@ export default function Portfolio() {
 
     return {
       ...balance,
+      commonName,
       currentPrice: price,
       value,
       weight: 0, // Will calculate after getting total
@@ -237,7 +164,7 @@ export default function Portfolio() {
 
   // Calculate USD + stablecoins total
   const stableValue = holdings
-    .filter((h) => ['USD', 'USDT', 'USDC', 'DAI', 'BUSD', 'EUR'].includes(h.asset))
+    .filter((h) => ['USD', 'USDT', 'USDC', 'DAI', 'BUSD', 'EUR'].includes(h.commonName))
     .reduce((sum, h) => sum + h.value, 0);
 
   // Calculate weights
@@ -302,10 +229,10 @@ export default function Portfolio() {
             <p className="text-sm text-gray-400">
               Your Kraken account holdings and balances
             </p>
-            {wsConnected && (
+            {livePrices.size > 0 && (
               <div className="flex items-center gap-1 text-xs text-green-500">
                 <Activity className="h-3 w-3 animate-pulse" />
-                <span>Live Prices</span>
+                <span>Live Prices ({livePrices.size})</span>
               </div>
             )}
           </div>
@@ -457,7 +384,7 @@ export default function Portfolio() {
                 {holdings.map((holding) => {
                   const isPositive = holding.changePercent24h >= 0;
                   const hasLivePrice = livePrices.has(holding.symbol);
-                  const isStable = ['USD', 'USDT', 'USDC', 'DAI', 'BUSD', 'EUR'].includes(holding.asset);
+                  const isStable = ['USD', 'USDT', 'USDC', 'DAI', 'BUSD', 'EUR'].includes(holding.commonName);
 
                   return (
                     <tr
@@ -466,12 +393,11 @@ export default function Portfolio() {
                     >
                       <td className="py-3">
                         <div className="flex items-center gap-2">
-                          <span className="font-bold">{holding.asset}</span>
+                          <span className="font-bold">{holding.commonName}</span>
                           {hasLivePrice && !isStable && (
                             <Activity className="h-3 w-3 text-green-500 animate-pulse" />
                           )}
                         </div>
-                        <span className="text-xs text-gray-500">{holding.symbol}</span>
                       </td>
                       <td className="py-3 font-mono">
                         {formatAmount(holding.amount)}

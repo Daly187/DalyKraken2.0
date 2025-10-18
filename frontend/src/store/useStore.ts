@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { socketClient } from '@/services/socketClient';
 import { apiService } from '@/services/apiService';
 import { livePriceService } from '@/services/livePriceService';
+import { globalPriceManager } from '@/services/globalPriceManager';
 import type {
   User,
   AccountInfo,
@@ -171,7 +172,8 @@ export const useStore = create<AppState>((set, get) => ({
 
   logout: () => {
     get().disconnectWebSocket();
-    livePriceService.disconnectKraken();
+    globalPriceManager.cleanup();
+    console.log('[Store] Global price manager cleaned up');
     set({
       user: null,
       isAuthenticated: false,
@@ -196,6 +198,15 @@ export const useStore = create<AppState>((set, get) => ({
         }));
       }
 
+      // Initialize global price manager (starts background price updates)
+      globalPriceManager.initialize();
+      console.log('[Store] Global price manager initialized');
+
+      // Subscribe to global price updates
+      globalPriceManager.subscribeToPrices((prices: Map<string, LivePrice>) => {
+        set({ livePrices: prices });
+      });
+
       // Load initial data
       await Promise.all([
         get().fetchAccountInfo().catch(console.error),
@@ -203,11 +214,6 @@ export const useStore = create<AppState>((set, get) => ({
         get().fetchDCAStatus().catch(console.error),
         get().fetchRiskStatus().catch(console.error),
       ]);
-
-      // Subscribe to live price updates
-      livePriceService.subscribe((prices) => {
-        set({ livePrices: prices });
-      });
 
       set({ initialized: true });
     } catch (error) {

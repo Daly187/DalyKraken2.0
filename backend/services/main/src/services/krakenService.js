@@ -457,15 +457,29 @@ class KrakenService {
    */
   async getTradeHistory(options = {}) {
     try {
-      logger.info('Fetching trade history');
+      logger.info('Fetching trade history', options);
 
       if (!this.apiKey || !this.apiSecret) {
-        return [];
+        logger.warn('Kraken API keys not configured - cannot fetch trade history');
+        // Return empty object with descriptive structure matching Kraken's response
+        return {
+          trades: {},
+          count: 0
+        };
       }
 
-      return await this.privateRequest('TradesHistory', options);
+      const result = await this.privateRequest('TradesHistory', options);
+
+      // Kraken returns { trades: { txid: {...}, ... }, count: N }
+      return result;
     } catch (error) {
       logger.error('Error fetching trade history:', error);
+
+      // Check if it's an authentication error
+      if (error.message?.includes('Invalid key') || error.message?.includes('Permission denied')) {
+        logger.error('Kraken API key authentication failed. Please verify API key permissions include "Query Funds" and "Query Closed Orders and Trades"');
+      }
+
       throw error;
     }
   }

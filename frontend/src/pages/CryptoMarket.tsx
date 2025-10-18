@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { livePriceService } from '@/services/livePriceService';
+import { useStore } from '@/store/useStore';
+import { getCommonName } from '@/utils/assetNames';
 import type { LivePrice } from '@/types';
 import {
   TrendingUp,
@@ -7,7 +8,6 @@ import {
   Activity,
   RefreshCw,
   Wifi,
-  WifiOff,
   AlertCircle,
   Search,
   BarChart3,
@@ -76,51 +76,22 @@ const KRAKEN_SYMBOLS = [
   'BLUR/USD',   // Blur
 ];
 
-interface ConnectionStatus {
-  connected: boolean;
-  endpoint: string;
-  reconnectAttempts: number;
-  lastError: string | null;
-  usingFallback: boolean;
-}
-
 export default function CryptoMarket() {
-  const [marketData, setMarketData] = useState<Map<string, LivePrice>>(new Map());
-  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>({
-    connected: false,
-    endpoint: '',
-    reconnectAttempts: 0,
-    lastError: null,
-    usingFallback: false,
-  });
+  // Get global live prices from store
+  const livePrices = useStore((state) => state.livePrices);
+
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'symbol' | 'price' | 'change' | 'volume'>('change');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [, setTick] = useState(0);
 
   useEffect(() => {
-    // Subscribe to price updates
-    const unsubscribePrice = livePriceService.subscribe((prices) => {
-      setMarketData(prices);
-    });
-
-    // Subscribe to connection status
-    const unsubscribeStatus = livePriceService.subscribeStatus((status) => {
-      setConnectionStatus(status);
-    });
-
-    // Connect to Kraken WebSocket
-    livePriceService.connectKraken(KRAKEN_SYMBOLS);
-
     // Update "Last Update" times every second
     const tickInterval = setInterval(() => {
       setTick(prev => prev + 1);
     }, 1000);
 
     return () => {
-      unsubscribePrice();
-      unsubscribeStatus();
-      livePriceService.disconnectKraken();
       clearInterval(tickInterval);
     };
   }, []);
@@ -176,9 +147,15 @@ export default function CryptoMarket() {
     }
   };
 
-  const filteredAndSortedData = Array.from(marketData.entries())
-    .filter(([symbol]) =>
-      symbol.toLowerCase().includes(searchQuery.toLowerCase())
+  const filteredAndSortedData = Array.from(livePrices.entries())
+    .map(([symbol, data]) => {
+      // Get common name for display
+      const commonName = getCommonName(symbol.split('/')[0]);
+      return [symbol, data, commonName] as [string, LivePrice, string];
+    })
+    .filter(([symbol, , commonName]) =>
+      symbol.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      commonName.toLowerCase().includes(searchQuery.toLowerCase())
     )
     .sort(([, a], [, b]) => {
       let compareValue = 0;
@@ -201,84 +178,24 @@ export default function CryptoMarket() {
       return sortDirection === 'asc' ? compareValue : -compareValue;
     });
 
-  const handleReconnect = () => {
-    livePriceService.disconnectKraken();
-    setTimeout(() => {
-      livePriceService.connectKraken(KRAKEN_SYMBOLS);
-    }, 500);
-  };
-
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold">Crypto Market</h1>
-          <p className="text-sm text-gray-400 mt-1">
-            Real-time market data powered by Kraken WebSocket
-          </p>
-        </div>
-        <button
-          onClick={handleReconnect}
-          className="btn btn-secondary btn-sm flex items-center"
-        >
-          <RefreshCw className="mr-2 h-4 w-4" />
-          Reconnect
-        </button>
-      </div>
-
-      {/* Connection Status */}
-      <div className={`card ${
-        connectionStatus.connected
-          ? 'bg-green-500/10 border-green-500/20'
-          : connectionStatus.reconnectAttempts > 0
-          ? 'bg-yellow-500/10 border-yellow-500/20'
-          : 'bg-red-500/10 border-red-500/20'
-      }`}>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            {connectionStatus.connected ? (
-              <>
-                <Wifi className="h-6 w-6 text-green-500" />
-                <div>
-                  <p className="font-bold text-green-500">Connected</p>
-                  <p className="text-sm text-gray-400">{connectionStatus.endpoint}</p>
-                  {connectionStatus.usingFallback && (
-                    <p className="text-xs text-yellow-500 mt-1">
-                      Using fallback connection
-                    </p>
-                  )}
-                </div>
-              </>
-            ) : connectionStatus.reconnectAttempts > 0 ? (
-              <>
-                <Activity className="h-6 w-6 text-yellow-500 animate-pulse" />
-                <div>
-                  <p className="font-bold text-yellow-500">Reconnecting...</p>
-                  <p className="text-sm text-gray-400">
-                    Attempt {connectionStatus.reconnectAttempts} of 5
-                  </p>
-                </div>
-              </>
-            ) : (
-              <>
-                <WifiOff className="h-6 w-6 text-red-500" />
-                <div>
-                  <p className="font-bold text-red-500">Disconnected</p>
-                  {connectionStatus.lastError && (
-                    <p className="text-sm text-gray-400">{connectionStatus.lastError}</p>
-                  )}
-                </div>
-              </>
+          <div className="flex items-center gap-3 mt-1">
+            <p className="text-sm text-gray-400">
+              Real-time market data powered by Kraken WebSocket
+            </p>
+            {livePrices.size > 0 && (
+              <div className="flex items-center gap-2">
+                <Wifi className="h-4 w-4 text-green-500" />
+                <span className="text-xs text-green-500">
+                  {livePrices.size} pairs streaming
+                </span>
+              </div>
             )}
-          </div>
-          <div className="flex items-center gap-2">
-            <Activity className={`h-5 w-5 ${
-              connectionStatus.connected ? 'text-green-500 animate-pulse' : 'text-gray-500'
-            }`} />
-            <span className="text-sm text-gray-400">
-              {marketData.size} pairs streaming
-            </span>
           </div>
         </div>
       </div>
@@ -352,7 +269,7 @@ export default function CryptoMarket() {
                 </tr>
               </thead>
               <tbody>
-                {filteredAndSortedData.map(([symbol, data]) => {
+                {filteredAndSortedData.map(([symbol, data, commonName]) => {
                   const isPositive = (data.changePercent24h || 0) >= 0;
                   const timeSinceUpdate = Date.now() - (data.timestamp || 0);
                   const isStale = timeSinceUpdate > 10000; // 10 seconds
@@ -364,7 +281,7 @@ export default function CryptoMarket() {
                     >
                       <td className="py-3">
                         <div className="flex items-center gap-2">
-                          <span className="font-medium">{symbol}</span>
+                          <span className="font-medium">{commonName}/USD</span>
                           {!isStale && (
                             <Activity className="h-3 w-3 text-green-500 animate-pulse" />
                           )}
@@ -405,7 +322,7 @@ export default function CryptoMarket() {
               </tbody>
             </table>
           </div>
-        ) : marketData.size === 0 ? (
+        ) : livePrices.size === 0 ? (
           <div className="text-center py-12">
             <div className="spinner mx-auto mb-4"></div>
             <p className="text-gray-400 mb-2">Connecting to market data...</p>
@@ -422,33 +339,33 @@ export default function CryptoMarket() {
       </div>
 
       {/* Market Stats */}
-      {marketData.size > 0 && (
+      {livePrices.size > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
           <div className="card">
             <p className="text-sm text-gray-400 mb-1">Total Pairs</p>
-            <p className="text-2xl font-bold">{marketData.size}</p>
+            <p className="text-2xl font-bold">{livePrices.size}</p>
           </div>
           <div className="card">
             <p className="text-sm text-gray-400 mb-1">Gainers (24h)</p>
             <p className="text-2xl font-bold text-green-500">
-              {Array.from(marketData.values()).filter(d => (d.changePercent24h || 0) > 0).length}
+              {Array.from(livePrices.values()).filter(d => (d.changePercent24h || 0) > 0).length}
             </p>
           </div>
           <div className="card">
             <p className="text-sm text-gray-400 mb-1">Losers (24h)</p>
             <p className="text-2xl font-bold text-red-500">
-              {Array.from(marketData.values()).filter(d => (d.changePercent24h || 0) < 0).length}
+              {Array.from(livePrices.values()).filter(d => (d.changePercent24h || 0) < 0).length}
             </p>
           </div>
           <div className="card">
             <p className="text-sm text-gray-400 mb-1">Avg Change (24h)</p>
             <p className={`text-2xl font-bold ${
-              (Array.from(marketData.values()).reduce((sum, d) => sum + (d.changePercent24h || 0), 0) / marketData.size) >= 0
+              (Array.from(livePrices.values()).reduce((sum, d) => sum + (d.changePercent24h || 0), 0) / livePrices.size) >= 0
                 ? 'text-green-500'
                 : 'text-red-500'
             }`}>
               {formatPercent(
-                Array.from(marketData.values()).reduce((sum, d) => sum + (d.changePercent24h || 0), 0) / marketData.size
+                Array.from(livePrices.values()).reduce((sum, d) => sum + (d.changePercent24h || 0), 0) / livePrices.size
               )}
             </p>
           </div>

@@ -54,6 +54,15 @@ export default function DalyDCA() {
 
   useEffect(() => {
     refreshData();
+
+    // Set up automatic refresh every 5 minutes
+    const refreshInterval = setInterval(() => {
+      console.log('[DalyDCA] Auto-refreshing DCA bots data...');
+      refreshData();
+    }, 5 * 60 * 1000); // 5 minutes in milliseconds
+
+    // Cleanup interval on unmount
+    return () => clearInterval(refreshInterval);
   }, []);
 
   const refreshData = async () => {
