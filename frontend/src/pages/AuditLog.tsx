@@ -484,6 +484,103 @@ export default function AuditLog() {
         </div>
       </div>
 
+      {/* Trade History Table */}
+      <div className="card">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-xl font-bold">Trade History ({trades.length})</h2>
+        </div>
+
+        {loading && trades.length === 0 ? (
+          <div className="text-center py-12">
+            <div className="spinner mx-auto mb-4"></div>
+            <p className="text-gray-400">Loading trade history...</p>
+          </div>
+        ) : trades.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-gray-400 border-b border-slate-700">
+                  <th className="pb-3 px-2">Date</th>
+                  <th className="pb-3 px-2">Side</th>
+                  <th className="pb-3 px-2">Type</th>
+                  <th className="pb-3 px-2">Pair</th>
+                  <th className="pb-3 px-2 text-right">Price</th>
+                  <th className="pb-3 px-2 text-right">Volume</th>
+                  <th className="pb-3 px-2 text-right">Cost</th>
+                  <th className="pb-3 px-2 text-right">Fee</th>
+                  <th className="pb-3 px-2">ID</th>
+                </tr>
+              </thead>
+              <tbody>
+                {trades.map((trade) => {
+                  const tradeDate = new Date(trade.time * 1000);
+                  const isBuy = trade.type === 'buy';
+
+                  return (
+                    <tr key={trade.txid} className="border-t border-slate-700 hover:bg-slate-700/30 transition-colors">
+                      <td className="py-3 px-2">
+                        <div className="text-xs">
+                          <div>{tradeDate.toLocaleDateString()}</div>
+                          <div className="text-gray-400">{tradeDate.toLocaleTimeString()}</div>
+                        </div>
+                      </td>
+                      <td className="py-3 px-2">
+                        <span className={`px-2 py-1 rounded text-xs font-medium ${
+                          isBuy ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'
+                        }`}>
+                          {trade.type.toUpperCase()}
+                        </span>
+                      </td>
+                      <td className="py-3 px-2">
+                        <span className="px-2 py-1 rounded text-xs bg-slate-700 text-gray-300">
+                          {trade.ordertype || 'Market'}
+                        </span>
+                      </td>
+                      <td className="py-3 px-2 font-medium">
+                        {trade.pair}
+                      </td>
+                      <td className="py-3 px-2 text-right font-mono">
+                        {parseFloat(String(trade.price)).toFixed(trade.pair.includes('USD') ? 2 : 8)}
+                        <span className="text-gray-400 text-xs ml-1">
+                          {trade.pair.includes('USD') ? 'USD' : ''}
+                        </span>
+                      </td>
+                      <td className="py-3 px-2 text-right font-mono">
+                        {parseFloat(String(trade.vol)).toFixed(8)}
+                        <span className="text-gray-400 text-xs ml-1">
+                          {trade.pair.replace(/USD.*/, '')}
+                        </span>
+                      </td>
+                      <td className="py-3 px-2 text-right font-mono">
+                        {parseFloat(String(trade.cost)).toFixed(2)}
+                        <span className="text-gray-400 text-xs ml-1">USD</span>
+                      </td>
+                      <td className="py-3 px-2 text-right font-mono text-gray-400">
+                        {parseFloat(String(trade.fee)).toFixed(2)}
+                        <span className="text-xs ml-1">USD</span>
+                      </td>
+                      <td className="py-3 px-2">
+                        <span className="text-xs text-gray-500 font-mono">
+                          {trade.txid.substring(0, 6).toUpperCase()}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="text-center py-12">
+            <DollarSign className="h-12 w-12 text-gray-500 mx-auto mb-4" />
+            <p className="text-gray-400">No trade history found</p>
+            <p className="text-sm text-gray-500 mt-2">
+              Make sure your Kraken API keys have "Query Funds" and "Query Closed Orders and Trades" permissions
+            </p>
+          </div>
+        )}
+      </div>
+
       {/* Filters */}
       <div className="card">
         <div className="grid md:grid-cols-4 gap-4">
