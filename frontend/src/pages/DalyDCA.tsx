@@ -31,12 +31,12 @@ export default function DalyDCA() {
   const [creating, setCreating] = useState(false);
   const [lastRefreshTime, setLastRefreshTime] = useState<Date>(new Date());
 
-  // Available trading pairs
+  // Available trading pairs (only pairs supported by Kraken)
   const availableSymbols = [
     'BTC/USD', 'ETH/USD', 'SOL/USD', 'XRP/USD', 'ADA/USD',
-    'DOGE/USD', 'DOT/USD', 'LINK/USD', 'MATIC/USD', 'UNI/USD',
-    'AVAX/USD', 'ATOM/USD', 'LTC/USD', 'BCH/USD', 'XLM/USD',
-    'ALGO/USD', 'NEAR/USD', 'FTM/USD', 'SAND/USD', 'MANA/USD',
+    'DOGE/USD', 'DOT/USD', 'LINK/USD', 'UNI/USD', 'AVAX/USD',
+    'ATOM/USD', 'LTC/USD', 'BCH/USD', 'XLM/USD', 'ALGO/USD',
+    'NEAR/USD', 'SAND/USD', 'MANA/USD', 'GRT/USD', 'FIL/USD',
   ];
 
   // Bot creation form state

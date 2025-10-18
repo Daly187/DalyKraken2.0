@@ -9,15 +9,15 @@
 import { livePriceService } from './livePriceService';
 import type { LivePrice } from '@/types';
 
-// All major crypto pairs to track
+// All major crypto pairs to track (only pairs supported by Kraken)
 const GLOBAL_CRYPTO_PAIRS = [
   // Major cryptocurrencies
   'BTC/USD', 'ETH/USD', 'SOL/USD', 'XRP/USD', 'ADA/USD',
-  'DOGE/USD', 'DOT/USD', 'MATIC/USD', 'AVAX/USD', 'LINK/USD',
+  'DOGE/USD', 'DOT/USD', 'AVAX/USD', 'LINK/USD',
 
   // DeFi & Layer 1/2
   'UNI/USD', 'ATOM/USD', 'LTC/USD', 'BCH/USD', 'ETC/USD',
-  'AAVE/USD', 'COMP/USD', 'MKR/USD', 'SNX/USD', 'CRV/USD',
+  'AAVE/USD', 'COMP/USD', 'SNX/USD', 'CRV/USD',
 
   // Additional popular tokens
   'SUSHI/USD', 'YFI/USD', 'ALGO/USD', 'XLM/USD', 'XTZ/USD',
