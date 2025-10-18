@@ -327,7 +327,7 @@ app.get('/portfolio/overview', async (req, res) => {
           asset,
           symbol: `${asset}/USD`,
           amount: amountNum,
-          price,
+          currentPrice: price,
           avgPrice,
           value,
           profitLoss,
