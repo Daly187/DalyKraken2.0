@@ -29,6 +29,7 @@ export default function DalyDCA() {
   const [loading, setLoading] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [lastRefreshTime, setLastRefreshTime] = useState<Date>(new Date());
 
   // Available trading pairs
   const availableSymbols = [
@@ -69,6 +70,7 @@ export default function DalyDCA() {
     setLoading(true);
     try {
       await fetchDCABots();
+      setLastRefreshTime(new Date());
     } catch (error) {
       console.error('Failed to refresh DCA bots:', error);
     } finally {
@@ -177,8 +179,12 @@ export default function DalyDCA() {
   };
 
   const activeBots = dcaBots.filter((bot) => bot.status === 'active');
+  const pausedBots = dcaBots.filter((bot) => bot.status === 'paused');
+  const completedBots = dcaBots.filter((bot) => bot.status === 'completed');
   const totalInvested = dcaBots.reduce((sum, bot) => sum + (bot.totalInvested || 0), 0);
   const totalUnrealizedPnL = dcaBots.reduce((sum, bot) => sum + (bot.unrealizedPnL || 0), 0);
+  const totalCurrentValue = totalInvested + totalUnrealizedPnL;
+  const totalPnLPercent = totalInvested > 0 ? (totalUnrealizedPnL / totalInvested) * 100 : 0;
 
   return (
     <div className="space-y-6">
@@ -196,49 +202,69 @@ export default function DalyDCA() {
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <div className="card">
+        <div className="card bg-gradient-to-br from-green-500/10 to-green-600/5 border-green-500/20">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-400">Active Bots</p>
-              <p className="text-xl font-bold">{activeBots.length}</p>
+              <p className="text-2xl font-bold text-white">{activeBots.length}</p>
+              <p className="text-xs text-gray-500 mt-1">
+                {dcaBots.length > 0 ? `${((activeBots.length / dcaBots.length) * 100).toFixed(0)}% running` : 'No bots yet'}
+              </p>
             </div>
-            <Play className="h-10 w-10 text-green-500" />
+            <div className="h-14 w-14 rounded-xl bg-green-500/20 flex items-center justify-center">
+              <Play className="h-7 w-7 text-green-400" />
+            </div>
           </div>
         </div>
 
-        <div className="card">
+        <div className="card bg-gradient-to-br from-primary-500/10 to-purple-600/5 border-primary-500/20">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-400">Total Bots</p>
-              <p className="text-xl font-bold">{dcaBots.length}</p>
+              <p className="text-2xl font-bold text-white">{dcaBots.length}</p>
+              <p className="text-xs text-gray-500 mt-1">
+                {pausedBots.length} paused, {completedBots.length} completed
+              </p>
             </div>
-            <Settings className="h-10 w-10 text-primary-500" />
+            <div className="h-14 w-14 rounded-xl bg-primary-500/20 flex items-center justify-center">
+              <Settings className="h-7 w-7 text-primary-400" />
+            </div>
           </div>
         </div>
 
-        <div className="card">
+        <div className="card bg-gradient-to-br from-blue-500/10 to-blue-600/5 border-blue-500/20">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-400">Total Invested</p>
-              <p className="text-xl font-bold">{formatCurrency(totalInvested)}</p>
+              <p className="text-2xl font-bold text-white">{formatCurrency(totalInvested)}</p>
+              <p className="text-xs text-gray-500 mt-1">
+                {dcaBots.length > 0 ? `Avg: ${formatCurrency(totalInvested / dcaBots.length)} per bot` : 'Start trading to see stats'}
+              </p>
             </div>
-            <DollarSign className="h-10 w-10 text-blue-500" />
+            <div className="h-14 w-14 rounded-xl bg-blue-500/20 flex items-center justify-center">
+              <DollarSign className="h-7 w-7 text-blue-400" />
+            </div>
           </div>
         </div>
 
-        <div className="card">
+        <div className={`card ${totalUnrealizedPnL >= 0 ? 'bg-gradient-to-br from-green-500/10 to-green-600/5 border-green-500/20' : 'bg-gradient-to-br from-red-500/10 to-red-600/5 border-red-500/20'}`}>
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-400">Unrealized P&L</p>
-              <p className={`text-xl font-bold ${totalUnrealizedPnL >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+              <p className={`text-2xl font-bold ${totalUnrealizedPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                 {formatCurrency(totalUnrealizedPnL)}
               </p>
+              <p className={`text-xs font-semibold mt-1 ${totalUnrealizedPnL >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                {totalInvested > 0 ? `${totalPnLPercent >= 0 ? '+' : ''}${totalPnLPercent.toFixed(2)}% • ${formatCurrency(totalCurrentValue)} value` : 'No positions yet'}
+              </p>
             </div>
-            {totalUnrealizedPnL >= 0 ? (
-              <TrendingUp className="h-10 w-10 text-green-500" />
-            ) : (
-              <TrendingDown className="h-10 w-10 text-red-500" />
-            )}
+            <div className={`h-14 w-14 rounded-xl flex items-center justify-center ${totalUnrealizedPnL >= 0 ? 'bg-green-500/20' : 'bg-red-500/20'}`}>
+              {totalUnrealizedPnL >= 0 ? (
+                <TrendingUp className="h-7 w-7 text-green-400" />
+              ) : (
+                <TrendingDown className="h-7 w-7 text-red-400" />
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -614,13 +640,26 @@ export default function DalyDCA() {
       {/* Live Bots Table */}
       <div className="card">
         <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xl font-bold">Live Bots</h2>
+          <div>
+            <h2 className="text-xl font-bold flex items-center gap-2">
+              Live Bots
+              {dcaBots.length > 0 && (
+                <span className="px-2 py-0.5 rounded-full bg-primary-500/20 text-primary-300 text-xs font-medium">
+                  {dcaBots.length}
+                </span>
+              )}
+            </h2>
+            <p className="text-xs text-gray-500 mt-1">
+              Auto-refreshes every 5 minutes • Last update: {lastRefreshTime.toLocaleTimeString()}
+            </p>
+          </div>
           <button
             onClick={refreshData}
             disabled={loading}
-            className="btn btn-secondary btn-sm"
+            className="btn btn-secondary btn-sm flex items-center gap-2"
           >
-            {loading ? 'Loading...' : 'Refresh'}
+            <Activity className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            {loading ? 'Refreshing...' : 'Refresh Now'}
           </button>
         </div>
 
@@ -722,14 +761,28 @@ export default function DalyDCA() {
               </tbody>
             </table>
           </div>
+        ) : loading ? (
+          <div className="text-center py-16">
+            <div className="inline-flex items-center justify-center h-16 w-16 rounded-full bg-primary-500/10 mb-4">
+              <Activity className="h-8 w-8 text-primary-400 animate-spin" />
+            </div>
+            <p className="text-gray-400 font-medium">Loading your bots...</p>
+            <p className="text-xs text-gray-500 mt-2">Please wait while we fetch your DCA bots</p>
+          </div>
         ) : (
-          <div className="text-center py-12">
-            <p className="text-gray-400 mb-4">No active DCA bots</p>
+          <div className="text-center py-16">
+            <div className="inline-flex items-center justify-center h-20 w-20 rounded-full bg-gradient-to-br from-primary-500/20 to-purple-500/20 mb-4">
+              <Settings className="h-10 w-10 text-primary-400" />
+            </div>
+            <h3 className="text-xl font-bold text-white mb-2">No DCA Bots Yet</h3>
+            <p className="text-gray-400 mb-6 max-w-md mx-auto">
+              Create your first automated DCA bot to start dollar-cost averaging into your favorite cryptocurrencies with smart re-entry logic.
+            </p>
             <button
               onClick={() => setShowCreateForm(true)}
-              className="btn btn-primary"
+              className="btn btn-primary inline-flex items-center gap-2"
             >
-              <Plus className="mr-2 h-4 w-4" />
+              <Plus className="h-5 w-5" />
               Create Your First Bot
             </button>
           </div>

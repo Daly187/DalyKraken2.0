@@ -75,8 +75,57 @@ export default function AuditLog() {
     setError(null);
 
     try {
+      // Get API keys from localStorage
+      const getApiKeys = () => {
+        try {
+          const keysJson = localStorage.getItem('kraken_api_keys');
+          if (!keysJson) return null;
+
+          const keys = JSON.parse(keysJson);
+          if (!Array.isArray(keys)) return null;
+
+          // Try primary key first
+          const primaryKey = keys.find((k) => k.type === 'primary');
+          if (primaryKey?.apiKey && primaryKey?.apiSecret && primaryKey.isActive) {
+            return { apiKey: primaryKey.apiKey, apiSecret: primaryKey.apiSecret };
+          }
+
+          // Try fallback1
+          const fallback1Key = keys.find((k) => k.type === 'fallback1');
+          if (fallback1Key?.apiKey && fallback1Key?.apiSecret && fallback1Key.isActive) {
+            return { apiKey: fallback1Key.apiKey, apiSecret: fallback1Key.apiSecret };
+          }
+
+          // Try fallback2
+          const fallback2Key = keys.find((k) => k.type === 'fallback2');
+          if (fallback2Key?.apiKey && fallback2Key?.apiSecret && fallback2Key.isActive) {
+            return { apiKey: fallback2Key.apiKey, apiSecret: fallback2Key.apiSecret };
+          }
+
+          return null;
+        } catch (error) {
+          console.error('[AuditLog] Error reading API keys:', error);
+          return null;
+        }
+      };
+
+      const credentials = getApiKeys();
+
+      if (!credentials) {
+        throw new Error('No Kraken API keys configured. Please add your API keys in Settings.');
+      }
+
       // Fetch actual trade history from Kraken via backend
-      const response = await fetch(`${config.api.mainUrl}/audit/trades?limit=100`);
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'x-kraken-api-key': credentials.apiKey,
+        'x-kraken-api-secret': credentials.apiSecret,
+      };
+
+      const response = await fetch(`${config.api.mainUrl}/audit/trades?limit=100`, {
+        method: 'GET',
+        headers,
+      });
 
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);

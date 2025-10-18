@@ -527,6 +527,93 @@ app.get('/quantify-crypto/test', async (req, res) => {
 });
 
 // ============================================
+// AUDIT ROUTES
+// ============================================
+
+app.get('/audit/trades', async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit as string) || 50;
+    const offset = parseInt(req.query.offset as string) || 0;
+
+    console.log(`[API] Fetching trade history (limit: ${limit}, offset: ${offset})`);
+
+    const apiKey = req.headers['x-kraken-api-key'] as string;
+    const apiSecret = req.headers['x-kraken-api-secret'] as string;
+
+    if (!apiKey || !apiSecret) {
+      return res.status(401).json({
+        success: false,
+        error: 'API keys required for trade history',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const krakenClient = new KrakenService(apiKey, apiSecret);
+    const result = await krakenClient.getTradeHistory();
+
+    // Kraken returns { trades: {...}, count: N }
+    const trades = result?.trades || result || {};
+    const tradeCount = result?.count || Object.keys(trades).length;
+
+    res.json({
+      success: true,
+      data: trades,
+      count: tradeCount,
+      pagination: {
+        limit,
+        offset,
+        hasMore: tradeCount === limit,
+      },
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    console.error('[API] Error fetching trade history:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+app.get('/audit/transactions', async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit as string) || 50;
+    console.log(`[API] Fetching transaction history (limit: ${limit})`);
+
+    const apiKey = req.headers['x-kraken-api-key'] as string;
+    const apiSecret = req.headers['x-kraken-api-secret'] as string;
+
+    if (!apiKey || !apiSecret) {
+      return res.status(401).json({
+        success: false,
+        error: 'API keys required for transaction history',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    // For now, return empty transactions as we're focusing on trades
+    res.json({
+      success: true,
+      data: [],
+      pagination: {
+        limit,
+        offset: 0,
+        hasMore: false,
+      },
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    console.error('[API] Error fetching transaction history:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+// ============================================
 // DCA ROUTES
 // ============================================
 
