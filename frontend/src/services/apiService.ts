@@ -319,7 +319,45 @@ class ApiService {
 
   // Cost Basis & Trade History
   async syncTradeHistory(userId?: string) {
-    return this.post('/portfolio/sync-trades', { userId });
+    // Get Kraken API keys from localStorage for authentication
+    const getApiKeys = () => {
+      try {
+        const keysJson = localStorage.getItem('kraken_api_keys');
+        if (!keysJson) return null;
+
+        const keys = JSON.parse(keysJson);
+        if (!Array.isArray(keys)) return null;
+
+        // Try primary key first
+        const primaryKey = keys.find((k: any) => k.type === 'primary');
+        if (primaryKey?.apiKey && primaryKey?.apiSecret && primaryKey.isActive) {
+          return { apiKey: primaryKey.apiKey, apiSecret: primaryKey.apiSecret };
+        }
+
+        // Try fallback keys
+        for (const keyType of ['fallback1', 'fallback2']) {
+          const key = keys.find((k: any) => k.type === keyType);
+          if (key?.apiKey && key?.apiSecret && key.isActive) {
+            return { apiKey: key.apiKey, apiSecret: key.apiSecret };
+          }
+        }
+
+        return null;
+      } catch (error) {
+        console.error('[ApiService] Error reading API keys:', error);
+        return null;
+      }
+    };
+
+    const credentials = getApiKeys();
+    const headers: Record<string, string> = {};
+
+    if (credentials) {
+      headers['x-kraken-api-key'] = credentials.apiKey;
+      headers['x-kraken-api-secret'] = credentials.apiSecret;
+    }
+
+    return this.post('/portfolio/sync-trades', { userId }, { headers });
   }
 
   async getCostBasis(asset: string, userId?: string) {

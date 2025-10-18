@@ -218,6 +218,32 @@ export const useStore = create<AppState>((set, get) => ({
         get().fetchRiskStatus().catch(console.error),
       ]);
 
+      // Auto-sync trade history on first login (if never synced)
+      const hasEverSynced = localStorage.getItem('dalykraken_trades_synced');
+      const lastSync = localStorage.getItem('dalykraken_last_sync');
+
+      if (!hasEverSynced) {
+        console.log('[Store] First login detected, auto-syncing trade history...');
+        // Don't await - let it run in background
+        get().syncTradeHistory().catch((error) => {
+          console.warn('[Store] Auto-sync failed (can sync manually later):', error);
+        });
+      } else if (lastSync) {
+        // Check if last sync was more than 7 days ago
+        const lastSyncDate = new Date(lastSync);
+        const daysSinceLastSync = (Date.now() - lastSyncDate.getTime()) / (1000 * 60 * 60 * 24);
+
+        if (daysSinceLastSync > 7) {
+          console.log(`[Store] Last sync was ${Math.floor(daysSinceLastSync)} days ago, auto-syncing...`);
+          // Don't await - let it run in background
+          get().syncTradeHistory().catch((error) => {
+            console.warn('[Store] Auto-sync failed (can sync manually later):', error);
+          });
+        } else {
+          console.log(`[Store] Trade history last synced ${Math.floor(daysSinceLastSync)} days ago`);
+        }
+      }
+
       set({ initialized: true });
     } catch (error) {
       console.error('[Store] Initialization failed:', error);
@@ -696,15 +722,23 @@ export const useStore = create<AppState>((set, get) => ({
   // Cost Basis actions
   syncTradeHistory: async () => {
     try {
+      console.log('[Store] Syncing trade history...');
       await apiService.syncTradeHistory();
+
+      // Mark as synced
+      localStorage.setItem('dalykraken_trades_synced', 'true');
+      localStorage.setItem('dalykraken_last_sync', new Date().toISOString());
+
       get().addNotification({
         type: 'success',
         title: 'Trade History Synced',
         message: 'Your Kraken trade history has been synced successfully',
       });
+
       // Refresh portfolio to get updated P&L
       await get().fetchPortfolio();
     } catch (error: any) {
+      console.error('[Store] Trade sync failed:', error);
       get().addNotification({
         type: 'error',
         title: 'Sync Failed',

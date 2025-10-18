@@ -380,22 +380,56 @@ app.post('/portfolio/sync-trades', async (req, res) => {
 
     console.log('[API] Syncing trade history for user:', userId);
 
+    // Get API keys from headers
+    const apiKey = req.headers['x-kraken-api-key'] as string;
+    const apiSecret = req.headers['x-kraken-api-secret'] as string;
+
     // Create Kraken client with user's API keys
-    // In production, get these from secure storage
-    const krakenClient = new KrakenService();
+    const krakenClient = apiKey && apiSecret
+      ? new KrakenService(apiKey, apiSecret)
+      : new KrakenService();
 
     await costBasisService.syncTradeHistory(userId, krakenClient);
+
+    // Get count of synced trades
+    const tradesSnapshot = await db
+      .collection('users')
+      .doc(userId)
+      .collection('trades')
+      .get();
+
+    const costBasisSnapshot = await db
+      .collection('users')
+      .doc(userId)
+      .collection('costBasis')
+      .get();
 
     res.json({
       success: true,
       message: 'Trade history synced successfully',
+      stats: {
+        totalTrades: tradesSnapshot.size,
+        assetsWithCostBasis: costBasisSnapshot.size,
+      },
       timestamp: new Date().toISOString(),
     });
   } catch (error: any) {
     console.error('[API] Error syncing trade history:', error.message);
+
+    // Provide more helpful error messages
+    let errorMessage = error.message;
+
+    if (error.message?.includes('rate limit')) {
+      errorMessage = 'Kraken API rate limit exceeded. Please wait a few minutes and try again.';
+    } else if (error.message?.includes('Invalid key') || error.message?.includes('EAPI:Invalid key')) {
+      errorMessage = 'Invalid Kraken API credentials. Please check your API keys in Settings.';
+    } else if (error.message?.includes('Permission denied')) {
+      errorMessage = 'API key does not have permission to access trade history. Please update your API key permissions.';
+    }
+
     res.status(500).json({
       success: false,
-      error: error.message,
+      error: errorMessage,
       timestamp: new Date().toISOString(),
     });
   }

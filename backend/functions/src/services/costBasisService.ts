@@ -57,8 +57,33 @@ export class CostBasisService {
     console.log('[CostBasisService] Syncing trade history for user:', userId);
 
     try {
-      // Get trade history from Kraken
-      const tradeHistory = await krakenService.getTradeHistory();
+      // Get trade history from Kraken with retry logic for rate limits
+      let tradeHistory;
+      let retries = 0;
+      const maxRetries = 3;
+
+      while (retries < maxRetries) {
+        try {
+          tradeHistory = await krakenService.getTradeHistory();
+          break; // Success, exit retry loop
+        } catch (error: any) {
+          retries++;
+
+          // Check if it's a rate limit error
+          if (error.message?.includes('rate limit') || error.message?.includes('EAPI:Rate limit')) {
+            const waitTime = Math.pow(2, retries) * 1000; // Exponential backoff
+            console.log(`[CostBasisService] Rate limit hit, waiting ${waitTime}ms before retry ${retries}/${maxRetries}`);
+            await new Promise(resolve => setTimeout(resolve, waitTime));
+
+            if (retries >= maxRetries) {
+              throw new Error('Kraken API rate limit exceeded. Please try again in a few minutes.');
+            }
+          } else {
+            // Not a rate limit error, throw immediately
+            throw error;
+          }
+        }
+      }
 
       if (!tradeHistory || !tradeHistory.trades) {
         console.log('[CostBasisService] No trades found');

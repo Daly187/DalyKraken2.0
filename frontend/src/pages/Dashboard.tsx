@@ -21,8 +21,10 @@ export default function Dashboard() {
   const fetchPortfolio = useStore((state) => state.fetchPortfolio);
   const fetchDCAStatus = useStore((state) => state.fetchDCAStatus);
   const fetchLivePrices = useStore((state) => state.fetchLivePrices);
+  const syncTradeHistory = useStore((state) => state.syncTradeHistory);
 
   const [loading, setLoading] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [animatedValues, setAnimatedValues] = useState({
     portfolioValue: 0,
     profitLoss: 0,
@@ -70,6 +72,17 @@ export default function Dashboard() {
     }
   };
 
+  const handleSyncTrades = async () => {
+    setSyncing(true);
+    try {
+      await syncTradeHistory();
+    } catch (error) {
+      console.error('Failed to sync trade history:', error);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   const formatCurrency = (value: number | undefined | null) => {
     if (value === undefined || value === null) return '$0.00';
     return new Intl.NumberFormat('en-US', {
@@ -109,15 +122,32 @@ export default function Dashboard() {
               Welcome Back
             </h1>
             <p className="text-slate-400 mt-2">Here's what's happening with your portfolio today</p>
+            {portfolio?.usingRealCostBasis && (
+              <p className="text-xs text-green-400 mt-1 flex items-center">
+                <Activity className="h-3 w-3 mr-1" />
+                Using real cost basis from trade history
+              </p>
+            )}
           </div>
-          <button
-            onClick={refreshData}
-            disabled={loading}
-            className="group relative px-6 py-3 bg-gradient-to-r from-purple-500 to-cyan-500 rounded-xl font-semibold text-white shadow-lg shadow-purple-500/30 hover:shadow-purple-500/50 transition-all duration-300 hover:scale-105 disabled:opacity-50"
-          >
-            <RefreshCw className={`inline mr-2 h-5 w-5 ${loading ? 'animate-spin' : 'group-hover:rotate-180 transition-transform duration-500'}`} />
-            Refresh
-          </button>
+          <div className="flex gap-3">
+            <button
+              onClick={handleSyncTrades}
+              disabled={syncing}
+              className="group relative px-6 py-3 bg-gradient-to-r from-green-500 to-emerald-500 rounded-xl font-semibold text-white shadow-lg shadow-green-500/30 hover:shadow-green-500/50 transition-all duration-300 hover:scale-105 disabled:opacity-50"
+              title="Sync your Kraken trade history for accurate P&L calculations"
+            >
+              <Activity className={`inline mr-2 h-5 w-5 ${syncing ? 'animate-spin' : ''}`} />
+              {syncing ? 'Syncing...' : 'Sync Trades'}
+            </button>
+            <button
+              onClick={refreshData}
+              disabled={loading}
+              className="group relative px-6 py-3 bg-gradient-to-r from-purple-500 to-cyan-500 rounded-xl font-semibold text-white shadow-lg shadow-purple-500/30 hover:shadow-purple-500/50 transition-all duration-300 hover:scale-105 disabled:opacity-50"
+            >
+              <RefreshCw className={`inline mr-2 h-5 w-5 ${loading ? 'animate-spin' : 'group-hover:rotate-180 transition-transform duration-500'}`} />
+              Refresh
+            </button>
+          </div>
         </div>
 
         {/* Main Stats - Hero Cards */}
