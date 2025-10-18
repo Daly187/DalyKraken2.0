@@ -21,6 +21,7 @@ import {
   Save,
   BarChart3,
   Zap,
+  Layers,
 } from 'lucide-react';
 import type { DCABotConfig } from '@/types';
 
@@ -909,6 +910,77 @@ export default function DalyDCA() {
                           </div>
                         </div>
                       </div>
+
+                      {/* Support & Resistance Levels */}
+                      {bot.supportResistanceEnabled && (
+                        <div>
+                          <h4 className="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2">
+                            <Layers className="h-4 w-4 text-purple-400" />
+                            Support & Resistance Levels
+                            <span className="px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 text-xs font-medium">
+                              Enabled
+                            </span>
+                          </h4>
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                            <div>
+                              <p className="text-xs text-gray-400">Current Support</p>
+                              <p className="text-lg font-bold text-green-400">
+                                {bot.currentSupport ? formatCurrency(bot.currentSupport) : formatCurrency((bot.currentPrice || 0) * 0.95)}
+                              </p>
+                              <p className="text-xs text-gray-500">
+                                {bot.currentPrice && bot.currentSupport
+                                  ? `${(((bot.currentPrice - bot.currentSupport) / bot.currentPrice) * 100).toFixed(2)}% below`
+                                  : '~5% below current'}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-gray-400">Current Resistance</p>
+                              <p className="text-lg font-bold text-red-400">
+                                {bot.currentResistance ? formatCurrency(bot.currentResistance) : formatCurrency((bot.currentPrice || 0) * 1.05)}
+                              </p>
+                              <p className="text-xs text-gray-500">
+                                {bot.currentPrice && bot.currentResistance
+                                  ? `${(((bot.currentResistance - bot.currentPrice) / bot.currentPrice) * 100).toFixed(2)}% above`
+                                  : '~5% above current'}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-gray-400">Next Support</p>
+                              <p className="text-lg font-bold text-cyan-400">
+                                {bot.nextSupport ? formatCurrency(bot.nextSupport) : formatCurrency((bot.currentPrice || 0) * 0.90)}
+                              </p>
+                              <p className="text-xs text-gray-500">
+                                Entry trigger zone
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-gray-400">S/R Status</p>
+                              {bot.currentPrice && (
+                                <>
+                                  {bot.currentPrice <= (bot.currentSupport || (bot.currentPrice * 0.95)) ? (
+                                    <p className="text-lg font-bold text-green-400">At Support</p>
+                                  ) : bot.currentPrice >= (bot.currentResistance || (bot.currentPrice * 1.05)) ? (
+                                    <p className="text-lg font-bold text-red-400">At Resistance</p>
+                                  ) : (
+                                    <p className="text-lg font-bold text-blue-400">In Range</p>
+                                  )}
+                                  <p className="text-xs text-gray-500">
+                                    {bot.currentPrice <= (bot.currentSupport || (bot.currentPrice * 0.95))
+                                      ? 'Entry conditions met'
+                                      : 'Waiting for support'}
+                                  </p>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                          <div className="mt-3 p-3 rounded-lg bg-purple-500/10 border border-purple-500/20">
+                            <p className="text-xs text-purple-300">
+                              <strong>S/R Strategy:</strong> Bot will only enter new positions when price crosses below the current support level,
+                              reducing false entries during sideways movement and improving entry timing.
+                            </p>
+                          </div>
+                        </div>
+                      )}
 
                       {/* Bot Configuration */}
                       {isEditing ? (
