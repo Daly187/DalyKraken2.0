@@ -32,37 +32,52 @@ export function setupPortfolioRoutes(router) {
 
       // Calculate portfolio metrics
       let totalValue = 0;
+      let totalProfitLoss = 0;
       const holdings = [];
 
       for (const [asset, amount] of Object.entries(balance)) {
         if (parseFloat(amount) > 0) {
-          const price = prices[asset] || 0;
-          const value = parseFloat(amount) * price;
+          const currentPrice = prices[asset] || 0;
+          const amountNum = parseFloat(amount);
+          const value = amountNum * currentPrice;
           totalValue += value;
 
+          // For now, use avgPrice = currentPrice (will be replaced when cost basis is implemented)
+          const avgPrice = currentPrice;
+          const profitLoss = (currentPrice - avgPrice) * amountNum;
+          const profitLossPercent = avgPrice > 0 ? ((currentPrice - avgPrice) / avgPrice) * 100 : 0;
+          totalProfitLoss += profitLoss;
+
           holdings.push({
+            symbol: asset,
             asset,
-            amount: parseFloat(amount),
-            price,
+            amount: amountNum,
+            avgPrice,
+            currentPrice,
             value,
-            percentage: 0, // Will calculate after total
+            profitLoss,
+            profitLossPercent,
+            allocation: 0, // Will calculate after total
           });
         }
       }
 
-      // Calculate percentages
+      // Calculate allocations
       holdings.forEach(holding => {
-        holding.percentage = totalValue > 0 ? (holding.value / totalValue) * 100 : 0;
+        holding.allocation = totalValue > 0 ? (holding.value / totalValue) * 100 : 0;
       });
 
       // Sort by value
       holdings.sort((a, b) => b.value - a.value);
 
+      const totalProfitLossPercent = totalValue > 0 ? (totalProfitLoss / (totalValue - totalProfitLoss)) * 100 : 0;
+
       const portfolioData = {
         totalValue,
+        totalProfitLoss,
+        totalProfitLossPercent,
         holdings,
-        assetCount: holdings.length,
-        lastUpdated: new Date().toISOString(),
+        lastUpdate: new Date().toISOString(),
       };
 
       // Cache the result

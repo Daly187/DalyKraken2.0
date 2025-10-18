@@ -49,19 +49,29 @@ class DCAService {
    */
   async getStatus() {
     const activeStrategies = Array.from(this.strategies.values()).filter(s => s.active);
+    const allExecutions = Array.from(this.executions.values());
+
+    // Calculate total deployed amount
+    const totalDeployed = allExecutions.reduce((sum, exec) => sum + (exec.amount || 0), 0);
+
+    // Calculate success rate
+    const successfulExecutions = allExecutions.filter(exec => exec.status === 'completed').length;
+    const successRate = allExecutions.length > 0 ? (successfulExecutions / allExecutions.length) * 100 : 0;
+
+    // Get last execution timestamp
+    const lastExecution = allExecutions.length > 0
+      ? allExecutions.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))[0].timestamp
+      : null;
 
     return {
-      initialized: this.isInitialized,
-      totalStrategies: this.strategies.size,
-      activeStrategies: activeStrategies.length,
-      totalExecutions: this.executions.size,
-      strategies: activeStrategies.map(s => ({
-        id: s.id,
-        pair: s.pair,
-        amount: s.amount,
-        interval: s.interval,
-        nextExecution: s.nextExecution,
-      })),
+      isRunning: activeStrategies.length > 0,
+      isPaused: false,
+      lastExecution,
+      nextExecution: activeStrategies.length > 0 ? activeStrategies[0].nextExecution : null,
+      totalDeployed,
+      totalOrders: allExecutions.length,
+      successRate,
+      recoveryMode: false,
     };
   }
 
