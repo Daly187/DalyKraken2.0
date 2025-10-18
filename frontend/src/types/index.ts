@@ -166,6 +166,55 @@ export interface DCADeployment {
   orderId?: string;
 }
 
+// DCA Bot Configuration
+export interface DCABotConfig {
+  id: string;
+  symbol: string;
+  initialOrderAmount: number;
+  tradeMultiplier: number; // Default 2x
+  reEntryCount: number; // Default 8
+  stepPercent: number; // Default 1%
+  stepMultiplier: number; // Default 2x
+  tpTarget: number; // Default 3% (minimum TP based on average purchase price)
+  supportResistanceEnabled: boolean; // Default false
+  reEntryDelay: number; // Default 888 minutes
+  trendAlignmentEnabled: boolean; // Default true
+  status: 'active' | 'paused' | 'completed' | 'stopped';
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Live DCA Bot (active bot with execution data)
+export interface LiveDCABot extends DCABotConfig {
+  currentEntryCount: number; // How many entries have been made
+  averagePurchasePrice: number; // Average price of all entries
+  totalInvested: number; // Total amount invested so far
+  currentPrice: number; // Current market price
+  unrealizedPnL: number; // Unrealized profit/loss
+  unrealizedPnLPercent: number; // Unrealized profit/loss percentage
+  lastEntryTime: string | null; // When the last entry was made
+  nextEntryPrice: number | null; // Price level for next entry
+  currentTpPrice: number | null; // Current take profit price
+  entries: DCABotEntry[]; // All entries made by this bot
+  techScore: number; // Technical score (bullish/bearish)
+  trendScore: number; // Trend score (bullish/bearish)
+  support: number | null; // Support level
+  resistance: number | null; // Resistance level
+}
+
+// Individual entry made by a DCA bot
+export interface DCABotEntry {
+  id: string;
+  botId: string;
+  entryNumber: number; // 1st, 2nd, 3rd entry, etc.
+  orderAmount: number; // Amount of this specific order
+  price: number; // Price at which this entry was made
+  quantity: number; // Quantity purchased
+  timestamp: string;
+  orderId?: string; // Kraken order ID
+  status: 'pending' | 'filled' | 'failed';
+}
+
 export interface ApiKey {
   id: string;
   name: string;

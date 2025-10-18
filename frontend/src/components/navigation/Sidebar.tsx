@@ -4,11 +4,10 @@ import {
   TrendingUp,
   Wallet,
   Bot,
-  ScanSearch,
   FileText,
   Settings,
-  BarChart3,
   Activity,
+  ArrowDownUp,
 } from 'lucide-react';
 
 const navigation = [
@@ -17,7 +16,7 @@ const navigation = [
   { name: 'Crypto Trends', href: '/crypto-trends', icon: Activity },
   { name: 'Portfolio', href: '/portfolio', icon: Wallet },
   { name: 'DalyDCA', href: '/daly-dca', icon: Bot },
-  { name: 'Scanner', href: '/scanner', icon: ScanSearch },
+  { name: 'Manual Trade', href: '/manual-trade', icon: ArrowDownUp },
   { name: 'Audit Log', href: '/audit-log', icon: FileText },
   { name: 'Settings', href: '/settings', icon: Settings },
 ];

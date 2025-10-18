@@ -1,0 +1,40 @@
+{
+  "name": "dalykraken-monorepo",
+  "version": "2.0.0",
+  "description": "DalyKraken 2.0 - Crypto Trading Dashboard with Automated DCA",
+  "private": true,
+  "scripts": {
+    "install:all": "npm run install:frontend && npm run install:backend && npm run install:snapshot && npm run install:cache",
+    "install:frontend": "cd frontend && npm install",
+    "install:backend": "cd backend/services/main && npm install",
+    "install:snapshot": "cd backend/services/snapshot && npm install",
+    "install:cache": "cd backend/services/cache && npm install",
+    "dev:frontend": "cd frontend && npm run dev",
+    "dev:backend": "cd backend/services/main && npm run dev",
+    "dev:snapshot": "cd backend/services/snapshot && npm run dev",
+    "dev:cache": "cd backend/services/cache && npm run dev",
+    "build:frontend": "cd frontend && npm run build",
+    "start:backend": "cd backend/services/main && npm start",
+    "start:snapshot": "cd backend/services/snapshot && npm start",
+    "start:cache": "cd backend/services/cache && npm start",
+    "firebase:emulators": "firebase emulators:start",
+    "firebase:deploy": "npm run build:frontend && firebase deploy",
+    "firebase:deploy:hosting": "npm run build:frontend && firebase deploy --only hosting",
+    "firebase:deploy:functions": "firebase deploy --only functions",
+    "firebase:logs": "firebase functions:log"
+  },
+  "keywords": [
+    "crypto",
+    "trading",
+    "kraken",
+    "dca",
+    "portfolio",
+    "websocket",
+    "real-time"
+  ],
+  "author": "DalyDough",
+  "license": "MIT",
+  "devDependencies": {
+    "firebase-tools": "^13.0.0"
+  }
+}

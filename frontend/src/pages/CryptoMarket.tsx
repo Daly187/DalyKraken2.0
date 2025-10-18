@@ -1,0 +1,459 @@
+import { useEffect, useState } from 'react';
+import { livePriceService } from '@/services/livePriceService';
+import type { LivePrice } from '@/types';
+import {
+  TrendingUp,
+  TrendingDown,
+  Activity,
+  RefreshCw,
+  Wifi,
+  WifiOff,
+  AlertCircle,
+  Search,
+  BarChart3,
+} from 'lucide-react';
+
+// All available USD trading pairs on Kraken
+// Note: BTC/USD will be converted to XBT/USD internally by the service
+const KRAKEN_SYMBOLS = [
+  // Major cryptocurrencies
+  'BTC/USD',    // Bitcoin
+  'ETH/USD',    // Ethereum
+  'SOL/USD',    // Solana
+  'XRP/USD',    // Ripple
+  'ADA/USD',    // Cardano
+  'DOGE/USD',   // Dogecoin
+  'DOT/USD',    // Polkadot
+  'MATIC/USD',  // Polygon
+  'AVAX/USD',   // Avalanche
+  'LINK/USD',   // Chainlink
+  'UNI/USD',    // Uniswap
+  'ATOM/USD',   // Cosmos
+  'LTC/USD',    // Litecoin
+  'BCH/USD',    // Bitcoin Cash
+  'ETC/USD',    // Ethereum Classic
+
+  // DeFi tokens
+  'AAVE/USD',   // Aave
+  'COMP/USD',   // Compound
+  'MKR/USD',    // Maker
+  'SNX/USD',    // Synthetix
+  'CRV/USD',    // Curve
+  'SUSHI/USD',  // SushiSwap
+  'YFI/USD',    // Yearn Finance
+  'BAL/USD',    // Balancer
+  '1INCH/USD',  // 1inch
+
+  // Layer 1 & 2
+  'ALGO/USD',   // Algorand
+  'XLM/USD',    // Stellar
+  'XTZ/USD',    // Tezos
+  'EOS/USD',    // EOS
+  'TRX/USD',    // Tron
+  'FIL/USD',    // Filecoin
+  'NEAR/USD',   // Near
+  'FTM/USD',    // Fantom
+  'MINA/USD',   // Mina
+  'FLOW/USD',   // Flow
+
+  // Infrastructure & Oracles
+  'GRT/USD',    // The Graph
+  'BAND/USD',   // Band Protocol
+
+  // Metaverse & Gaming
+  'MANA/USD',   // Decentraland
+  'SAND/USD',   // The Sandbox
+  'AXS/USD',    // Axie Infinity
+  'ENJ/USD',    // Enjin
+  'GALA/USD',   // Gala
+
+  // Other popular tokens
+  'APE/USD',    // ApeCoin
+  'LDO/USD',    // Lido
+  'OP/USD',     // Optimism
+  'ARB/USD',    // Arbitrum
+  'IMX/USD',    // Immutable X
+  'BLUR/USD',   // Blur
+];
+
+interface ConnectionStatus {
+  connected: boolean;
+  endpoint: string;
+  reconnectAttempts: number;
+  lastError: string | null;
+  usingFallback: boolean;
+}
+
+export default function CryptoMarket() {
+  const [marketData, setMarketData] = useState<Map<string, LivePrice>>(new Map());
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>({
+    connected: false,
+    endpoint: '',
+    reconnectAttempts: 0,
+    lastError: null,
+    usingFallback: false,
+  });
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState<'symbol' | 'price' | 'change' | 'volume'>('change');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
+  const [, setTick] = useState(0);
+
+  useEffect(() => {
+    // Subscribe to price updates
+    const unsubscribePrice = livePriceService.subscribe((prices) => {
+      setMarketData(prices);
+    });
+
+    // Subscribe to connection status
+    const unsubscribeStatus = livePriceService.subscribeStatus((status) => {
+      setConnectionStatus(status);
+    });
+
+    // Connect to Kraken WebSocket
+    livePriceService.connectKraken(KRAKEN_SYMBOLS);
+
+    // Update "Last Update" times every second
+    const tickInterval = setInterval(() => {
+      setTick(prev => prev + 1);
+    }, 1000);
+
+    return () => {
+      unsubscribePrice();
+      unsubscribeStatus();
+      livePriceService.disconnectKraken();
+      clearInterval(tickInterval);
+    };
+  }, []);
+
+  const formatCurrency = (value: number | undefined | null) => {
+    if (value === undefined || value === null) return '$0.00';
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: value < 1 ? 6 : 2,
+    }).format(value);
+  };
+
+  const formatPercent = (value: number | undefined | null) => {
+    if (value === undefined || value === null) return '0.00%';
+    const sign = value >= 0 ? '+' : '';
+    return `${sign}${value.toFixed(2)}%`;
+  };
+
+  const formatVolume = (value: number | undefined | null) => {
+    if (value === undefined || value === null) return '0';
+    if (value >= 1000000) {
+      return `${(value / 1000000).toFixed(2)}M`;
+    } else if (value >= 1000) {
+      return `${(value / 1000).toFixed(2)}K`;
+    }
+    return value.toFixed(2);
+  };
+
+  const formatTimeSince = (timestamp: number) => {
+    const seconds = Math.floor((Date.now() - timestamp) / 1000);
+
+    if (seconds < 10) return 'Just now';
+    if (seconds < 60) return `${seconds}s ago`;
+
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+
+    const days = Math.floor(hours / 24);
+    return `${days}d ago`;
+  };
+
+  const handleSort = (field: typeof sortBy) => {
+    if (sortBy === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortBy(field);
+      setSortDirection('desc');
+    }
+  };
+
+  const filteredAndSortedData = Array.from(marketData.entries())
+    .filter(([symbol]) =>
+      symbol.toLowerCase().includes(searchQuery.toLowerCase())
+    )
+    .sort(([, a], [, b]) => {
+      let compareValue = 0;
+
+      switch (sortBy) {
+        case 'symbol':
+          compareValue = a.symbol.localeCompare(b.symbol);
+          break;
+        case 'price':
+          compareValue = (a.price || 0) - (b.price || 0);
+          break;
+        case 'change':
+          compareValue = (a.changePercent24h || 0) - (b.changePercent24h || 0);
+          break;
+        case 'volume':
+          compareValue = (a.volume24h || 0) - (b.volume24h || 0);
+          break;
+      }
+
+      return sortDirection === 'asc' ? compareValue : -compareValue;
+    });
+
+  const handleReconnect = () => {
+    livePriceService.disconnectKraken();
+    setTimeout(() => {
+      livePriceService.connectKraken(KRAKEN_SYMBOLS);
+    }, 500);
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex justify-between items-center">
+        <div>
+          <h1 className="text-3xl font-bold">Crypto Market</h1>
+          <p className="text-sm text-gray-400 mt-1">
+            Real-time market data powered by Kraken WebSocket
+          </p>
+        </div>
+        <button
+          onClick={handleReconnect}
+          className="btn btn-secondary btn-sm flex items-center"
+        >
+          <RefreshCw className="mr-2 h-4 w-4" />
+          Reconnect
+        </button>
+      </div>
+
+      {/* Connection Status */}
+      <div className={`card ${
+        connectionStatus.connected
+          ? 'bg-green-500/10 border-green-500/20'
+          : connectionStatus.reconnectAttempts > 0
+          ? 'bg-yellow-500/10 border-yellow-500/20'
+          : 'bg-red-500/10 border-red-500/20'
+      }`}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            {connectionStatus.connected ? (
+              <>
+                <Wifi className="h-6 w-6 text-green-500" />
+                <div>
+                  <p className="font-bold text-green-500">Connected</p>
+                  <p className="text-sm text-gray-400">{connectionStatus.endpoint}</p>
+                  {connectionStatus.usingFallback && (
+                    <p className="text-xs text-yellow-500 mt-1">
+                      Using fallback connection
+                    </p>
+                  )}
+                </div>
+              </>
+            ) : connectionStatus.reconnectAttempts > 0 ? (
+              <>
+                <Activity className="h-6 w-6 text-yellow-500 animate-pulse" />
+                <div>
+                  <p className="font-bold text-yellow-500">Reconnecting...</p>
+                  <p className="text-sm text-gray-400">
+                    Attempt {connectionStatus.reconnectAttempts} of 5
+                  </p>
+                </div>
+              </>
+            ) : (
+              <>
+                <WifiOff className="h-6 w-6 text-red-500" />
+                <div>
+                  <p className="font-bold text-red-500">Disconnected</p>
+                  {connectionStatus.lastError && (
+                    <p className="text-sm text-gray-400">{connectionStatus.lastError}</p>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <Activity className={`h-5 w-5 ${
+              connectionStatus.connected ? 'text-green-500 animate-pulse' : 'text-gray-500'
+            }`} />
+            <span className="text-sm text-gray-400">
+              {marketData.size} pairs streaming
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Search and Filters */}
+      <div className="card">
+        <div className="flex gap-4 items-center">
+          <div className="flex-1 relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Search by symbol..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full bg-slate-700 text-white pl-10 pr-4 py-2 rounded-lg"
+            />
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => handleSort('change')}
+              className={`btn btn-sm ${sortBy === 'change' ? 'btn-primary' : 'btn-secondary'}`}
+            >
+              <TrendingUp className="mr-2 h-4 w-4" />
+              % Change
+            </button>
+            <button
+              onClick={() => handleSort('volume')}
+              className={`btn btn-sm ${sortBy === 'volume' ? 'btn-primary' : 'btn-secondary'}`}
+            >
+              <BarChart3 className="mr-2 h-4 w-4" />
+              Volume
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Market Data Table */}
+      <div className="card">
+        {filteredAndSortedData.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="text-left text-gray-400 text-sm">
+                  <th
+                    className="pb-3 cursor-pointer hover:text-white"
+                    onClick={() => handleSort('symbol')}
+                  >
+                    Symbol {sortBy === 'symbol' && (sortDirection === 'asc' ? '↑' : '↓')}
+                  </th>
+                  <th
+                    className="pb-3 cursor-pointer hover:text-white"
+                    onClick={() => handleSort('price')}
+                  >
+                    Price {sortBy === 'price' && (sortDirection === 'asc' ? '↑' : '↓')}
+                  </th>
+                  <th
+                    className="pb-3 cursor-pointer hover:text-white"
+                    onClick={() => handleSort('change')}
+                  >
+                    24h Change {sortBy === 'change' && (sortDirection === 'asc' ? '↑' : '↓')}
+                  </th>
+                  <th className="pb-3">24h High</th>
+                  <th className="pb-3">24h Low</th>
+                  <th
+                    className="pb-3 cursor-pointer hover:text-white"
+                    onClick={() => handleSort('volume')}
+                  >
+                    24h Volume {sortBy === 'volume' && (sortDirection === 'asc' ? '↑' : '↓')}
+                  </th>
+                  <th className="pb-3">Last Update</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredAndSortedData.map(([symbol, data]) => {
+                  const isPositive = (data.changePercent24h || 0) >= 0;
+                  const timeSinceUpdate = Date.now() - (data.timestamp || 0);
+                  const isStale = timeSinceUpdate > 10000; // 10 seconds
+
+                  return (
+                    <tr
+                      key={symbol}
+                      className="border-t border-slate-700 hover:bg-slate-700/30 transition-colors"
+                    >
+                      <td className="py-3">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium">{symbol}</span>
+                          {!isStale && (
+                            <Activity className="h-3 w-3 text-green-500 animate-pulse" />
+                          )}
+                        </div>
+                      </td>
+                      <td className="py-3 font-mono font-bold">
+                        {formatCurrency(data.price)}
+                      </td>
+                      <td className="py-3">
+                        <div className="flex items-center gap-2">
+                          {isPositive ? (
+                            <TrendingUp className="h-4 w-4 text-green-500" />
+                          ) : (
+                            <TrendingDown className="h-4 w-4 text-red-500" />
+                          )}
+                          <span className={isPositive ? 'text-green-500' : 'text-red-500'}>
+                            {formatPercent(data.changePercent24h)}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="py-3 text-gray-400 font-mono">
+                        {formatCurrency(data.high24h)}
+                      </td>
+                      <td className="py-3 text-gray-400 font-mono">
+                        {formatCurrency(data.low24h)}
+                      </td>
+                      <td className="py-3 text-gray-400 font-mono">
+                        {formatVolume(data.volume24h)}
+                      </td>
+                      <td className="py-3">
+                        <span className={`text-xs ${isStale ? 'text-gray-500' : 'text-green-500'}`}>
+                          {formatTimeSince(data.timestamp || Date.now())}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : marketData.size === 0 ? (
+          <div className="text-center py-12">
+            <div className="spinner mx-auto mb-4"></div>
+            <p className="text-gray-400 mb-2">Connecting to market data...</p>
+            <p className="text-sm text-gray-500">
+              Establishing WebSocket connection to Kraken
+            </p>
+          </div>
+        ) : (
+          <div className="text-center py-12">
+            <AlertCircle className="h-12 w-12 text-gray-500 mx-auto mb-4" />
+            <p className="text-gray-400">No results found for "{searchQuery}"</p>
+          </div>
+        )}
+      </div>
+
+      {/* Market Stats */}
+      {marketData.size > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+          <div className="card">
+            <p className="text-sm text-gray-400 mb-1">Total Pairs</p>
+            <p className="text-2xl font-bold">{marketData.size}</p>
+          </div>
+          <div className="card">
+            <p className="text-sm text-gray-400 mb-1">Gainers (24h)</p>
+            <p className="text-2xl font-bold text-green-500">
+              {Array.from(marketData.values()).filter(d => (d.changePercent24h || 0) > 0).length}
+            </p>
+          </div>
+          <div className="card">
+            <p className="text-sm text-gray-400 mb-1">Losers (24h)</p>
+            <p className="text-2xl font-bold text-red-500">
+              {Array.from(marketData.values()).filter(d => (d.changePercent24h || 0) < 0).length}
+            </p>
+          </div>
+          <div className="card">
+            <p className="text-sm text-gray-400 mb-1">Avg Change (24h)</p>
+            <p className={`text-2xl font-bold ${
+              (Array.from(marketData.values()).reduce((sum, d) => sum + (d.changePercent24h || 0), 0) / marketData.size) >= 0
+                ? 'text-green-500'
+                : 'text-red-500'
+            }`}>
+              {formatPercent(
+                Array.from(marketData.values()).reduce((sum, d) => sum + (d.changePercent24h || 0), 0) / marketData.size
+              )}
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

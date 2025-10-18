@@ -44,3 +44,12 @@ data/*.jsonl
 # Snapshots
 snapshots/
 !snapshots/.gitkeep
+
+# Firebase
+.firebase/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+functions-debug.log
+.runtimeconfig.json
+backend/functions/lib/

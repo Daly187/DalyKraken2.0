@@ -18,6 +18,8 @@ import type {
   Transaction,
   AuditSummary,
   DCADeployment,
+  DCABotConfig,
+  LiveDCABot,
 } from '@/types';
 
 interface AppState {
@@ -43,6 +45,10 @@ interface AppState {
   dcaConfig: DCAConfig | null;
   scanResults: ScanResult[];
   botScores: BotScore[];
+
+  // DCA Bots
+  dcaBots: LiveDCABot[];
+  selectedBot: LiveDCABot | null;
 
   // Risk
   riskStatus: RiskStatus | null;
@@ -82,6 +88,15 @@ interface AppState {
   executeDCA: (data: any) => Promise<void>;
   fetchBotScores: () => Promise<void>;
   refreshBotScores: () => Promise<void>;
+
+  // DCA Bot actions
+  fetchDCABots: () => Promise<void>;
+  createDCABot: (config: Omit<DCABotConfig, 'id' | 'createdAt' | 'updatedAt' | 'status'>) => Promise<void>;
+  updateDCABot: (id: string, updates: Partial<DCABotConfig>) => Promise<void>;
+  deleteDCABot: (id: string) => Promise<void>;
+  pauseDCABot: (id: string) => Promise<void>;
+  resumeDCABot: (id: string) => Promise<void>;
+  selectBot: (bot: LiveDCABot | null) => void;
 
   // Risk actions
   fetchRiskStatus: () => Promise<void>;
@@ -129,6 +144,8 @@ export const useStore = create<AppState>((set, get) => ({
   dcaConfig: null,
   scanResults: [],
   botScores: [],
+  dcaBots: [],
+  selectedBot: null,
   riskStatus: null,
   transactions: [],
   auditSummary: null,
@@ -462,7 +479,7 @@ export const useStore = create<AppState>((set, get) => ({
   fetchRiskStatus: async () => {
     try {
       const data = await apiService.getRiskStatus();
-      set({ riskStatus: data });
+      set({ riskStatus: data as any });
     } catch (error) {
       console.error('[Store] Failed to fetch risk status:', error);
     }
@@ -550,5 +567,114 @@ export const useStore = create<AppState>((set, get) => ({
         lastHealthCheck: new Date().toISOString(),
       },
     }));
+  },
+
+  // DCA Bot actions
+  fetchDCABots: async () => {
+    try {
+      const data = await apiService.getDCABots();
+      set({ dcaBots: data.bots || [] });
+    } catch (error) {
+      console.error('[Store] Failed to fetch DCA bots:', error);
+    }
+  },
+
+  createDCABot: async (config) => {
+    try {
+      const data = await apiService.createDCABot(config);
+      await get().fetchDCABots();
+      get().addNotification({
+        type: 'success',
+        title: 'Bot Created',
+        message: `DCA bot for ${config.symbol} has been created`,
+      });
+    } catch (error: any) {
+      get().addNotification({
+        type: 'error',
+        title: 'Bot Creation Failed',
+        message: error.message || 'Failed to create DCA bot',
+      });
+      throw error;
+    }
+  },
+
+  updateDCABot: async (id, updates) => {
+    try {
+      await apiService.updateDCABot(id, updates);
+      await get().fetchDCABots();
+      get().addNotification({
+        type: 'success',
+        title: 'Bot Updated',
+        message: 'DCA bot has been updated',
+      });
+    } catch (error: any) {
+      get().addNotification({
+        type: 'error',
+        title: 'Bot Update Failed',
+        message: error.message || 'Failed to update DCA bot',
+      });
+      throw error;
+    }
+  },
+
+  deleteDCABot: async (id) => {
+    try {
+      await apiService.deleteDCABot(id);
+      await get().fetchDCABots();
+      get().addNotification({
+        type: 'success',
+        title: 'Bot Deleted',
+        message: 'DCA bot has been deleted',
+      });
+    } catch (error: any) {
+      get().addNotification({
+        type: 'error',
+        title: 'Bot Deletion Failed',
+        message: error.message || 'Failed to delete DCA bot',
+      });
+      throw error;
+    }
+  },
+
+  pauseDCABot: async (id) => {
+    try {
+      await apiService.pauseDCABot(id);
+      await get().fetchDCABots();
+      get().addNotification({
+        type: 'info',
+        title: 'Bot Paused',
+        message: 'DCA bot has been paused',
+      });
+    } catch (error: any) {
+      get().addNotification({
+        type: 'error',
+        title: 'Bot Pause Failed',
+        message: error.message || 'Failed to pause DCA bot',
+      });
+      throw error;
+    }
+  },
+
+  resumeDCABot: async (id) => {
+    try {
+      await apiService.resumeDCABot(id);
+      await get().fetchDCABots();
+      get().addNotification({
+        type: 'success',
+        title: 'Bot Resumed',
+        message: 'DCA bot has been resumed',
+      });
+    } catch (error: any) {
+      get().addNotification({
+        type: 'error',
+        title: 'Bot Resume Failed',
+        message: error.message || 'Failed to resume DCA bot',
+      });
+      throw error;
+    }
+  },
+
+  selectBot: (bot) => {
+    set({ selectedBot: bot });
   },
 }));
