@@ -258,7 +258,16 @@ app.get('/portfolio/overview', async (req, res) => {
       });
     }
 
-    const balance = await krakenService.getBalance();
+    // Get API keys from headers for authenticated balance fetch
+    const apiKey = req.headers['x-kraken-api-key'] as string;
+    const apiSecret = req.headers['x-kraken-api-secret'] as string;
+
+    // Create authenticated Kraken client
+    const krakenClient = apiKey && apiSecret
+      ? new KrakenService(apiKey, apiSecret)
+      : krakenService; // Fallback to public API (won't have balance)
+
+    const balance = await krakenClient.getBalance(apiKey, apiSecret);
     const prices = await krakenService.getCurrentPrices();
 
     let totalValue = 0;
