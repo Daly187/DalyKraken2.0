@@ -24,7 +24,6 @@ export function createDCABotsRouter(db: Firestore): Router {
       const snapshot = await db
         .collection('dcaBots')
         .where('userId', '==', userId)
-        .orderBy('createdAt', 'desc')
         .get();
 
       const bots = await Promise.all(

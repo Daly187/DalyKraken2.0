@@ -49,7 +49,6 @@ export class DCABotService {
       .collection('dcaBots')
       .doc(botId)
       .collection('entries')
-      .orderBy('timestamp', 'desc')
       .get();
 
     const entries = entriesSnapshot.docs.map((doc) => ({
