@@ -122,12 +122,6 @@ export default function Dashboard() {
               Welcome Back
             </h1>
             <p className="text-slate-400 mt-2">Here's what's happening with your portfolio today</p>
-            {portfolio?.usingRealCostBasis && (
-              <p className="text-xs text-green-400 mt-1 flex items-center">
-                <Activity className="h-3 w-3 mr-1" />
-                Using real cost basis from trade history
-              </p>
-            )}
           </div>
           <div className="flex gap-3">
             <button

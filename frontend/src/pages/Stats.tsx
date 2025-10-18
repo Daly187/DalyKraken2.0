@@ -38,7 +38,7 @@ export default function Stats() {
     totalAssets: portfolio?.holdings?.length || 0,
     profitableAssets: portfolio?.holdings?.filter((h) => (h.profitLoss || 0) > 0).length || 0,
     losingAssets: portfolio?.holdings?.filter((h) => (h.profitLoss || 0) < 0).length || 0,
-    avgReturn: portfolio?.holdings?.reduce((sum, h) => sum + (h.profitLossPercent || 0), 0) / (portfolio?.holdings?.length || 1) || 0,
+    avgReturn: (portfolio?.holdings?.reduce((sum, h) => sum + (h.profitLossPercent || 0), 0) || 0) / (portfolio?.holdings?.length || 1),
     totalInvested: portfolio?.holdings?.reduce((sum, h) => sum + ((h.value || 0) - (h.profitLoss || 0)), 0) || 0,
     largestHolding: portfolio?.holdings?.sort((a, b) => (b.value || 0) - (a.value || 0))[0] || null,
     bestPerformer: portfolio?.holdings?.sort((a, b) => (b.profitLossPercent || 0) - (a.profitLossPercent || 0))[0] || null,
