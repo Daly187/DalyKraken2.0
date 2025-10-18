@@ -4,6 +4,7 @@ import { setupAccountRoutes } from './account.js';
 import { setupPortfolioRoutes } from './portfolio.js';
 import { setupMarketRoutes } from './market.js';
 import { setupDCARoutes } from './dcaRoutes.js';
+import { setupDCABotsRoutes } from './dcaBots.js';
 import { setupAuditRoutes } from './audit.js';
 import { setupSettingsRoutes } from './settings.js';
 import { setupTelegramRoutes } from './telegram.js';
@@ -38,6 +39,10 @@ export function setupRoutes(app) {
   const dcaRouter = express.Router();
   setupDCARoutes(dcaRouter);
   apiRouter.use('/dca', dcaRouter);
+
+  const dcaBotsRouter = express.Router();
+  setupDCABotsRoutes(dcaBotsRouter);
+  apiRouter.use('/dca-bots', dcaBotsRouter);
 
   const auditRouter = express.Router();
   setupAuditRoutes(auditRouter);

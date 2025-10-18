@@ -53,3 +53,6 @@ ui-debug.log
 functions-debug.log
 .runtimeconfig.json
 backend/functions/lib/
+serviceAccountKey.json
+**/serviceAccountKey.json
+historical-bots.json
