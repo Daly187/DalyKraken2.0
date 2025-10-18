@@ -316,6 +316,16 @@ class ApiService {
   async getHealth() {
     return this.get('/health');
   }
+
+  // Cost Basis & Trade History
+  async syncTradeHistory(userId?: string) {
+    return this.post('/portfolio/sync-trades', { userId });
+  }
+
+  async getCostBasis(asset: string, userId?: string) {
+    const params = userId ? { userId } : {};
+    return this.get(`/portfolio/cost-basis/${asset}`, { params });
+  }
 }
 
 export const apiService = new ApiService();

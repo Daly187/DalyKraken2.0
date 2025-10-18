@@ -11,6 +11,7 @@ import { createDCABotsRouter } from './routes/dcaBots.js';
 import { DCABotService } from './services/dcaBotService.js';
 import { KrakenService } from './services/krakenService.js';
 import { MarketAnalysisService } from './services/marketAnalysisService.js';
+import { CostBasisService } from './services/costBasisService.js';
 import { quantifyCryptoService } from './services/quantifyCryptoService.js';
 import { settingsStore, encryptKey, maskApiKey } from './services/settingsStore.js';
 
@@ -49,9 +50,10 @@ function setCache(key: string, data: any) {
   cache.set(key, { data, timestamp: Date.now() });
 }
 
-// Initialize Kraken service and Market Analysis service
+// Initialize Kraken service, Market Analysis service, and Cost Basis service
 const krakenService = new KrakenService();
 const marketAnalysisService = new MarketAnalysisService();
+const costBasisService = new CostBasisService(db);
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -243,7 +245,10 @@ app.get('/portfolio/overview', async (req, res) => {
   try {
     console.log('[API] Fetching portfolio overview');
 
-    const cached = getCache('portfolio_overview');
+    // Get userId from query or use default for demo
+    const userId = req.query.userId as string || 'default-user';
+
+    const cached = getCache(`portfolio_overview_${userId}`);
     if (cached) {
       return res.json({
         success: true,
@@ -257,9 +262,32 @@ app.get('/portfolio/overview', async (req, res) => {
     const prices = await krakenService.getCurrentPrices();
 
     let totalValue = 0;
-    let totalProfitLoss = 0;
+    let totalCostBasis = 0;
     const holdings: any[] = [];
 
+    // Prepare holdings data for cost basis lookup
+    const holdingsForCostBasis = Object.entries(balance)
+      .filter(([_, amount]) => {
+        const amountNum = typeof amount === 'number' ? amount : parseFloat(String(amount));
+        return amountNum > 0;
+      })
+      .map(([asset, amount]) => ({
+        asset,
+        amount: typeof amount === 'number' ? amount : parseFloat(String(amount)),
+        currentPrice: prices[asset] || 0,
+      }));
+
+    // Get real cost basis from trade history
+    let costBasisMap: Map<string, any>;
+    try {
+      costBasisMap = await costBasisService.getCostBasisForHoldings(userId, holdingsForCostBasis);
+      console.log(`[API] Retrieved cost basis for ${costBasisMap.size} assets`);
+    } catch (error) {
+      console.warn('[API] Failed to get cost basis, using fallback:', error);
+      costBasisMap = new Map();
+    }
+
+    // Build holdings with real P&L calculations
     for (const [asset, amount] of Object.entries(balance)) {
       const amountNum = typeof amount === 'number' ? amount : parseFloat(String(amount));
       if (amountNum > 0) {
@@ -267,21 +295,31 @@ app.get('/portfolio/overview', async (req, res) => {
         const value = amountNum * price;
         totalValue += value;
 
-        // Calculate P&L (simplified - assumes avg buy price is 90% of current for demo)
-        // In production, you'd track actual purchase prices
-        const avgBuyPrice = price * 0.9; // Simulated avg buy price
-        const costBasis = amountNum * avgBuyPrice;
-        const profitLoss = value - costBasis;
-        const profitLossPercent = costBasis > 0 ? (profitLoss / costBasis) * 100 : 0;
+        let avgPrice = price;
+        let costBasis = value;
+        let profitLoss = 0;
+        let profitLossPercent = 0;
 
-        totalProfitLoss += profitLoss;
+        // Use real cost basis if available
+        const costBasisData = costBasisMap.get(asset);
+        if (costBasisData) {
+          avgPrice = costBasisData.averageCost;
+          costBasis = costBasisData.totalCostBasis;
+          profitLoss = costBasisData.unrealizedPnL;
+          profitLossPercent = costBasisData.unrealizedPnLPercent;
+          totalCostBasis += costBasis;
+        } else {
+          // Fallback: assume break-even if no cost basis
+          console.log(`[API] No cost basis for ${asset}, assuming break-even`);
+          totalCostBasis += value;
+        }
 
         holdings.push({
           asset,
           symbol: `${asset}/USD`,
           amount: amountNum,
           price,
-          avgPrice: avgBuyPrice,
+          avgPrice,
           value,
           profitLoss,
           profitLossPercent,
@@ -297,20 +335,24 @@ app.get('/portfolio/overview', async (req, res) => {
 
     holdings.sort((a, b) => b.value - a.value);
 
-    const totalProfitLossPercent = (totalValue - totalProfitLoss) > 0
-      ? (totalProfitLoss / (totalValue - totalProfitLoss)) * 100
+    // Calculate total P&L
+    const totalProfitLoss = totalValue - totalCostBasis;
+    const totalProfitLossPercent = totalCostBasis > 0
+      ? (totalProfitLoss / totalCostBasis) * 100
       : 0;
 
     const portfolioData = {
       totalValue,
+      totalCostBasis,
       totalProfitLoss,
       totalProfitLossPercent,
       holdings,
       assetCount: holdings.length,
+      usingRealCostBasis: costBasisMap.size > 0,
       lastUpdate: new Date().toISOString(),
     };
 
-    setCache('portfolio_overview', portfolioData);
+    setCache(`portfolio_overview_${userId}`, portfolioData);
 
     res.json({
       success: true,
@@ -320,6 +362,74 @@ app.get('/portfolio/overview', async (req, res) => {
     });
   } catch (error: any) {
     console.error('[API] Error fetching portfolio overview:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+// ============================================
+// COST BASIS / TRADE HISTORY ROUTES
+// ============================================
+
+app.post('/portfolio/sync-trades', async (req, res) => {
+  try {
+    const userId = req.body.userId || 'default-user';
+
+    console.log('[API] Syncing trade history for user:', userId);
+
+    // Create Kraken client with user's API keys
+    // In production, get these from secure storage
+    const krakenClient = new KrakenService();
+
+    await costBasisService.syncTradeHistory(userId, krakenClient);
+
+    res.json({
+      success: true,
+      message: 'Trade history synced successfully',
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    console.error('[API] Error syncing trade history:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+app.get('/portfolio/cost-basis/:asset', async (req, res) => {
+  try {
+    const userId = req.query.userId as string || 'default-user';
+    const asset = req.params.asset;
+
+    console.log(`[API] Fetching cost basis for ${asset}`);
+
+    const costBasisDoc = await db
+      .collection('users')
+      .doc(userId)
+      .collection('costBasis')
+      .doc(asset)
+      .get();
+
+    if (!costBasisDoc.exists) {
+      return res.status(404).json({
+        success: false,
+        error: 'Cost basis not found for this asset',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    res.json({
+      success: true,
+      data: costBasisDoc.data(),
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    console.error('[API] Error fetching cost basis:', error.message);
     res.status(500).json({
       success: false,
       error: error.message,

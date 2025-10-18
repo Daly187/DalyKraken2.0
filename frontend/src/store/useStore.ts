@@ -99,6 +99,9 @@ interface AppState {
   resumeDCABot: (id: string) => Promise<void>;
   selectBot: (bot: LiveDCABot | null) => void;
 
+  // Cost Basis actions
+  syncTradeHistory: () => Promise<void>;
+
   // Risk actions
   fetchRiskStatus: () => Promise<void>;
 
@@ -686,7 +689,28 @@ export const useStore = create<AppState>((set, get) => ({
     }
   },
 
-  selectBot: (bot) => {
+    selectBot: (bot) => {
     set({ selectedBot: bot });
+  },
+
+  // Cost Basis actions
+  syncTradeHistory: async () => {
+    try {
+      await apiService.syncTradeHistory();
+      get().addNotification({
+        type: 'success',
+        title: 'Trade History Synced',
+        message: 'Your Kraken trade history has been synced successfully',
+      });
+      // Refresh portfolio to get updated P&L
+      await get().fetchPortfolio();
+    } catch (error: any) {
+      get().addNotification({
+        type: 'error',
+        title: 'Sync Failed',
+        message: error.message || 'Failed to sync trade history',
+      });
+      throw error;
+    }
   },
 }));
