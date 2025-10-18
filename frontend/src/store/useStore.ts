@@ -288,9 +288,11 @@ export const useStore = create<AppState>((set, get) => ({
   // Account actions
   fetchAccountInfo: async () => {
     try {
-      const data = await apiService.getAccountInfo();
-      set({ accountInfo: data });
-      localStorage.setItem(CACHE_KEYS.ACCOUNT, JSON.stringify(data));
+      const response = await apiService.getAccountInfo();
+      // Backend returns { success, data: accountData }
+      const accountData = response.data || response;
+      set({ accountInfo: accountData });
+      localStorage.setItem(CACHE_KEYS.ACCOUNT, JSON.stringify(accountData));
     } catch (error) {
       // Try to load from cache
       const cached = localStorage.getItem(CACHE_KEYS.ACCOUNT);
@@ -303,9 +305,11 @@ export const useStore = create<AppState>((set, get) => ({
 
   fetchPortfolio: async () => {
     try {
-      const data = await apiService.getPortfolio();
-      set({ portfolio: data });
-      localStorage.setItem(CACHE_KEYS.PORTFOLIO, JSON.stringify(data));
+      const response = await apiService.getPortfolio();
+      // Backend returns { success, data: portfolioData }
+      const portfolioData = response.data || response;
+      set({ portfolio: portfolioData });
+      localStorage.setItem(CACHE_KEYS.PORTFOLIO, JSON.stringify(portfolioData));
     } catch (error) {
       // Try to load from cache
       const cached = localStorage.getItem(CACHE_KEYS.PORTFOLIO);
@@ -336,9 +340,11 @@ export const useStore = create<AppState>((set, get) => ({
   // Market actions
   fetchMarketOverview: async () => {
     try {
-      const data = await apiService.getMarketOverview();
-      set({ marketData: data.markets || [] });
-      localStorage.setItem(CACHE_KEYS.MARKET, JSON.stringify(data));
+      const response = await apiService.getMarketOverview();
+      // Backend returns { success, data: { markets: [] } }
+      const marketData = response.data || response;
+      set({ marketData: marketData.markets || [] });
+      localStorage.setItem(CACHE_KEYS.MARKET, JSON.stringify(marketData));
     } catch (error) {
       const cached = localStorage.getItem(CACHE_KEYS.MARKET);
       if (cached) {

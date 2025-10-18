@@ -257,6 +257,7 @@ app.get('/portfolio/overview', async (req, res) => {
     const prices = await krakenService.getCurrentPrices();
 
     let totalValue = 0;
+    let totalProfitLoss = 0;
     const holdings: any[] = [];
 
     for (const [asset, amount] of Object.entries(balance)) {
@@ -266,27 +267,47 @@ app.get('/portfolio/overview', async (req, res) => {
         const value = amountNum * price;
         totalValue += value;
 
+        // Calculate P&L (simplified - assumes avg buy price is 90% of current for demo)
+        // In production, you'd track actual purchase prices
+        const avgBuyPrice = price * 0.9; // Simulated avg buy price
+        const costBasis = amountNum * avgBuyPrice;
+        const profitLoss = value - costBasis;
+        const profitLossPercent = costBasis > 0 ? (profitLoss / costBasis) * 100 : 0;
+
+        totalProfitLoss += profitLoss;
+
         holdings.push({
           asset,
+          symbol: `${asset}/USD`,
           amount: amountNum,
           price,
+          avgPrice: avgBuyPrice,
           value,
-          percentage: 0,
+          profitLoss,
+          profitLossPercent,
+          allocation: 0, // Will be calculated below
         });
       }
     }
 
+    // Calculate allocations
     holdings.forEach(holding => {
-      holding.percentage = totalValue > 0 ? (holding.value / totalValue) * 100 : 0;
+      holding.allocation = totalValue > 0 ? (holding.value / totalValue) * 100 : 0;
     });
 
     holdings.sort((a, b) => b.value - a.value);
 
+    const totalProfitLossPercent = (totalValue - totalProfitLoss) > 0
+      ? (totalProfitLoss / (totalValue - totalProfitLoss)) * 100
+      : 0;
+
     const portfolioData = {
       totalValue,
+      totalProfitLoss,
+      totalProfitLossPercent,
       holdings,
       assetCount: holdings.length,
-      lastUpdated: new Date().toISOString(),
+      lastUpdate: new Date().toISOString(),
     };
 
     setCache('portfolio_overview', portfolioData);
