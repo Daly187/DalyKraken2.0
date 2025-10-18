@@ -1,3 +1,5 @@
+import config from '../config/env';
+
 interface Balance {
   asset: string;
   symbol: string;
@@ -13,7 +15,7 @@ interface RateLimitInfo {
 }
 
 class KrakenApiService {
-  private readonly backendUrl = 'http://localhost:5001';
+  private readonly backendUrl = config.api.mainUrl.replace('/api', '');
   private rateLimit: RateLimitInfo = {
     lastRequestTime: 0,
     requestCount: 0,

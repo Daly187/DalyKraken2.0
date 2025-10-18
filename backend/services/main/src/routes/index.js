@@ -7,6 +7,7 @@ import { setupDCARoutes } from './dcaRoutes.js';
 import { setupAuditRoutes } from './audit.js';
 import { setupSettingsRoutes } from './settings.js';
 import { setupTelegramRoutes } from './telegram.js';
+import { quantifyCryptoService } from '../services/quantifyCryptoService.js';
 
 /**
  * Setup all API routes under /api prefix
@@ -49,6 +50,27 @@ export function setupRoutes(app) {
   const telegramRouter = express.Router();
   setupTelegramRoutes(telegramRouter);
   apiRouter.use('/telegram', telegramRouter);
+
+  // Quantify Crypto test endpoint
+  const quantifyCryptoRouter = express.Router();
+  quantifyCryptoRouter.get('/test', async (req, res) => {
+    try {
+      logger.info('Testing Quantify Crypto API connection');
+      const result = await quantifyCryptoService.testConnection();
+      res.json({
+        ...result,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      logger.error('Error testing Quantify Crypto connection:', error);
+      res.status(500).json({
+        success: false,
+        error: error.message,
+        timestamp: new Date().toISOString(),
+      });
+    }
+  });
+  apiRouter.use('/quantify-crypto', quantifyCryptoRouter);
 
   // Mount API router under /api prefix
   app.use('/api', apiRouter);

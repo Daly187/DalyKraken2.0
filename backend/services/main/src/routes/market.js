@@ -1,6 +1,7 @@
 import { logger } from '../utils/logger.js';
 import { krakenService } from '../services/krakenService.js';
 import { dataStore } from '../services/dataStore.js';
+import { quantifyCryptoService } from '../services/quantifyCryptoService.js';
 
 /**
  * Setup market data routes
@@ -241,6 +242,47 @@ export function setupMarketRoutes(router) {
       });
     } catch (error) {
       logger.error(`Error fetching spread for ${req.params.pair}:`, error);
+      res.status(500).json({
+        success: false,
+        error: error.message,
+        timestamp: new Date().toISOString(),
+      });
+    }
+  });
+
+  /**
+   * GET /api/market/quantify-crypto/enhanced-trends
+   * Get enhanced trend data with technical analysis from Quantify Crypto
+   */
+  router.get('/quantify-crypto/enhanced-trends', async (req, res) => {
+    try {
+      const { limit = 20 } = req.query;
+      logger.info(`Fetching enhanced trends (limit: ${limit})`);
+
+      // Check cache first (60 second TTL for trends)
+      const cacheKey = `enhanced_trends_${limit}`;
+      const cached = dataStore.get(cacheKey);
+      if (cached && Date.now() - cached.timestamp < 60000) {
+        logger.debug('Returning cached enhanced trends');
+        return res.json({
+          ...cached.data,
+          cached: true,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      const result = await quantifyCryptoService.getEnhancedTrends(parseInt(limit));
+
+      // Cache the result
+      dataStore.set(cacheKey, result);
+
+      res.json({
+        ...result,
+        cached: false,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      logger.error('Error fetching enhanced trends:', error);
       res.status(500).json({
         success: false,
         error: error.message,

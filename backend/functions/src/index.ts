@@ -4,12 +4,14 @@
  */
 
 import * as functions from 'firebase-functions';
-import * as admin from 'firebase-admin';
+import admin from 'firebase-admin';
 import express from 'express';
 import cors from 'cors';
-import { createDCABotsRouter } from './routes/dcaBots';
-import { DCABotService } from './services/dcaBotService';
-import { KrakenService } from './services/krakenService';
+import { createDCABotsRouter } from './routes/dcaBots.js';
+import { DCABotService } from './services/dcaBotService.js';
+import { KrakenService } from './services/krakenService.js';
+import { quantifyCryptoService } from './services/quantifyCryptoService.js';
+import { settingsStore, encryptKey, maskApiKey } from './services/settingsStore.js';
 
 // Initialize Firebase Admin
 admin.initializeApp();
@@ -20,6 +22,26 @@ const app = express();
 // Middleware
 app.use(cors({ origin: true }));
 app.use(express.json());
+
+// Simple in-memory cache
+const cache = new Map<string, { data: any; timestamp: number }>();
+const CACHE_TTL = 30000; // 30 seconds
+
+function getCache(key: string) {
+  const cached = cache.get(key);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    return cached.data;
+  }
+  cache.delete(key);
+  return null;
+}
+
+function setCache(key: string, data: any) {
+  cache.set(key, { data, timestamp: Date.now() });
+}
+
+// Initialize Kraken service
+const krakenService = new KrakenService();
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -34,27 +56,466 @@ app.get('/health', (req, res) => {
 // Mount DCA Bots routes
 app.use('/dca-bots', createDCABotsRouter(db));
 
-// Basic endpoints for backward compatibility
-app.get('/account/info', async (req, res) => {
-  // TODO: Implement with real Kraken data
-  res.json({
-    message: 'Account info endpoint - implement with Kraken API',
-  });
+// ============================================
+// ACCOUNT ROUTES
+// ============================================
+
+app.get('/account/balance', async (req, res) => {
+  try {
+    console.log('[API] Fetching account balance');
+
+    const apiKey = req.headers['x-kraken-api-key'] as string;
+    const apiSecret = req.headers['x-kraken-api-secret'] as string;
+
+    const balance = await krakenService.getBalance(apiKey, apiSecret);
+
+    res.json({
+      success: true,
+      data: balance || {},
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    console.error('[API] Error fetching balance:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      data: {},
+      timestamp: new Date().toISOString(),
+    });
+  }
 });
 
-app.get('/portfolio/overview', async (req, res) => {
-  // TODO: Implement with real Kraken data
-  res.json({
-    message: 'Portfolio endpoint - implement with Kraken API',
-  });
+app.get('/account/info', async (req, res) => {
+  try {
+    console.log('[API] Fetching account info');
+    const accountInfo = await krakenService.getAccountInfo();
+
+    res.json({
+      success: true,
+      data: accountInfo,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    console.error('[API] Error fetching account info:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
 });
+
+// ============================================
+// MARKET ROUTES
+// ============================================
 
 app.get('/market/overview', async (req, res) => {
-  // TODO: Implement with real Kraken data
-  res.json({
-    message: 'Market overview endpoint - implement with Kraken API',
-  });
+  try {
+    console.log('[API] Fetching market overview');
+
+    const cached = getCache('market_overview');
+    if (cached) {
+      return res.json({
+        success: true,
+        data: cached,
+        cached: true,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const overview = await krakenService.getMarketOverview();
+    setCache('market_overview', overview);
+
+    res.json({
+      success: true,
+      data: overview,
+      cached: false,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    console.error('[API] Error fetching market overview:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
 });
+
+app.get('/market/prices', async (req, res) => {
+  try {
+    const pairs = req.query.pairs as string | undefined;
+    console.log('[API] Fetching prices', pairs ? `for: ${pairs}` : 'for all pairs');
+
+    const pairArray = pairs ? pairs.split(',').map(p => p.trim()) : undefined;
+    const prices = await krakenService.getCurrentPrices(pairArray);
+
+    res.json({
+      success: true,
+      data: prices,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    console.error('[API] Error fetching prices:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+app.get('/market/ticker/:pair', async (req, res) => {
+  try {
+    const { pair } = req.params;
+    console.log('[API] Fetching ticker for', pair);
+
+    const ticker = await krakenService.getTicker(pair);
+
+    res.json({
+      success: true,
+      data: ticker,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    console.error('[API] Error fetching ticker:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+// Enhanced trends endpoint with Quantify Crypto integration
+app.get('/market/quantify-crypto/enhanced-trends', async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit as string) || 20;
+    console.log('[API] Fetching enhanced trends (limit:', limit, ')');
+
+    // Check cache first (60 second TTL for trends)
+    const cacheKey = `enhanced_trends_${limit}`;
+    const cached = getCache(cacheKey);
+    if (cached) {
+      return res.json({
+        ...cached,
+        cached: true,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const result = await quantifyCryptoService.getEnhancedTrends(limit);
+    setCache(cacheKey, result);
+
+    res.json({
+      ...result,
+      cached: false,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    console.error('[API] Error fetching enhanced trends:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+// ============================================
+// PORTFOLIO ROUTES
+// ============================================
+
+app.get('/portfolio/overview', async (req, res) => {
+  try {
+    console.log('[API] Fetching portfolio overview');
+
+    const cached = getCache('portfolio_overview');
+    if (cached) {
+      return res.json({
+        success: true,
+        data: cached,
+        cached: true,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const balance = await krakenService.getBalance();
+    const prices = await krakenService.getCurrentPrices();
+
+    let totalValue = 0;
+    const holdings: any[] = [];
+
+    for (const [asset, amount] of Object.entries(balance)) {
+      const amountNum = typeof amount === 'number' ? amount : parseFloat(String(amount));
+      if (amountNum > 0) {
+        const price = prices[asset] || 0;
+        const value = amountNum * price;
+        totalValue += value;
+
+        holdings.push({
+          asset,
+          amount: amountNum,
+          price,
+          value,
+          percentage: 0,
+        });
+      }
+    }
+
+    holdings.forEach(holding => {
+      holding.percentage = totalValue > 0 ? (holding.value / totalValue) * 100 : 0;
+    });
+
+    holdings.sort((a, b) => b.value - a.value);
+
+    const portfolioData = {
+      totalValue,
+      holdings,
+      assetCount: holdings.length,
+      lastUpdated: new Date().toISOString(),
+    };
+
+    setCache('portfolio_overview', portfolioData);
+
+    res.json({
+      success: true,
+      data: portfolioData,
+      cached: false,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    console.error('[API] Error fetching portfolio overview:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+// ============================================
+// SETTINGS ROUTES
+// ============================================
+
+// Get Quantify Crypto keys
+app.get('/settings/quantify-crypto-keys', async (req, res) => {
+  try {
+    console.log('[API] Fetching Quantify Crypto keys');
+
+    const keys = settingsStore.getQuantifyCryptoKeys();
+
+    // Mask the keys for security
+    const maskedKeys = keys.map(key => ({
+      ...key,
+      apiKey: key.apiKey ? maskApiKey(key.apiKey) : null,
+    }));
+
+    res.json({
+      success: true,
+      data: maskedKeys,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    console.error('[API] Error fetching Quantify Crypto keys:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+// Save Quantify Crypto keys
+app.post('/settings/quantify-crypto-keys', async (req, res) => {
+  try {
+    const { keys } = req.body;
+
+    if (!keys || !Array.isArray(keys)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid keys format. Expected array of key objects.',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    console.log(`[API] Saving ${keys.length} Quantify Crypto key(s)`);
+
+    // Encrypt API keys before storing
+    const encryptedKeys = keys.map(key => ({
+      ...key,
+      apiKey: key.apiKey ? encryptKey(key.apiKey) : null,
+      encrypted: true,
+      updatedAt: new Date().toISOString(),
+    }));
+
+    settingsStore.setQuantifyCryptoKeys(encryptedKeys);
+
+    res.json({
+      success: true,
+      message: `${keys.length} Quantify Crypto key(s) saved successfully`,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    console.error('[API] Error saving Quantify Crypto keys:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+// Get Kraken keys
+app.get('/settings/kraken-keys', async (req, res) => {
+  try {
+    console.log('[API] Fetching Kraken keys');
+
+    const keys = settingsStore.getKrakenKeys();
+
+    // Mask the keys for security
+    const maskedKeys = keys.map(key => ({
+      ...key,
+      apiKey: key.apiKey ? maskApiKey(key.apiKey) : null,
+      apiSecret: key.apiSecret ? maskApiKey(key.apiSecret) : null,
+    }));
+
+    res.json({
+      success: true,
+      data: maskedKeys,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    console.error('[API] Error fetching Kraken keys:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+// Save Kraken keys
+app.post('/settings/kraken-keys', async (req, res) => {
+  try {
+    const { keys } = req.body;
+
+    if (!keys || !Array.isArray(keys)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid keys format. Expected array of key objects.',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    console.log(`[API] Saving ${keys.length} Kraken key(s)`);
+
+    // Encrypt API keys before storing
+    const encryptedKeys = keys.map(key => ({
+      ...key,
+      apiKey: key.apiKey ? encryptKey(key.apiKey) : key.apiKey,
+      apiSecret: key.apiSecret ? encryptKey(key.apiSecret) : key.apiSecret,
+      encrypted: true,
+      updatedAt: new Date().toISOString(),
+    }));
+
+    settingsStore.setKrakenKeys(encryptedKeys);
+
+    res.json({
+      success: true,
+      message: `${keys.length} Kraken key(s) saved successfully`,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    console.error('[API] Error saving Kraken keys:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+// Get CoinMarketCap key
+app.get('/settings/coinmarketcap-key', async (req, res) => {
+  try {
+    console.log('[API] Fetching CoinMarketCap key');
+
+    const key = settingsStore.getCoinMarketCapKey();
+
+    res.json({
+      success: true,
+      data: key ? { apiKey: maskApiKey(key), hasKey: true } : { hasKey: false },
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    console.error('[API] Error fetching CoinMarketCap key:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+// Save CoinMarketCap key
+app.post('/settings/coinmarketcap-key', async (req, res) => {
+  try {
+    const { key } = req.body;
+
+    if (!key) {
+      return res.status(400).json({
+        success: false,
+        error: 'API key is required',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    console.log('[API] Saving CoinMarketCap key');
+
+    // Encrypt key before storing
+    const encryptedKey = encryptKey(key);
+    settingsStore.setCoinMarketCapKey(encryptedKey);
+
+    res.json({
+      success: true,
+      message: 'CoinMarketCap key saved successfully',
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    console.error('[API] Error saving CoinMarketCap key:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+// Test Quantify Crypto connection
+app.get('/quantify-crypto/test', async (req, res) => {
+  try {
+    console.log('[API] Testing Quantify Crypto API connection');
+
+    const result = await quantifyCryptoService.testConnection();
+
+    res.json({
+      ...result,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    console.error('[API] Error testing Quantify Crypto connection:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+// ============================================
+// DCA ROUTES
+// ============================================
 
 app.get('/dca/status', async (req, res) => {
   try {
@@ -151,8 +612,8 @@ export const processDCABots = functions.pubsub
 
       // Log summary
       const processed = results.filter((r) => r.processed).length;
-      const entries = results.filter((r) => r.action === 'entry').length;
-      const exits = results.filter((r) => r.action === 'exit').length;
+      const entries = results.filter((r: any) => r.action === 'entry').length;
+      const exits = results.filter((r: any) => r.action === 'exit').length;
 
       console.log(`[Scheduled] Summary: ${processed}/${activeBots.length} processed, ${entries} entries, ${exits} exits`);
 

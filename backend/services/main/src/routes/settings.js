@@ -1,17 +1,13 @@
 import { logger } from '../utils/logger.js';
-import crypto from 'crypto';
+import { settingsStore, encryptKey, decryptKey, maskApiKey } from '../services/settingsStore.js';
 
 /**
  * Setup settings and configuration routes
  * @param {express.Router} router - Express router instance
  */
 export function setupSettingsRoutes(router) {
-  // In-memory storage for settings (in production, use a database)
-  const settings = {
-    apiKeys: {},
-    preferences: {},
-    notifications: {},
-  };
+  // Use shared settings store instead of local storage
+  const settings = settingsStore.settings;
 
   /**
    * GET /api/settings/api-keys
@@ -348,57 +344,217 @@ export function setupSettingsRoutes(router) {
     }
   });
 
+  /**
+   * GET /api/settings/quantify-crypto-keys
+   * Get Quantify Crypto API keys
+   */
+  router.get('/quantify-crypto-keys', async (req, res) => {
+    try {
+      logger.info('Fetching Quantify Crypto keys');
+
+      const keys = settingsStore.getQuantifyCryptoKeys();
+
+      // Mask the keys for security
+      const maskedKeys = keys.map(key => ({
+        ...key,
+        apiKey: key.apiKey ? maskApiKey(key.apiKey) : null,
+      }));
+
+      res.json({
+        success: true,
+        data: maskedKeys,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      logger.error('Error fetching Quantify Crypto keys:', error);
+      res.status(500).json({
+        success: false,
+        error: error.message,
+        timestamp: new Date().toISOString(),
+      });
+    }
+  });
+
+  /**
+   * POST /api/settings/quantify-crypto-keys
+   * Save Quantify Crypto API keys
+   */
+  router.post('/quantify-crypto-keys', async (req, res) => {
+    try {
+      const { keys } = req.body;
+
+      if (!keys || !Array.isArray(keys)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid keys format. Expected array of key objects.',
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      logger.info(`Saving ${keys.length} Quantify Crypto key(s)`);
+
+      // Encrypt API keys before storing
+      const encryptedKeys = keys.map(key => ({
+        ...key,
+        apiKey: key.apiKey ? encryptKey(key.apiKey) : null,
+        encrypted: true,
+        updatedAt: new Date().toISOString(),
+      }));
+
+      settingsStore.setQuantifyCryptoKeys(encryptedKeys);
+
+      res.json({
+        success: true,
+        message: `${keys.length} Quantify Crypto key(s) saved successfully`,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      logger.error('Error saving Quantify Crypto keys:', error);
+      res.status(500).json({
+        success: false,
+        error: error.message,
+        timestamp: new Date().toISOString(),
+      });
+    }
+  });
+
+  /**
+   * GET /api/settings/kraken-keys
+   * Get Kraken API keys
+   */
+  router.get('/kraken-keys', async (req, res) => {
+    try {
+      logger.info('Fetching Kraken keys');
+
+      const keys = settingsStore.getKrakenKeys();
+
+      // Mask the keys for security
+      const maskedKeys = keys.map(key => ({
+        ...key,
+        apiKey: key.apiKey ? maskApiKey(key.apiKey) : null,
+        apiSecret: key.apiSecret ? maskApiKey(key.apiSecret) : null,
+      }));
+
+      res.json({
+        success: true,
+        data: maskedKeys,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      logger.error('Error fetching Kraken keys:', error);
+      res.status(500).json({
+        success: false,
+        error: error.message,
+        timestamp: new Date().toISOString(),
+      });
+    }
+  });
+
+  /**
+   * POST /api/settings/kraken-keys
+   * Save Kraken API keys
+   */
+  router.post('/kraken-keys', async (req, res) => {
+    try {
+      const { keys } = req.body;
+
+      if (!keys || !Array.isArray(keys)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid keys format. Expected array of key objects.',
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      logger.info(`Saving ${keys.length} Kraken key(s)`);
+
+      // Encrypt API keys before storing
+      const encryptedKeys = keys.map(key => ({
+        ...key,
+        apiKey: key.apiKey ? encryptKey(key.apiKey) : key.apiKey,
+        apiSecret: key.apiSecret ? encryptKey(key.apiSecret) : key.apiSecret,
+        encrypted: true,
+        updatedAt: new Date().toISOString(),
+      }));
+
+      settingsStore.setKrakenKeys(encryptedKeys);
+
+      res.json({
+        success: true,
+        message: `${keys.length} Kraken key(s) saved successfully`,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      logger.error('Error saving Kraken keys:', error);
+      res.status(500).json({
+        success: false,
+        error: error.message,
+        timestamp: new Date().toISOString(),
+      });
+    }
+  });
+
+  /**
+   * GET /api/settings/coinmarketcap-key
+   * Get CoinMarketCap API key
+   */
+  router.get('/coinmarketcap-key', async (req, res) => {
+    try {
+      logger.info('Fetching CoinMarketCap key');
+
+      const key = settingsStore.getCoinMarketCapKey();
+
+      res.json({
+        success: true,
+        data: key ? { apiKey: maskApiKey(key), hasKey: true } : { hasKey: false },
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      logger.error('Error fetching CoinMarketCap key:', error);
+      res.status(500).json({
+        success: false,
+        error: error.message,
+        timestamp: new Date().toISOString(),
+      });
+    }
+  });
+
+  /**
+   * POST /api/settings/coinmarketcap-key
+   * Save CoinMarketCap API key
+   */
+  router.post('/coinmarketcap-key', async (req, res) => {
+    try {
+      const { key } = req.body;
+
+      if (!key) {
+        return res.status(400).json({
+          success: false,
+          error: 'API key is required',
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      logger.info('Saving CoinMarketCap key');
+
+      // Encrypt key before storing
+      const encryptedKey = encryptKey(key);
+      settingsStore.setCoinMarketCapKey(encryptedKey);
+
+      res.json({
+        success: true,
+        message: 'CoinMarketCap key saved successfully',
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      logger.error('Error saving CoinMarketCap key:', error);
+      res.status(500).json({
+        success: false,
+        error: error.message,
+        timestamp: new Date().toISOString(),
+      });
+    }
+  });
+
   logger.info('Settings routes initialized');
-}
-
-/**
- * Helper function to mask API key for display
- */
-function maskApiKey(key) {
-  if (!key || key.length < 8) return '****';
-  return key.substring(0, 4) + '****' + key.substring(key.length - 4);
-}
-
-/**
- * Helper function to encrypt sensitive data
- * In production, use proper encryption with AWS KMS or similar
- */
-function encryptKey(key) {
-  const algorithm = 'aes-256-cbc';
-  const encryptionKey = process.env.ENCRYPTION_KEY || 'default-key-change-in-production';
-  const iv = crypto.randomBytes(16);
-
-  const cipher = crypto.createCipheriv(
-    algorithm,
-    Buffer.from(encryptionKey.padEnd(32, '0').substring(0, 32)),
-    iv
-  );
-
-  let encrypted = cipher.update(key, 'utf8', 'hex');
-  encrypted += cipher.final('hex');
-
-  return iv.toString('hex') + ':' + encrypted;
-}
-
-/**
- * Helper function to decrypt sensitive data
- */
-function decryptKey(encrypted) {
-  const algorithm = 'aes-256-cbc';
-  const encryptionKey = process.env.ENCRYPTION_KEY || 'default-key-change-in-production';
-
-  const parts = encrypted.split(':');
-  const iv = Buffer.from(parts[0], 'hex');
-  const encryptedData = parts[1];
-
-  const decipher = crypto.createDecipheriv(
-    algorithm,
-    Buffer.from(encryptionKey.padEnd(32, '0').substring(0, 32)),
-    iv
-  );
-
-  let decrypted = decipher.update(encryptedData, 'hex', 'utf8');
-  decrypted += decipher.final('utf8');
-
-  return decrypted;
 }

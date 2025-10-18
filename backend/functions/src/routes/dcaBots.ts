@@ -4,8 +4,8 @@
 
 import { Router } from 'express';
 import { Firestore } from 'firebase-admin/firestore';
-import { DCABotConfig } from '../types';
-import { DCABotService } from '../services/dcaBotService';
+import { DCABotConfig } from '../types.js';
+import { DCABotService } from '../services/dcaBotService.js';
 
 export function createDCABotsRouter(db: Firestore): Router {
   const router = Router();

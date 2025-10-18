@@ -1,4 +1,5 @@
 import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
+import config from '../config/env';
 
 class ApiService {
   private mainApi: AxiosInstance;
@@ -8,19 +9,25 @@ class ApiService {
   private throttleDelay = 100; // 100ms minimum between same requests
 
   constructor() {
+    console.log('[ApiService] Initializing with:', {
+      mainUrl: config.api.mainUrl,
+      cacheUrl: config.api.cacheUrl,
+      snapshotUrl: config.api.snapshotUrl,
+    });
+
     this.mainApi = axios.create({
-      baseURL: 'http://localhost:5001/api',
-      timeout: 10000,
+      baseURL: config.api.mainUrl,
+      timeout: config.api.timeout.main,
     });
 
     this.cacheApi = axios.create({
-      baseURL: 'http://localhost:5055',
-      timeout: 5000,
+      baseURL: config.api.cacheUrl,
+      timeout: config.api.timeout.cache,
     });
 
     this.snapshotApi = axios.create({
-      baseURL: 'http://localhost:5002',
-      timeout: 5000,
+      baseURL: config.api.snapshotUrl,
+      timeout: config.api.timeout.snapshot,
     });
   }
 

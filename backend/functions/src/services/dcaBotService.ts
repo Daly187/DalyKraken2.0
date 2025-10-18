@@ -4,9 +4,9 @@
  */
 
 import { Firestore } from 'firebase-admin/firestore';
-import { DCABotConfig, LiveDCABot, DCABotEntry, BotExecutionLog } from '../types';
-import { KrakenService } from './krakenService';
-import { MarketAnalysisService } from './marketAnalysisService';
+import { DCABotConfig, LiveDCABot, DCABotEntry, BotExecutionLog } from '../types.js';
+import { KrakenService } from './krakenService.js';
+import { MarketAnalysisService } from './marketAnalysisService.js';
 
 export class DCABotService {
   private db: Firestore;

@@ -3,8 +3,8 @@
  * Provides technical analysis and trend scoring
  */
 
-import { TrendAnalysis } from '../types';
-import { KrakenService } from './krakenService';
+import { TrendAnalysis } from '../types.js';
+import { KrakenService } from './krakenService.js';
 
 export class MarketAnalysisService {
   private krakenService: KrakenService;
