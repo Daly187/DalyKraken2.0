@@ -4,12 +4,13 @@
  */
 
 import * as functions from 'firebase-functions';
-import admin from 'firebase-admin';
 import express from 'express';
 import cors from 'cors';
+import { db } from './db.js';
 import { createAuthRouter } from './routes/auth.js';
 import { createDCABotsRouter } from './routes/dcaBots.js';
 import { createMigrateRouter } from './routes/migrate.js';
+import { createTradingRouter } from './routes/trading.js';
 import { authenticateToken } from './middleware/auth.js';
 import { DCABotService } from './services/dcaBotService.js';
 import { KrakenService } from './services/krakenService.js';
@@ -19,11 +20,6 @@ import { quantifyCryptoService } from './services/quantifyCryptoService.js';
 import { settingsStore, encryptKey, maskApiKey } from './services/settingsStore.js';
 import { orderQueueService } from './services/orderQueueService.js';
 import { orderExecutorService } from './services/orderExecutorService.js';
-
-// Initialize Firebase Admin
-admin.initializeApp();
-
-export const db = admin.firestore();
 const app = express();
 
 // Middleware

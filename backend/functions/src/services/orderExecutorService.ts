@@ -3,9 +3,10 @@
  * Executes pending orders with rate limiting and API key failover
  */
 
-import { db } from '../index.js';
+import { db } from '../db.js';
 import { KrakenService } from './krakenService.js';
 import { orderQueueService } from './orderQueueService.js';
+import { telegramService } from './telegramService.js';
 import {
   PendingOrder,
   OrderExecutionResult,
@@ -135,6 +136,15 @@ export class OrderExecutorService {
           });
 
           console.log(`[OrderExecutor] Order ${order.id} executed successfully with Kraken order ID: ${result.orderId}`);
+
+          // Send Telegram notification
+          try {
+            await this.sendTelegramNotification(order, result, apiKey);
+          } catch (error: any) {
+            console.warn('[OrderExecutor] Failed to send Telegram notification:', error.message);
+            // Don't fail the order if notification fails
+          }
+
           return result;
         } else if (!result.shouldRetry) {
           // Permanent failure (e.g., insufficient funds)
@@ -278,6 +288,88 @@ export class OrderExecutorService {
     }
 
     this.lastExecutionTime = Date.now();
+  }
+
+  /**
+   * Send Telegram notification for completed order
+   */
+  private async sendTelegramNotification(
+    order: PendingOrder,
+    result: OrderExecutionResult & { executedPrice?: string; executedVolume?: string },
+    apiKey: KrakenApiKey
+  ): Promise<void> {
+    try {
+      // Get balance for notification
+      const decryptedApiKey = apiKey.encrypted ? decryptKey(apiKey.apiKey) : apiKey.apiKey;
+      const decryptedApiSecret = apiKey.encrypted ? decryptKey(apiKey.apiSecret) : apiKey.apiSecret;
+      const krakenService = new KrakenService(decryptedApiKey, decryptedApiSecret);
+
+      let balance = { total: 0, stables: 0 };
+      try {
+        const accountBalance = await krakenService.getBalance(decryptedApiKey, decryptedApiSecret);
+        if (accountBalance) {
+          // Calculate total balance
+          balance.total = Object.entries(accountBalance).reduce((sum, [asset, amount]) => {
+            const amountNum = typeof amount === 'number' ? amount : parseFloat(String(amount));
+            return sum + amountNum;
+          }, 0);
+
+          // Calculate stables (USD, USDT, USDC, etc.)
+          balance.stables = Object.entries(accountBalance).reduce((sum, [asset, amount]) => {
+            if (asset.includes('USD') || asset.includes('USDT') || asset.includes('USDC')) {
+              const amountNum = typeof amount === 'number' ? amount : parseFloat(String(amount));
+              return sum + amountNum;
+            }
+            return sum;
+          }, 0);
+        }
+      } catch (error) {
+        console.warn('[OrderExecutor] Failed to fetch balance for Telegram notification:', error);
+      }
+
+      // Calculate price and amount
+      const price = result.executedPrice ? parseFloat(result.executedPrice) : parseFloat(order.price || '0');
+      const volume = result.executedVolume ? parseFloat(result.executedVolume) : parseFloat(order.volume);
+      const amount = price * volume;
+
+      // Determine if this is entry or exit
+      const isExit = order.side === 'sell';
+
+      if (isExit) {
+        // Trade closure notification
+        await telegramService.sendTradeClosure(
+          {
+            pair: order.pair,
+            type: order.side,
+            volume: volume.toString(),
+            price,
+            amount,
+            profit: 0, // We don't have entry price to calculate profit
+            profitPercent: 0,
+            orderResult: { txid: [result.orderId || 'N/A'] },
+          },
+          balance
+        );
+      } else {
+        // Trade entry notification
+        await telegramService.sendTradeEntry(
+          {
+            pair: order.pair,
+            type: order.side,
+            volume: volume.toString(),
+            price,
+            amount,
+            orderResult: { txid: [result.orderId || 'N/A'] },
+          },
+          balance
+        );
+      }
+
+      console.log('[OrderExecutor] Telegram notification sent successfully');
+    } catch (error: any) {
+      console.error('[OrderExecutor] Error sending Telegram notification:', error.message);
+      // Don't throw - we don't want to fail the order if notification fails
+    }
   }
 
   /**
