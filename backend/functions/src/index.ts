@@ -9,6 +9,7 @@ import express from 'express';
 import cors from 'cors';
 import { createAuthRouter } from './routes/auth.js';
 import { createDCABotsRouter } from './routes/dcaBots.js';
+import { createMigrateRouter } from './routes/migrate.js';
 import { authenticateToken } from './middleware/auth.js';
 import { DCABotService } from './services/dcaBotService.js';
 import { KrakenService } from './services/krakenService.js';
@@ -69,6 +70,9 @@ app.get('/health', (req, res) => {
 
 // Mount authentication routes (public)
 app.use('/auth', createAuthRouter(db));
+
+// Mount migration routes (public - for initial setup only)
+app.use('/migrate', createMigrateRouter(db));
 
 // Mount DCA Bots routes (protected)
 app.use('/dca-bots', authenticateToken, createDCABotsRouter(db));
