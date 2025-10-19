@@ -296,7 +296,9 @@ app.get('/portfolio/overview', authenticateToken, async (req, res) => {
     }
 
     // Fetch prices for all held assets
+    console.log('[API] Fetching prices for asset pairs:', assetPairs);
     const prices = await krakenService.getCurrentPrices(assetPairs);
+    console.log('[API] Received prices:', JSON.stringify(prices));
 
     let totalValue = 0;
     let totalCostBasis = 0;

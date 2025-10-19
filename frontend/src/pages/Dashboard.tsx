@@ -410,6 +410,11 @@ export default function Dashboard() {
                 <tbody>
                   {portfolio.holdings.slice(0, 5).map((holding, idx) => {
                     const commonName = getCommonName(holding.asset);
+                    // Get live price from livePrices map, fallback to portfolio currentPrice
+                    const symbol = `${commonName}/USD`;
+                    const livePrice = livePrices.get(symbol);
+                    const currentPrice = livePrice?.price ?? holding.currentPrice ?? 0;
+
                     return (
                     <tr
                       key={holding.symbol || holding.asset}
@@ -430,7 +435,7 @@ export default function Dashboard() {
                           : '0.000000'}
                       </td>
                       <td className="py-4 text-slate-300 font-mono">
-                        {formatCurrency(holding.currentPrice)}
+                        {formatCurrency(currentPrice)}
                       </td>
                       <td className="py-4 text-white font-semibold">
                         {formatCurrency(holding.value)}
