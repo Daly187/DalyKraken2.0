@@ -15,6 +15,7 @@ import CryptoMarket from '@/pages/CryptoMarket';
 import CryptoTrends from '@/pages/CryptoTrends';
 import Portfolio from '@/pages/Portfolio';
 import DalyDCA from '@/pages/DalyDCA';
+import DalyFunding from '@/pages/DalyFunding';
 import ManualTrade from '@/pages/ManualTrade';
 import AuditLog from '@/pages/AuditLog';
 import Stats from '@/pages/Stats';
@@ -45,6 +46,7 @@ function App() {
           <Route path="/crypto-trends" element={<CryptoTrends />} />
           <Route path="/portfolio" element={<Portfolio />} />
           <Route path="/daly-dca" element={<DalyDCA />} />
+          <Route path="/daly-funding" element={<DalyFunding />} />
           <Route path="/manual-trade" element={<ManualTrade />} />
           <Route path="/audit-log" element={<AuditLog />} />
           <Route path="/stats" element={<Stats />} />
