@@ -72,8 +72,22 @@ app.use('/auth', createAuthRouter(db));
 // Mount migration routes (public - for initial setup only)
 app.use('/migrate', createMigrateRouter(db));
 
+// Log all incoming requests to /dca-bots for debugging
+app.use('/dca-bots', (req, res, next) => {
+  console.log('[API] ===== INCOMING /dca-bots REQUEST =====');
+  console.log('[API] Method:', req.method);
+  console.log('[API] Path:', req.path);
+  console.log('[API] Full URL:', req.url);
+  console.log('[API] Headers:', JSON.stringify(req.headers, null, 2));
+  console.log('[API] Body:', JSON.stringify(req.body, null, 2));
+  next();
+});
+
 // Mount DCA Bots routes (protected)
 app.use('/dca-bots', authenticateToken, createDCABotsRouter(db));
+
+// Mount Trading routes (protected)
+app.use('/trading', authenticateToken, createTradingRouter());
 
 // ============================================
 // ACCOUNT ROUTES (Protected)
@@ -785,6 +799,88 @@ app.get('/quantify-crypto/test', authenticateToken, async (req, res) => {
 });
 
 // ============================================
+// TELEGRAM ROUTES
+// ============================================
+
+// Get Telegram config
+app.get('/telegram/config', authenticateToken, async (req, res) => {
+  try {
+    console.log('[API] Fetching Telegram config');
+
+    const doc = await db.collection('settings').doc('telegram').get();
+
+    if (!doc.exists) {
+      return res.json({
+        success: true,
+        data: null,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const data = doc.data();
+
+    // Mask the bot token for security
+    const maskedConfig = {
+      ...data,
+      botToken: data?.botToken ? maskApiKey(data.botToken) : null,
+      chatId: data?.chatId || null,
+      enabled: data?.enabled || false,
+    };
+
+    res.json({
+      success: true,
+      data: maskedConfig,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    console.error('[API] Error fetching Telegram config:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+// Save Telegram config
+app.post('/telegram/config', authenticateToken, async (req, res) => {
+  try {
+    const { botToken, chatId, enabled } = req.body;
+
+    if (!botToken || !chatId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bot token and chat ID are required',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    console.log('[API] Saving Telegram config');
+
+    // Save to Firestore (don't encrypt - the TelegramService needs plaintext)
+    await db.collection('settings').doc('telegram').set({
+      botToken,
+      chatId,
+      enabled: enabled !== undefined ? enabled : true,
+      updatedAt: new Date().toISOString(),
+    }, { merge: true });
+
+    res.json({
+      success: true,
+      message: 'Telegram configuration saved successfully',
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    console.error('[API] Error saving Telegram config:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+// ============================================
 // AUDIT ROUTES
 // ============================================
 
@@ -1146,6 +1242,39 @@ export const triggerBotProcessing = functions.https.onRequest(async (req, res) =
 /**
  * Order Queue Monitoring Endpoints
  */
+
+// TEST: Create a test pending order
+app.post('/order-queue/test', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user!.userId;
+
+    console.log('[TEST] Creating test pending order for user:', userId);
+
+    const testOrder = await orderQueueService.createOrder({
+      userId,
+      botId: 'test-bot-123',
+      pair: 'BTC/USD',
+      type: 'market' as any,
+      side: 'buy',
+      volume: '0.001',
+    });
+
+    console.log('[TEST] Test order created:', testOrder.id);
+
+    res.json({
+      success: true,
+      message: 'Test pending order created successfully',
+      order: testOrder,
+    });
+  } catch (error: any) {
+    console.error('[TEST] Error creating test order:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      stack: error.stack,
+    });
+  }
+});
 
 // Get pending orders for current user
 app.get('/order-queue', authenticateToken, async (req, res) => {

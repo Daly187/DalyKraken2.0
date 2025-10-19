@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useStore } from '@/store/useStore';
+import { apiService } from '@/services/apiService';
 import {
   Key,
   Save,
@@ -12,6 +13,7 @@ import {
   Shield,
   Zap,
   MessageSquare,
+  Send,
 } from 'lucide-react';
 
 interface KrakenApiKey {
@@ -187,25 +189,123 @@ export default function Settings() {
     }, 1000);
   };
 
-  const saveOtherApiKeys = () => {
+  const saveOtherApiKeys = async () => {
     setSaving(true);
 
-    // Save to localStorage
-    localStorage.setItem('quantify_crypto_key', quantifyCryptoKey);
-    localStorage.setItem('coinmarketcap_key', coinMarketCapKey);
-    localStorage.setItem('telegram_bot_token', telegramBotToken);
-    localStorage.setItem('telegram_chat_id', telegramChatId);
+    try {
+      // Save to localStorage
+      localStorage.setItem('quantify_crypto_key', quantifyCryptoKey);
+      localStorage.setItem('coinmarketcap_key', coinMarketCapKey);
+      localStorage.setItem('telegram_bot_token', telegramBotToken);
+      localStorage.setItem('telegram_chat_id', telegramChatId);
 
-    // TODO: Send to backend API
+      // Save Telegram config to backend (Firestore)
+      if (telegramBotToken && telegramChatId) {
+        await apiService.saveTelegramConfig({
+          botToken: telegramBotToken,
+          chatId: telegramChatId,
+          enabled: true,
+        });
+      }
 
-    setTimeout(() => {
-      setSaving(false);
       addNotification({
         type: 'success',
         title: 'Settings Saved',
         message: 'All API keys have been saved securely',
       });
-    }, 1000);
+    } catch (error: any) {
+      addNotification({
+        type: 'error',
+        title: 'Save Failed',
+        message: error.message || 'Failed to save settings',
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveTelegramConfig = async () => {
+    if (!telegramBotToken || !telegramChatId) {
+      addNotification({
+        type: 'error',
+        title: 'Missing Credentials',
+        message: 'Please enter both Telegram bot token and chat ID',
+      });
+      return;
+    }
+
+    setSaving(true);
+
+    try {
+      // Save to localStorage
+      localStorage.setItem('telegram_bot_token', telegramBotToken);
+      localStorage.setItem('telegram_chat_id', telegramChatId);
+
+      // Save to backend (Firestore)
+      await apiService.saveTelegramConfig({
+        botToken: telegramBotToken,
+        chatId: telegramChatId,
+        enabled: true,
+      });
+
+      addNotification({
+        type: 'success',
+        title: 'Telegram Saved',
+        message: 'Telegram credentials have been saved to the server',
+      });
+    } catch (error: any) {
+      addNotification({
+        type: 'error',
+        title: 'Save Failed',
+        message: error.message || 'Failed to save Telegram configuration',
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const testTelegramConnection = async () => {
+    if (!telegramBotToken || !telegramChatId) {
+      addNotification({
+        type: 'error',
+        title: 'Missing Credentials',
+        message: 'Please enter both Telegram bot token and chat ID',
+      });
+      return;
+    }
+
+    setSaving(true);
+    addNotification({
+      type: 'info',
+      title: 'Testing Telegram',
+      message: 'Sending test message...',
+    });
+
+    try {
+      const response = await apiService.testTelegram();
+
+      if (response.success) {
+        addNotification({
+          type: 'success',
+          title: 'Telegram Connected',
+          message: 'Test message sent successfully! Check your Telegram.',
+        });
+      } else {
+        addNotification({
+          type: 'warning',
+          title: 'Telegram Not Configured',
+          message: response.reason || 'Telegram notifications are disabled or not configured',
+        });
+      }
+    } catch (error: any) {
+      addNotification({
+        type: 'error',
+        title: 'Connection Failed',
+        message: error.message || 'Failed to send test message. Please check your credentials.',
+      });
+    } finally {
+      setSaving(false);
+    }
   };
 
   const getStatusColor = (status: string) => {
@@ -482,12 +582,34 @@ export default function Settings() {
             />
           </div>
         </div>
-        <button
-          onClick={() => toggleSecretVisibility('telegram')}
-          className="btn btn-secondary btn-sm mt-2"
-        >
-          {showSecrets['telegram'] ? 'Hide' : 'Show'} Token
-        </button>
+        <div className="flex gap-2 mt-4">
+          <button
+            onClick={() => toggleSecretVisibility('telegram')}
+            className="btn btn-secondary btn-sm"
+          >
+            {showSecrets['telegram'] ? 'Hide' : 'Show'} Token
+          </button>
+          <button
+            onClick={saveTelegramConfig}
+            disabled={saving || !telegramBotToken || !telegramChatId}
+            className="btn btn-primary btn-sm flex items-center gap-2"
+          >
+            {saving ? (
+              <RefreshCw className="h-4 w-4 animate-spin" />
+            ) : (
+              <Save className="h-4 w-4" />
+            )}
+            Save Telegram Config
+          </button>
+          <button
+            onClick={testTelegramConnection}
+            disabled={saving || !telegramBotToken || !telegramChatId}
+            className="btn btn-secondary btn-sm flex items-center gap-2"
+          >
+            <Send className="h-4 w-4" />
+            Send Test Message
+          </button>
+        </div>
       </div>
 
       {/* Save All Button */}
