@@ -415,6 +415,10 @@ export default function Dashboard() {
                     const livePrice = livePrices.get(symbol);
                     const currentPrice = livePrice?.price ?? holding.currentPrice ?? 0;
 
+                    // Calculate value using live price
+                    const amount = holding.amount ?? 0;
+                    const value = amount * currentPrice;
+
                     return (
                     <tr
                       key={holding.symbol || holding.asset}
@@ -438,7 +442,7 @@ export default function Dashboard() {
                         {formatCurrency(currentPrice)}
                       </td>
                       <td className="py-4 text-white font-semibold">
-                        {formatCurrency(holding.value)}
+                        {formatCurrency(value)}
                       </td>
                       <td className="py-4">
                         <div className="space-y-1">
