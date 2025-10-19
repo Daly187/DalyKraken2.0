@@ -8,6 +8,7 @@ import * as functions from 'firebase-functions';
 import { DCABotConfig } from '../types.js';
 import { DCABotService } from '../services/dcaBotService.js';
 import { KrakenService } from '../services/krakenService.js';
+import { settingsStore, decryptKey } from '../services/settingsStore.js';
 
 export function createDCABotsRouter(db: Firestore): Router {
   const router = Router();
@@ -452,18 +453,35 @@ export function createDCABotsRouter(db: Firestore): Router {
 
       console.log(`[DCABots API] Processing ${activeBots.length} active bots`);
 
-      // Get Kraken credentials from Firebase config
-      const config = functions.config();
-      const krakenApiKey = config.kraken?.api_key || '';
-      const krakenApiSecret = config.kraken?.api_secret || '';
+      // Get Kraken credentials from settingsStore
+      const krakenKeys = settingsStore.getKrakenKeys();
 
-      if (!krakenApiKey || !krakenApiSecret) {
-        console.error('[DCABots API] Kraken credentials not configured in Firebase');
+      if (!krakenKeys || krakenKeys.length === 0) {
+        console.error('[DCABots API] No Kraken API keys configured in settingsStore');
         return res.status(500).json({
           success: false,
-          error: 'Kraken API credentials not configured. Please contact support.',
+          error: 'No Kraken API credentials configured. Please add them in Settings.',
         });
       }
+
+      // Use the first active key
+      const activeKey = krakenKeys.find(k => k.isActive);
+      const keyToUse = activeKey || krakenKeys[0];
+
+      if (!keyToUse || !keyToUse.apiKey || !keyToUse.apiSecret) {
+        console.error('[DCABots API] Invalid Kraken API key configuration');
+        return res.status(500).json({
+          success: false,
+          error: 'Invalid Kraken API credentials. Please check Settings.',
+        });
+      }
+
+      // Decrypt the keys
+      const krakenApiKey = keyToUse.encrypted ? decryptKey(keyToUse.apiKey) : keyToUse.apiKey;
+      const krakenApiSecret = keyToUse.encrypted ? decryptKey(keyToUse.apiSecret) : keyToUse.apiSecret;
+
+      console.log(`[DCABots API] Using Kraken key: ${keyToUse.label || 'Primary'}`);
+
 
       // Process each bot
       const results = await Promise.all(
