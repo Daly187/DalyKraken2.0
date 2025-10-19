@@ -8,7 +8,6 @@ import * as functions from 'firebase-functions';
 import { DCABotConfig } from '../types.js';
 import { DCABotService } from '../services/dcaBotService.js';
 import { KrakenService } from '../services/krakenService.js';
-import { settingsStore, decryptKey } from '../services/settingsStore.js';
 
 export function createDCABotsRouter(db: Firestore): Router {
   const router = Router();
@@ -425,10 +424,15 @@ export function createDCABotsRouter(db: Firestore): Router {
    * Manually trigger bot processing for all user's active bots
    */
   router.post('/trigger', async (req, res) => {
+    console.log('[DCABots API] ===== TRIGGER ENDPOINT CALLED =====');
+    console.log('[DCABots API] Request headers:', req.headers);
+    console.log('[DCABots API] Request user:', req.user);
+
     try {
       // Check if user is authenticated
       if (!req.user || !req.user.userId) {
         console.error('[DCABots API] Trigger attempted without authentication');
+        console.error('[DCABots API] req.user:', req.user);
         return res.status(401).json({
           success: false,
           error: 'Authentication required',
@@ -462,45 +466,19 @@ export function createDCABotsRouter(db: Firestore): Router {
 
       console.log(`[DCABots API] Processing ${activeBots.length} active bots`);
 
-      // Get Kraken credentials from Firestore user settings
-      const userDoc = await db.collection('users').doc(userId).get();
-      console.log(`[DCABots API] Firestore user doc exists: ${userDoc.exists}`);
+      // Get Kraken credentials from headers (same as all other endpoints)
+      const krakenApiKey = req.headers['x-kraken-api-key'] as string;
+      const krakenApiSecret = req.headers['x-kraken-api-secret'] as string;
 
-      const userData = userDoc.data();
-      console.log(`[DCABots API] User data keys:`, userData ? Object.keys(userData) : 'null');
-
-      const krakenKeys = userData?.krakenKeys || [];
-      console.log(`[DCABots API] Found ${krakenKeys.length} Kraken keys in Firestore for user ${userId}`);
-
-      if (!krakenKeys || krakenKeys.length === 0) {
-        console.error('[DCABots API] No Kraken API keys configured for user', {
-          userId,
-          userDocExists: userDoc.exists,
-          userDataKeys: userData ? Object.keys(userData) : null,
-        });
-        return res.status(500).json({
+      if (!krakenApiKey || !krakenApiSecret) {
+        console.error('[DCABots API] No Kraken API keys provided in headers');
+        return res.status(401).json({
           success: false,
-          error: 'No Kraken API credentials configured. Please add them in Settings.',
+          error: 'Kraken API credentials required',
         });
       }
 
-      // Use the first active key
-      const activeKey = krakenKeys.find((k: any) => k.isActive);
-      const keyToUse = activeKey || krakenKeys[0];
-
-      if (!keyToUse || !keyToUse.apiKey || !keyToUse.apiSecret) {
-        console.error('[DCABots API] Invalid Kraken API key configuration');
-        return res.status(500).json({
-          success: false,
-          error: 'Invalid Kraken API credentials. Please check Settings.',
-        });
-      }
-
-      // Decrypt the keys if encrypted
-      const krakenApiKey = keyToUse.encrypted ? decryptKey(keyToUse.apiKey) : keyToUse.apiKey;
-      const krakenApiSecret = keyToUse.encrypted ? decryptKey(keyToUse.apiSecret) : keyToUse.apiSecret;
-
-      console.log(`[DCABots API] Using Kraken key: ${keyToUse.label || 'Primary'}`);
+      console.log('[DCABots API] Using Kraken credentials from request headers');
 
 
       // Process each bot
