@@ -37,6 +37,13 @@ export default function Dashboard() {
       // Calculate total value with live prices
       const liveTotal = portfolio.holdings?.reduce((total, holding) => {
         const commonName = getCommonName(holding.asset);
+
+        // Handle USD and stablecoins with price = 1
+        if (['USD', 'USDT', 'USDC', 'DAI', 'BUSD'].includes(commonName)) {
+          const amount = holding.amount ?? 0;
+          return total + amount;
+        }
+
         const symbol = `${commonName}/USD`;
         const livePrice = livePrices.get(symbol);
         const currentPrice = livePrice?.price ?? holding.currentPrice ?? 0;
@@ -113,6 +120,13 @@ export default function Dashboard() {
 
     return portfolio.holdings.reduce((total, holding) => {
       const commonName = getCommonName(holding.asset);
+
+      // Handle USD and stablecoins with price = 1
+      if (['USD', 'USDT', 'USDC', 'DAI', 'BUSD'].includes(commonName)) {
+        const amount = holding.amount ?? 0;
+        return total + amount; // USD is always $1.00
+      }
+
       const symbol = `${commonName}/USD`;
       const livePrice = livePrices.get(symbol);
       const currentPrice = livePrice?.price ?? holding.currentPrice ?? 0;
@@ -436,10 +450,17 @@ export default function Dashboard() {
                 <tbody>
                   {portfolio.holdings.slice(0, 5).map((holding, idx) => {
                     const commonName = getCommonName(holding.asset);
+
                     // Get live price from livePrices map, fallback to portfolio currentPrice
-                    const symbol = `${commonName}/USD`;
-                    const livePrice = livePrices.get(symbol);
-                    const currentPrice = livePrice?.price ?? holding.currentPrice ?? 0;
+                    // Handle USD and stablecoins with price = 1
+                    let currentPrice: number;
+                    if (['USD', 'USDT', 'USDC', 'DAI', 'BUSD'].includes(commonName)) {
+                      currentPrice = 1;
+                    } else {
+                      const symbol = `${commonName}/USD`;
+                      const livePrice = livePrices.get(symbol);
+                      currentPrice = livePrice?.price ?? holding.currentPrice ?? 0;
+                    }
 
                     // Calculate value using live price
                     const amount = holding.amount ?? 0;
