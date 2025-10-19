@@ -289,29 +289,75 @@ class ApiService {
     return this.get('/audit/dca-summary');
   }
 
+  // Helper function to get Kraken API keys for DCA bot operations
+  private getKrakenHeaders() {
+    const getApiKeys = () => {
+      try {
+        const keysJson = localStorage.getItem('kraken_api_keys');
+        if (!keysJson) return null;
+
+        const keys = JSON.parse(keysJson);
+        if (!Array.isArray(keys)) return null;
+
+        // Try primary key first
+        const primaryKey = keys.find((k: any) => k.type === 'primary');
+        if (primaryKey?.apiKey && primaryKey?.apiSecret && primaryKey.isActive) {
+          return {
+            apiKey: primaryKey.apiKey,
+            apiSecret: primaryKey.apiSecret,
+          };
+        }
+
+        // Fall back to any active key
+        const anyActiveKey = keys.find((k: any) => k.isActive && k.apiKey && k.apiSecret);
+        if (anyActiveKey) {
+          return {
+            apiKey: anyActiveKey.apiKey,
+            apiSecret: anyActiveKey.apiSecret,
+          };
+        }
+
+        return null;
+      } catch (error) {
+        console.error('[ApiService] Error getting API keys:', error);
+        return null;
+      }
+    };
+
+    const credentials = getApiKeys();
+    const headers: Record<string, string> = {};
+
+    if (credentials) {
+      headers['x-kraken-api-key'] = credentials.apiKey;
+      headers['x-kraken-api-secret'] = credentials.apiSecret;
+    }
+
+    return headers;
+  }
+
   // DCA Bot management
   async getDCABots() {
-    return this.get('/dca-bots');
+    return this.get('/dca-bots', { headers: this.getKrakenHeaders() });
   }
 
   async createDCABot(config: any) {
-    return this.post('/dca-bots', config);
+    return this.post('/dca-bots', config, { headers: this.getKrakenHeaders() });
   }
 
   async updateDCABot(id: string, updates: any) {
-    return this.put(`/dca-bots/${id}`, updates);
+    return this.put(`/dca-bots/${id}`, updates, { headers: this.getKrakenHeaders() });
   }
 
   async deleteDCABot(id: string) {
-    return this.delete(`/dca-bots/${id}`);
+    return this.delete(`/dca-bots/${id}`, { headers: this.getKrakenHeaders() });
   }
 
   async pauseDCABot(id: string) {
-    return this.post(`/dca-bots/${id}/pause`);
+    return this.post(`/dca-bots/${id}/pause`, {}, { headers: this.getKrakenHeaders() });
   }
 
   async resumeDCABot(id: string) {
-    return this.post(`/dca-bots/${id}/resume`);
+    return this.post(`/dca-bots/${id}/resume`, {}, { headers: this.getKrakenHeaders() });
   }
 
   async triggerDCABots() {
