@@ -464,11 +464,20 @@ export function createDCABotsRouter(db: Firestore): Router {
 
       // Get Kraken credentials from Firestore user settings
       const userDoc = await db.collection('users').doc(userId).get();
+      console.log(`[DCABots API] Firestore user doc exists: ${userDoc.exists}`);
+
       const userData = userDoc.data();
+      console.log(`[DCABots API] User data keys:`, userData ? Object.keys(userData) : 'null');
+
       const krakenKeys = userData?.krakenKeys || [];
+      console.log(`[DCABots API] Found ${krakenKeys.length} Kraken keys in Firestore for user ${userId}`);
 
       if (!krakenKeys || krakenKeys.length === 0) {
-        console.error('[DCABots API] No Kraken API keys configured for user');
+        console.error('[DCABots API] No Kraken API keys configured for user', {
+          userId,
+          userDocExists: userDoc.exists,
+          userDataKeys: userData ? Object.keys(userData) : null,
+        });
         return res.status(500).json({
           success: false,
           error: 'No Kraken API credentials configured. Please add them in Settings.',

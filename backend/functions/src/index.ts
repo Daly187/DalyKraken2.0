@@ -675,7 +675,7 @@ app.post('/settings/kraken-keys', authenticateToken, async (req, res) => {
     settingsStore.setKrakenKeys(encryptedKeys);
 
     // Also save to Firestore for persistence
-    await db.collection('users').doc(userId).set(
+    const writeResult = await db.collection('users').doc(userId).set(
       {
         krakenKeys: encryptedKeys,
         updatedAt: new Date().toISOString(),
@@ -683,7 +683,16 @@ app.post('/settings/kraken-keys', authenticateToken, async (req, res) => {
       { merge: true }
     );
 
-    console.log(`[API] Kraken keys saved to Firestore for user ${userId}`);
+    console.log(`[API] Kraken keys saved to Firestore for user ${userId}`, {
+      writeTime: writeResult.writeTime,
+      keyCount: encryptedKeys.length,
+      path: `users/${userId}`,
+    });
+
+    // Verify the write by reading back
+    const verifyDoc = await db.collection('users').doc(userId).get();
+    const verifyData = verifyDoc.data();
+    console.log(`[API] Verified Firestore write - found ${verifyData?.krakenKeys?.length || 0} keys`);
 
     res.json({
       success: true,
