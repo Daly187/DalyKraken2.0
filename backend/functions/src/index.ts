@@ -277,7 +277,26 @@ app.get('/portfolio/overview', authenticateToken, async (req, res) => {
       : krakenService; // Fallback to public API (won't have balance)
 
     const balance = await krakenClient.getBalance(apiKey, apiSecret);
-    const prices = await krakenService.getCurrentPrices();
+
+    // Build list of trading pairs for assets we hold
+    const assetPairs: string[] = [];
+    for (const asset of Object.keys(balance)) {
+      const amountNum = typeof balance[asset] === 'number' ? balance[asset] : parseFloat(String(balance[asset]));
+      if (amountNum > 0) {
+        // Skip USD and stablecoins - they don't need price lookup
+        if (['ZUSD', 'USD', 'USDT', 'USDC', 'DAI', 'BUSD'].includes(asset)) {
+          continue;
+        }
+        // Convert asset to Kraken pair format (e.g., XXBT -> XXBTZUSD, SOL -> SOLUSD)
+        const pair = asset.startsWith('X') || asset.startsWith('Z')
+          ? `${asset}ZUSD`
+          : `${asset}USD`;
+        assetPairs.push(pair);
+      }
+    }
+
+    // Fetch prices for all held assets
+    const prices = await krakenService.getCurrentPrices(assetPairs);
 
     let totalValue = 0;
     let totalCostBasis = 0;
@@ -289,11 +308,21 @@ app.get('/portfolio/overview', authenticateToken, async (req, res) => {
         const amountNum = typeof amount === 'number' ? amount : parseFloat(String(amount));
         return amountNum > 0;
       })
-      .map(([asset, amount]) => ({
-        asset,
-        amount: typeof amount === 'number' ? amount : parseFloat(String(amount)),
-        currentPrice: prices[asset] || 0,
-      }));
+      .map(([asset, amount]) => {
+        const amountNum = typeof amount === 'number' ? amount : parseFloat(String(amount));
+        // Handle USD and stablecoins with price = 1
+        let currentPrice;
+        if (['ZUSD', 'USD', 'USDT', 'USDC', 'DAI', 'BUSD'].includes(asset)) {
+          currentPrice = 1;
+        } else {
+          currentPrice = prices[asset] || 0;
+        }
+        return {
+          asset,
+          amount: amountNum,
+          currentPrice,
+        };
+      });
 
     // Get real cost basis from trade history
     let costBasisMap: Map<string, any>;
@@ -309,7 +338,13 @@ app.get('/portfolio/overview', authenticateToken, async (req, res) => {
     for (const [asset, amount] of Object.entries(balance)) {
       const amountNum = typeof amount === 'number' ? amount : parseFloat(String(amount));
       if (amountNum > 0) {
-        const price = prices[asset] || 0;
+        // Handle USD and stablecoins with price = 1
+        let price;
+        if (['ZUSD', 'USD', 'USDT', 'USDC', 'DAI', 'BUSD'].includes(asset)) {
+          price = 1;
+        } else {
+          price = prices[asset] || 0;
+        }
         const value = amountNum * price;
         totalValue += value;
 

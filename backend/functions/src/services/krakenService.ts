@@ -177,19 +177,25 @@ export class KrakenService {
 
       const response = await this.client.api('Ticker', { pair: pairsToFetch.join(',') });
 
+      // Map response back to asset names
       const prices: Record<string, number> = {};
       for (const [pair, data] of Object.entries(response.result)) {
-        prices[pair] = parseFloat((data as any).c[0]);
+        // Extract the base asset from the pair name
+        // Examples: XXBTZUSD -> XXBT, SOLUSD -> SOL, XETHZUSD -> XETH
+        let asset = pair.replace(/ZUSD$/, '').replace(/USD$/, '').replace(/ZEUR$/, '').replace(/EUR$/, '');
+
+        // Store the price with the asset name as key
+        prices[asset] = parseFloat((data as any).c[0]);
       }
 
       return prices;
     } catch (error) {
       console.error('[KrakenService] Error fetching prices:', error);
-      // Return mock prices on error
+      // Return mock prices on error (using asset names, not pair names)
       return {
-        'XXBTZUSD': 45000,
-        'XETHZUSD': 2500,
-        'XLTCZUSD': 80,
+        'XXBT': 45000,
+        'XETH': 2500,
+        'XLTC': 80,
       };
     }
   }
