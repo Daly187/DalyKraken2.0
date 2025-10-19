@@ -593,6 +593,42 @@ class KrakenService {
       throw error;
     }
   }
+
+  /**
+   * Get open orders
+   */
+  async getOpenOrders() {
+    try {
+      logger.info('Fetching open orders');
+
+      if (!this.apiKey || !this.apiSecret) {
+        throw new Error('API keys not configured');
+      }
+
+      return await this.privateRequest('OpenOrders');
+    } catch (error) {
+      logger.error('Error fetching open orders:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Cancel an order
+   */
+  async cancelOrder(txid) {
+    try {
+      logger.info(`Cancelling order: ${txid}`);
+
+      if (!this.apiKey || !this.apiSecret) {
+        throw new Error('API keys not configured');
+      }
+
+      return await this.privateRequest('CancelOrder', { txid });
+    } catch (error) {
+      logger.error('Error cancelling order:', error);
+      throw error;
+    }
+  }
 }
 
 // Export singleton instance

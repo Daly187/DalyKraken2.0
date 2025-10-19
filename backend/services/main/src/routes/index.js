@@ -8,6 +8,7 @@ import { setupDCABotsRoutes } from './dcaBots.js';
 import { setupAuditRoutes } from './audit.js';
 import { setupSettingsRoutes } from './settings.js';
 import { setupTelegramRoutes } from './telegram.js';
+import { setupTradingRoutes } from './trading.js';
 import { quantifyCryptoService } from '../services/quantifyCryptoService.js';
 
 /**
@@ -55,6 +56,10 @@ export function setupRoutes(app) {
   const telegramRouter = express.Router();
   setupTelegramRoutes(telegramRouter);
   apiRouter.use('/telegram', telegramRouter);
+
+  const tradingRouter = express.Router();
+  setupTradingRoutes(tradingRouter);
+  apiRouter.use('/trading', tradingRouter);
 
   // Quantify Crypto test endpoint
   const quantifyCryptoRouter = express.Router();

@@ -1,22 +1,11 @@
 import { logger } from '../utils/logger.js';
+import { telegramService } from '../services/telegramService.js';
 
 /**
  * Setup Telegram integration routes
  * @param {express.Router} router - Express router instance
  */
 export function setupTelegramRoutes(router) {
-  // In-memory storage for Telegram config (use database in production)
-  const telegramConfig = {
-    botToken: process.env.TELEGRAM_BOT_TOKEN || null,
-    chatId: process.env.TELEGRAM_CHAT_ID || null,
-    enabled: false,
-    notifications: {
-      trades: true,
-      dcaExecutions: true,
-      alerts: true,
-      dailySummary: true,
-    },
-  };
 
   /**
    * GET /api/telegram/status
@@ -26,15 +15,11 @@ export function setupTelegramRoutes(router) {
     try {
       logger.info('Fetching Telegram status');
 
+      const config = telegramService.getConfig();
+
       res.json({
         success: true,
-        data: {
-          enabled: telegramConfig.enabled,
-          configured: !!(telegramConfig.botToken && telegramConfig.chatId),
-          botToken: telegramConfig.botToken ? maskToken(telegramConfig.botToken) : null,
-          chatId: telegramConfig.chatId,
-          notifications: telegramConfig.notifications,
-        },
+        data: config,
         timestamp: new Date().toISOString(),
       });
     } catch (error) {
@@ -65,8 +50,7 @@ export function setupTelegramRoutes(router) {
 
       logger.info('Configuring Telegram integration');
 
-      telegramConfig.botToken = botToken;
-      telegramConfig.chatId = chatId;
+      telegramService.configure(botToken, chatId);
 
       res.json({
         success: true,
@@ -99,7 +83,8 @@ export function setupTelegramRoutes(router) {
         });
       }
 
-      if (enabled && (!telegramConfig.botToken || !telegramConfig.chatId)) {
+      const config = telegramService.getConfig();
+      if (enabled && !config.configured) {
         return res.status(400).json({
           success: false,
           error: 'Cannot enable Telegram: bot not configured',
@@ -109,7 +94,7 @@ export function setupTelegramRoutes(router) {
 
       logger.info(`${enabled ? 'Enabling' : 'Disabling'} Telegram notifications`);
 
-      telegramConfig.enabled = enabled;
+      telegramService.setEnabled(enabled);
 
       res.json({
         success: true,
@@ -132,7 +117,8 @@ export function setupTelegramRoutes(router) {
    */
   router.post('/test', async (req, res) => {
     try {
-      if (!telegramConfig.botToken || !telegramConfig.chatId) {
+      const config = telegramService.getConfig();
+      if (!config.configured) {
         return res.status(400).json({
           success: false,
           error: 'Telegram not configured',
@@ -142,16 +128,11 @@ export function setupTelegramRoutes(router) {
 
       logger.info('Sending Telegram test message');
 
-      // In production, actually send via Telegram API
-      const testMessage = {
-        text: '🤖 DalyKraken Test Message\n\nYour Telegram integration is working correctly!',
-        sent: true,
-        timestamp: new Date().toISOString(),
-      };
+      const result = await telegramService.sendTestMessage();
 
       res.json({
         success: true,
-        data: testMessage,
+        data: result,
         message: 'Test message sent successfully',
         timestamp: new Date().toISOString(),
       });
@@ -181,7 +162,8 @@ export function setupTelegramRoutes(router) {
         });
       }
 
-      if (!telegramConfig.enabled) {
+      const config = telegramService.getConfig();
+      if (!config.enabled) {
         return res.status(400).json({
           success: false,
           error: 'Telegram notifications are disabled',
@@ -191,12 +173,7 @@ export function setupTelegramRoutes(router) {
 
       logger.info('Sending custom Telegram message');
 
-      // In production, send via Telegram API
-      const result = {
-        sent: true,
-        messageId: `msg_${Date.now()}`,
-        timestamp: new Date().toISOString(),
-      };
+      const result = await telegramService.sendMessage(message, parseMode);
 
       res.json({
         success: true,
@@ -223,14 +200,12 @@ export function setupTelegramRoutes(router) {
       const updates = req.body;
       logger.info('Updating Telegram notification preferences');
 
-      telegramConfig.notifications = {
-        ...telegramConfig.notifications,
-        ...updates,
-      };
+      telegramService.updateNotificationPreferences(updates);
+      const config = telegramService.getConfig();
 
       res.json({
         success: true,
-        data: telegramConfig.notifications,
+        data: config.notifications,
         message: 'Notification preferences updated',
         timestamp: new Date().toISOString(),
       });
@@ -252,9 +227,11 @@ export function setupTelegramRoutes(router) {
     try {
       logger.info('Fetching Telegram notification preferences');
 
+      const config = telegramService.getConfig();
+
       res.json({
         success: true,
-        data: telegramConfig.notifications,
+        data: config.notifications,
         timestamp: new Date().toISOString(),
       });
     } catch (error) {
@@ -283,7 +260,11 @@ export function setupTelegramRoutes(router) {
         });
       }
 
-      if (!telegramConfig.enabled || !telegramConfig.notifications.alerts) {
+      logger.info(`Sending Telegram alert: ${severity}`);
+
+      const result = await telegramService.sendAlert(title, message, severity);
+
+      if (!result.sent) {
         return res.json({
           success: true,
           message: 'Alert notifications disabled',
@@ -291,24 +272,6 @@ export function setupTelegramRoutes(router) {
           timestamp: new Date().toISOString(),
         });
       }
-
-      logger.info(`Sending Telegram alert: ${severity}`);
-
-      const alertEmoji = {
-        info: 'ℹ️',
-        warning: '⚠️',
-        error: '❌',
-        success: '✅',
-      };
-
-      const formattedMessage = `${alertEmoji[severity] || 'ℹ️'} ${title ? `*${title}*\n\n` : ''}${message}`;
-
-      // In production, send via Telegram API
-      const result = {
-        sent: true,
-        messageId: `alert_${Date.now()}`,
-        timestamp: new Date().toISOString(),
-      };
 
       res.json({
         success: true,
@@ -334,9 +297,8 @@ export function setupTelegramRoutes(router) {
     try {
       logger.info('Removing Telegram configuration');
 
-      telegramConfig.botToken = null;
-      telegramConfig.chatId = null;
-      telegramConfig.enabled = false;
+      telegramService.configure(null, null);
+      telegramService.setEnabled(false);
 
       res.json({
         success: true,
@@ -354,12 +316,4 @@ export function setupTelegramRoutes(router) {
   });
 
   logger.info('Telegram routes initialized');
-}
-
-/**
- * Helper function to mask bot token
- */
-function maskToken(token) {
-  if (!token || token.length < 8) return '****';
-  return token.substring(0, 6) + '****' + token.substring(token.length - 4);
 }

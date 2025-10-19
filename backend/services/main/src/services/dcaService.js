@@ -3,6 +3,7 @@ import { logger } from '../utils/logger.js';
 import { krakenService } from './krakenService.js';
 import { dataStore } from './dataStore.js';
 import { emitDCAExecution, emitSystemAlert } from '../websocket/index.js';
+import { telegramService } from './telegramService.js';
 
 /**
  * DCA (Dollar Cost Averaging) Service
@@ -224,6 +225,28 @@ class DCAService {
 
       logger.info(`DCA strategy executed successfully: ${strategyId}`);
 
+      // Get portfolio balance for notification
+      let balance = { total: 0, stables: 0 };
+      try {
+        const accountBalance = await krakenService.getBalance();
+        if (accountBalance) {
+          // Calculate total balance
+          balance.total = Object.entries(accountBalance).reduce((sum, [asset, amount]) => {
+            return sum + parseFloat(amount);
+          }, 0);
+
+          // Calculate stables (USD, USDT, USDC, etc.)
+          balance.stables = Object.entries(accountBalance).reduce((sum, [asset, amount]) => {
+            if (asset.includes('USD') || asset.includes('USDT') || asset.includes('USDC')) {
+              return sum + parseFloat(amount);
+            }
+            return sum;
+          }, 0);
+        }
+      } catch (error) {
+        logger.warn('Failed to fetch balance for Telegram notification:', error);
+      }
+
       // Broadcast execution
       if (this.io) {
         emitDCAExecution(execution);
@@ -232,6 +255,14 @@ class DCAService {
           message: `DCA executed: Bought ${volume.toFixed(8)} ${strategy.pair} for $${strategy.amount}`,
           strategyId,
         });
+      }
+
+      // Send Telegram notification
+      try {
+        await telegramService.sendDCAExecution(execution, balance);
+      } catch (error) {
+        logger.warn('Failed to send Telegram notification:', error);
+        // Don't fail the execution if notification fails
       }
 
       return execution;
