@@ -63,6 +63,8 @@ export class DCABotService {
     let totalQuantity = 0;
     let averagePurchasePrice = 0;
 
+    console.log(`[DCABotService] Bot ${botId}: ${filledEntries.length} filled entries, krakenService=${!!krakenService}`);
+
     // Try to get actual trade data from Kraken if krakenService is provided
     if (krakenService && filledEntries.length > 0) {
       try {
@@ -71,14 +73,21 @@ export class DCABotService {
           .filter((e) => e.txid)
           .map((e) => e.txid!);
 
+        console.log(`[DCABotService] Bot ${botId}: Found ${txids.length} txids:`, txids);
+        console.log(`[DCABotService] Bot ${botId}: Entry details:`, filledEntries.map(e => ({ id: e.id, price: e.price, quantity: e.quantity, orderAmount: e.orderAmount, txid: e.txid })));
+
         if (txids.length > 0) {
           const tradesData = await krakenService.queryTrades(txids);
+          console.log(`[DCABotService] Bot ${botId}: Raw Kraken trade data:`, JSON.stringify(tradesData, null, 2));
 
           // Calculate average price from actual Kraken trades
           // Kraken's QueryTrades returns: { txid: { price, cost, vol, fee, ... }, ... }
           // Note: 'cost' includes fees, but we need to exclude fees for accurate average price
           // Average Price = Sum(price * vol) / Sum(vol)
           let weightedPriceSum = 0;
+
+          // Track which entries we processed with Kraken data
+          const processedEntryIds = new Set<string>();
 
           for (const [txid, trade] of Object.entries(tradesData)) {
             const tradeData = trade as any;
@@ -87,36 +96,75 @@ export class DCABotService {
             const cost = parseFloat(tradeData.cost);   // Total cost (includes fees)
             const fee = parseFloat(tradeData.fee);     // Trading fee
 
+            console.log(`[DCABotService] Bot ${botId}: Processing trade ${txid}: price=${price}, vol=${vol}, cost=${cost}, fee=${fee}`);
+
             // Weighted price sum for average calculation
             weightedPriceSum += price * vol;
             totalQuantity += vol;
 
             // Total invested includes fees (this is what you actually paid)
             totalInvested += cost;
+
+            // Mark the entry as processed
+            const matchingEntry = filledEntries.find(e => e.txid === txid);
+            if (matchingEntry) {
+              processedEntryIds.add(matchingEntry.id);
+            }
+          }
+
+          // For entries without txid (legacy entries), use stored price field
+          const legacyEntries = filledEntries.filter(e => !processedEntryIds.has(e.id));
+          if (legacyEntries.length > 0) {
+            console.log(`[DCABotService] Bot ${botId}: Processing ${legacyEntries.length} legacy entries without txids`);
+            for (const entry of legacyEntries) {
+              // Use the stored price (captured at order time) and quantity
+              // This is more accurate than orderAmount/quantity which may have rounding errors
+              const price = entry.price;
+              const quantity = entry.quantity;
+              const cost = price * quantity; // Approximate cost without fees
+
+              console.log(`[DCABotService] Bot ${botId}: Legacy entry ${entry.id}: price=${price}, qty=${quantity}, cost=${cost}`);
+
+              weightedPriceSum += price * quantity;
+              totalQuantity += quantity;
+              totalInvested += cost; // Note: This doesn't include fees for legacy entries
+            }
           }
 
           // Average purchase price = weighted average of all trade prices
           averagePurchasePrice = totalQuantity > 0 ? weightedPriceSum / totalQuantity : 0;
-          console.log(`[DCABotService] Using actual Kraken trade data for bot ${botId}: avg=${averagePurchasePrice.toFixed(4)}, invested=${totalInvested.toFixed(2)}, qty=${totalQuantity.toFixed(6)}`);
+          console.log(`[DCABotService] Bot ${botId}: COMBINED DATA - weightedSum=${weightedPriceSum}, totalQty=${totalQuantity}, avg=${averagePurchasePrice.toFixed(4)}, invested=${totalInvested.toFixed(2)}`);
         } else {
-          // Fallback to stored values if no txids
-          totalInvested = filledEntries.reduce((sum, e) => sum + e.orderAmount, 0);
-          totalQuantity = filledEntries.reduce((sum, e) => sum + e.quantity, 0);
-          averagePurchasePrice = totalQuantity > 0 ? totalInvested / totalQuantity : 0;
-          console.log(`[DCABotService] No txids found for bot ${botId}, using stored values`);
+          // All entries are legacy (no txids) - use stored price field
+          console.log(`[DCABotService] Bot ${botId}: All entries are legacy (no txids), using stored price field`);
+          let weightedPriceSum = 0;
+
+          for (const entry of filledEntries) {
+            const price = entry.price;
+            const quantity = entry.quantity;
+
+            weightedPriceSum += price * quantity;
+            totalQuantity += quantity;
+            totalInvested += price * quantity; // Approximate, doesn't include fees
+          }
+
+          averagePurchasePrice = totalQuantity > 0 ? weightedPriceSum / totalQuantity : 0;
+          console.log(`[DCABotService] Bot ${botId}: LEGACY DATA - Using stored price field: avg=${averagePurchasePrice.toFixed(4)}, invested=${totalInvested.toFixed(2)}, qty=${totalQuantity.toFixed(6)}`);
         }
       } catch (error) {
-        console.error('[DCABotService] Error fetching actual trade data, falling back to stored values:', error);
+        console.error(`[DCABotService] Bot ${botId}: Error fetching actual trade data, falling back to stored values:`, error);
         // Fallback to stored values on error
         totalInvested = filledEntries.reduce((sum, e) => sum + e.orderAmount, 0);
         totalQuantity = filledEntries.reduce((sum, e) => sum + e.quantity, 0);
         averagePurchasePrice = totalQuantity > 0 ? totalInvested / totalQuantity : 0;
+        console.log(`[DCABotService] Bot ${botId}: ERROR FALLBACK - Using stored values: avg=${averagePurchasePrice.toFixed(4)}, invested=${totalInvested.toFixed(2)}, qty=${totalQuantity.toFixed(6)}`);
       }
     } else {
       // Fallback to stored values if no krakenService provided
       totalInvested = filledEntries.reduce((sum, e) => sum + e.orderAmount, 0);
       totalQuantity = filledEntries.reduce((sum, e) => sum + e.quantity, 0);
       averagePurchasePrice = totalQuantity > 0 ? totalInvested / totalQuantity : 0;
+      console.log(`[DCABotService] Bot ${botId}: NO KRAKEN SERVICE - Using stored values: avg=${averagePurchasePrice.toFixed(4)}, invested=${totalInvested.toFixed(2)}, qty=${totalQuantity.toFixed(6)}`);
     }
 
     // Get current market price

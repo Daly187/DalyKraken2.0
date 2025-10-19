@@ -426,7 +426,16 @@ export function createDCABotsRouter(db: Firestore): Router {
    */
   router.post('/trigger', async (req, res) => {
     try {
-      const userId = req.user!.userId;
+      // Check if user is authenticated
+      if (!req.user || !req.user.userId) {
+        console.error('[DCABots API] Trigger attempted without authentication');
+        return res.status(401).json({
+          success: false,
+          error: 'Authentication required',
+        });
+      }
+
+      const userId = req.user.userId;
 
       console.log('[DCABots API] Manual trigger requested by user:', userId);
 
@@ -534,9 +543,11 @@ export function createDCABotsRouter(db: Firestore): Router {
       });
     } catch (error: any) {
       console.error('[DCABots API] Error triggering bot processing:', error);
+      console.error('[DCABots API] Error stack:', error.stack);
       res.status(500).json({
         success: false,
-        error: error.message,
+        error: error.message || 'Unknown error occurred',
+        details: error.stack,
       });
     }
   });

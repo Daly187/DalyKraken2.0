@@ -12,7 +12,8 @@
     "shell": "npm run build && firebase functions:shell",
     "start": "npm run shell",
     "deploy": "firebase deploy --only functions",
-    "logs": "firebase functions:log"
+    "logs": "firebase functions:log",
+    "backfill-txids": "npm run build && node lib/scripts/backfill-txids.js"
   },
   "engines": {
     "node": "20"

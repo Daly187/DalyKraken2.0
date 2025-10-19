@@ -42,7 +42,8 @@
       "Bash(gcloud functions logs read:*)",
       "Bash(python3:*)",
       "Bash(npm --prefix backend/functions run deploy)",
-      "Read(//Users/Daly/Desktop/DalyDough/**)"
+      "Read(//Users/Daly/Desktop/DalyDough/**)",
+      "Read(//dev/**)"
     ],
     "deny": [],
     "ask": []
