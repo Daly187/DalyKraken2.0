@@ -253,12 +253,17 @@ export default function DalyDCA() {
       return { message: 'Max entries reached', color: 'text-orange-500' };
     }
 
-    // Check if trend alignment is enabled and not met
+    // FIRST ENTRY: Always ready (no trend/support checks)
+    if (bot.currentEntryCount === 0) {
+      return { message: 'Ready to enter on next trigger', color: 'text-green-400' };
+    }
+
+    // RE-ENTRIES ONLY: Check trend alignment if enabled
     if (bot.trendAlignmentEnabled && (bot.techScore < 50 || bot.trendScore < 50)) {
       return { message: 'Waiting for trend alignment', color: 'text-blue-400' };
     }
 
-    // For re-entries (not first entry), check additional conditions
+    // For re-entries, check additional conditions
     if (bot.currentEntryCount > 0) {
       // Check if support/resistance is enabled
       if (bot.supportResistanceEnabled) {
