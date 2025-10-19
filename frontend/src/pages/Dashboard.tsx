@@ -34,6 +34,16 @@ export default function Dashboard() {
   // Animated counter effect
   useEffect(() => {
     if (portfolio) {
+      // Calculate total value with live prices
+      const liveTotal = portfolio.holdings?.reduce((total, holding) => {
+        const commonName = getCommonName(holding.asset);
+        const symbol = `${commonName}/USD`;
+        const livePrice = livePrices.get(symbol);
+        const currentPrice = livePrice?.price ?? holding.currentPrice ?? 0;
+        const amount = holding.amount ?? 0;
+        return total + (amount * currentPrice);
+      }, 0) || 0;
+
       const duration = 1500;
       const steps = 60;
       const stepDuration = duration / steps;
@@ -45,7 +55,7 @@ export default function Dashboard() {
         const easeOut = 1 - Math.pow(1 - progress, 3);
 
         setAnimatedValues({
-          portfolioValue: (portfolio.totalValue || 0) * easeOut,
+          portfolioValue: liveTotal * easeOut,
           profitLoss: (portfolio.totalProfitLoss || 0) * easeOut,
         });
 
@@ -56,7 +66,7 @@ export default function Dashboard() {
 
       return () => clearInterval(interval);
     }
-  }, [portfolio?.totalValue, portfolio?.totalProfitLoss]);
+  }, [portfolio, livePrices]);
 
   const refreshData = async () => {
     setLoading(true);
@@ -96,6 +106,22 @@ export default function Dashboard() {
     if (value === undefined || value === null) return '0.00%';
     return `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`;
   };
+
+  // Calculate total portfolio value using live prices
+  const calculateTotalValue = () => {
+    if (!portfolio?.holdings) return 0;
+
+    return portfolio.holdings.reduce((total, holding) => {
+      const commonName = getCommonName(holding.asset);
+      const symbol = `${commonName}/USD`;
+      const livePrice = livePrices.get(symbol);
+      const currentPrice = livePrice?.price ?? holding.currentPrice ?? 0;
+      const amount = holding.amount ?? 0;
+      return total + (amount * currentPrice);
+    }, 0);
+  };
+
+  const totalPortfolioValue = calculateTotalValue();
 
   // Get top movers from portfolio
   const topMovers = portfolio?.holdings
