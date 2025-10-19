@@ -211,31 +211,34 @@ export default function DalyDCA() {
     }
 
     // Check if trend alignment is enabled and not met
-    if (bot.trendAlignmentEnabled && (bot.techScore <= 50 || bot.trendScore <= 50)) {
+    if (bot.trendAlignmentEnabled && (bot.techScore < 50 || bot.trendScore < 50)) {
       return { message: 'Waiting for trend alignment', color: 'text-blue-400' };
     }
 
-    // Check if support/resistance is enabled
-    if (bot.supportResistanceEnabled) {
-      return { message: 'Waiting for support level', color: 'text-purple-400' };
-    }
-
-    // Check if re-entry delay is active
-    if (bot.lastEntryTime) {
-      const lastEntryTime = new Date(bot.lastEntryTime).getTime();
-      const timeSinceLastEntry = Date.now() - lastEntryTime;
-      const delayMs = bot.reEntryDelay * 60 * 1000;
-
-      if (timeSinceLastEntry < delayMs) {
-        const minutesRemaining = Math.ceil((delayMs - timeSinceLastEntry) / 60000);
-        return { message: `Cooldown: ${minutesRemaining}m remaining`, color: 'text-cyan-400' };
+    // For re-entries (not first entry), check additional conditions
+    if (bot.currentEntryCount > 0) {
+      // Check if support/resistance is enabled
+      if (bot.supportResistanceEnabled) {
+        return { message: 'Waiting for support level', color: 'text-purple-400' };
       }
-    }
 
-    // Check if price condition is met
-    if (bot.nextEntryPrice && bot.currentPrice > bot.nextEntryPrice) {
-      const dropNeeded = ((bot.currentPrice - bot.nextEntryPrice) / bot.currentPrice * 100).toFixed(2);
-      return { message: `Waiting for ${dropNeeded}% price drop`, color: 'text-gray-400' };
+      // Check if re-entry delay is active
+      if (bot.lastEntryTime) {
+        const lastEntryTime = new Date(bot.lastEntryTime).getTime();
+        const timeSinceLastEntry = Date.now() - lastEntryTime;
+        const delayMs = bot.reEntryDelay * 60 * 1000;
+
+        if (timeSinceLastEntry < delayMs) {
+          const minutesRemaining = Math.ceil((delayMs - timeSinceLastEntry) / 60000);
+          return { message: `Cooldown: ${minutesRemaining}m remaining`, color: 'text-cyan-400' };
+        }
+      }
+
+      // Check if price condition is met
+      if (bot.nextEntryPrice && bot.currentPrice > bot.nextEntryPrice) {
+        const dropNeeded = ((bot.currentPrice - bot.nextEntryPrice) / bot.currentPrice * 100).toFixed(2);
+        return { message: `Waiting for ${dropNeeded}% price drop`, color: 'text-gray-400' };
+      }
     }
 
     // Check if funds are available (mock check)
