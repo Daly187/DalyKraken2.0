@@ -174,13 +174,13 @@ export class DCABotService {
       };
     }
 
-    // Check re-entry delay
-    if (bot.lastEntryTime) {
+    // Check re-entry delay (only for re-entries, not first entry)
+    if (bot.currentEntryCount > 0 && bot.lastEntryTime) {
       const lastEntryTime = new Date(bot.lastEntryTime).getTime();
       const timeSinceLastEntry = Date.now() - lastEntryTime;
       const delayMs = bot.reEntryDelay * 60 * 1000; // Convert minutes to ms
 
-      if (bot.currentEntryCount > 0 && timeSinceLastEntry < delayMs) {
+      if (timeSinceLastEntry < delayMs) {
         return {
           shouldEnter: false,
           reason: `Re-entry delay not met (${Math.round((delayMs - timeSinceLastEntry) / 60000)} minutes remaining)`,
@@ -188,8 +188,8 @@ export class DCABotService {
       }
     }
 
-    // Check if price has dropped enough
-    if (bot.nextEntryPrice && currentPrice > bot.nextEntryPrice) {
+    // Check if price has dropped enough (only for re-entries, not first entry)
+    if (bot.currentEntryCount > 0 && bot.nextEntryPrice && currentPrice > bot.nextEntryPrice) {
       return {
         shouldEnter: false,
         reason: `Price not low enough (current: ${currentPrice}, target: ${bot.nextEntryPrice})`,
@@ -202,7 +202,8 @@ export class DCABotService {
       currentPrice,
       bot.supportResistanceEnabled,
       bot.trendAlignmentEnabled,
-      bot.support
+      bot.support,
+      bot.currentEntryCount
     );
 
     return {

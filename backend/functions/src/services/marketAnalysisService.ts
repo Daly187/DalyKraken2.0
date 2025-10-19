@@ -265,7 +265,8 @@ export class MarketAnalysisService {
     currentPrice: number,
     supportResistanceEnabled: boolean,
     trendAlignmentEnabled: boolean,
-    lastSupport: number | null
+    lastSupport: number | null,
+    currentEntryCount: number = 0
   ): Promise<{ shouldEnter: boolean; reason: string; analysis: TrendAnalysis }> {
     const analysis = await this.analyzeTrend(symbol);
 
@@ -280,10 +281,10 @@ export class MarketAnalysisService {
       }
     }
 
-    // Check support/resistance if enabled
-    if (supportResistanceEnabled && analysis.support) {
+    // Check support/resistance if enabled (only for re-entries, not first entry)
+    if (currentEntryCount > 0 && supportResistanceEnabled && analysis.support) {
       if (lastSupport === null) {
-        // First entry - need to cross support first
+        // Re-entry - need to cross support first
         if (currentPrice > analysis.support) {
           return {
             shouldEnter: false,
