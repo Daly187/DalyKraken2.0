@@ -171,6 +171,9 @@ export function createDCABotsRouter(db: Firestore): Router {
 
       // Allow updating these fields
       const allowedFields = [
+        'initialOrderAmount',
+        'tradeMultiplier',
+        'reEntryCount',
         'stepPercent',
         'stepMultiplier',
         'tpTarget',

@@ -29,6 +29,7 @@ export default function DalyDCA() {
   const dcaBots = useStore((state) => state.dcaBots);
   const fetchDCABots = useStore((state) => state.fetchDCABots);
   const createDCABot = useStore((state) => state.createDCABot);
+  const updateDCABot = useStore((state) => state.updateDCABot);
   const pauseDCABot = useStore((state) => state.pauseDCABot);
   const resumeDCABot = useStore((state) => state.resumeDCABot);
   const deleteDCABot = useStore((state) => state.deleteDCABot);
@@ -40,6 +41,8 @@ export default function DalyDCA() {
   const [expandedBotId, setExpandedBotId] = useState<string | null>(null);
   const [editingBotId, setEditingBotId] = useState<string | null>(null);
   const [editFormData, setEditFormData] = useState<any>({});
+  const [sortBy, setSortBy] = useState<'name' | 'invested' | 'pnl'>('name');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
 
   // Available trading pairs (only pairs supported by Kraken)
   const availableSymbols = [
@@ -183,9 +186,12 @@ export default function DalyDCA() {
   };
 
   const handleSaveEdit = async (botId: string) => {
-    // TODO: Implement update bot API call
-    console.log('Saving bot:', botId, editFormData);
-    setEditingBotId(null);
+    try {
+      await updateDCABot(botId, editFormData);
+      setEditingBotId(null);
+    } catch (error) {
+      console.error('Failed to update bot:', error);
+    }
   };
 
   const toggleBotExpanded = (botId: string) => {
@@ -271,6 +277,32 @@ export default function DalyDCA() {
   const totalUnrealizedPnL = dcaBots.reduce((sum, bot) => sum + (bot.unrealizedPnL || 0), 0);
   const totalCurrentValue = totalInvested + totalUnrealizedPnL;
   const totalPnLPercent = totalInvested > 0 ? (totalUnrealizedPnL / totalInvested) * 100 : 0;
+
+  // Sort bots based on selected criteria
+  const sortedBots = [...dcaBots].sort((a, b) => {
+    let compareValue = 0;
+
+    if (sortBy === 'name') {
+      compareValue = a.symbol.localeCompare(b.symbol);
+    } else if (sortBy === 'invested') {
+      compareValue = (a.totalInvested || 0) - (b.totalInvested || 0);
+    } else if (sortBy === 'pnl') {
+      compareValue = (a.unrealizedPnL || 0) - (b.unrealizedPnL || 0);
+    }
+
+    return sortDirection === 'asc' ? compareValue : -compareValue;
+  });
+
+  const handleSortChange = (newSortBy: 'name' | 'invested' | 'pnl') => {
+    if (sortBy === newSortBy) {
+      // Toggle direction if same sort criteria
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      // New sort criteria - default to ascending
+      setSortBy(newSortBy);
+      setSortDirection('asc');
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -749,9 +781,46 @@ export default function DalyDCA() {
           </button>
         </div>
 
+        {/* Sort Controls */}
+        {dcaBots.length > 0 && (
+          <div className="flex items-center gap-2 mb-4 pb-4 border-b border-slate-700">
+            <span className="text-sm text-gray-400">Sort by:</span>
+            <button
+              onClick={() => handleSortChange('name')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                sortBy === 'name'
+                  ? 'bg-primary-500/20 text-primary-300'
+                  : 'bg-slate-700/50 text-gray-400 hover:bg-slate-700'
+              }`}
+            >
+              Name {sortBy === 'name' && (sortDirection === 'asc' ? '↑' : '↓')}
+            </button>
+            <button
+              onClick={() => handleSortChange('invested')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                sortBy === 'invested'
+                  ? 'bg-primary-500/20 text-primary-300'
+                  : 'bg-slate-700/50 text-gray-400 hover:bg-slate-700'
+              }`}
+            >
+              Invested {sortBy === 'invested' && (sortDirection === 'asc' ? '↑' : '↓')}
+            </button>
+            <button
+              onClick={() => handleSortChange('pnl')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                sortBy === 'pnl'
+                  ? 'bg-primary-500/20 text-primary-300'
+                  : 'bg-slate-700/50 text-gray-400 hover:bg-slate-700'
+              }`}
+            >
+              P&L {sortBy === 'pnl' && (sortDirection === 'asc' ? '↑' : '↓')}
+            </button>
+          </div>
+        )}
+
         {dcaBots.length > 0 ? (
           <div className="space-y-3">
-            {dcaBots.map((bot) => {
+            {sortedBots.map((bot) => {
               const isExpanded = expandedBotId === bot.id;
               const isEditing = editingBotId === bot.id;
               const nextAction = getNextActionMessage(bot);
@@ -770,29 +839,15 @@ export default function DalyDCA() {
                     className="p-4 cursor-pointer"
                     onClick={() => toggleBotExpanded(bot.id)}
                   >
-                    <div className="flex items-center justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-3">
-                          <div className="flex items-center gap-2">
-                            <h3 className="text-lg font-bold text-white">{bot.symbol}</h3>
-                            <span className={`px-2 py-0.5 rounded text-xs font-medium ${getStatusColor(bot.status)}`}>
-                              {bot.status}
-                            </span>
-                          </div>
-                          {!isExpanded && (
-                            <div className="flex items-center gap-4 text-sm">
-                              <div className="text-gray-400">
-                                {bot.currentEntryCount || 0}/{bot.reEntryCount} entries
-                              </div>
-                              <div className={bot.unrealizedPnL >= 0 ? 'text-green-400 font-medium' : 'text-red-400 font-medium'}>
-                                {formatCurrency(bot.unrealizedPnL || 0)}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                        <p className={`text-xs mt-1 ${nextAction.color}`}>
-                          {nextAction.message}
-                        </p>
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-3">
+                        <h3 className="text-lg font-bold text-white">{bot.symbol}</h3>
+                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${getStatusColor(bot.status)}`}>
+                          {bot.status}
+                        </span>
+                        <span className="text-xs text-gray-400">
+                          {bot.currentEntryCount || 0}/{bot.reEntryCount} entries
+                        </span>
                       </div>
 
                       <div className="flex items-center gap-2">
@@ -816,6 +871,51 @@ export default function DalyDCA() {
                         )}
                       </div>
                     </div>
+
+                    {!isExpanded && (
+                      <div className="grid grid-cols-2 md:grid-cols-6 gap-3 text-sm">
+                        <div>
+                          <p className="text-xs text-gray-500">Invested</p>
+                          <p className="font-semibold text-white">{formatCurrency(bot.totalInvested || 0)}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-gray-500">Avg Price</p>
+                          <p className="font-semibold text-white">{formatCurrency(bot.averagePurchasePrice || 0)}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-gray-500">Spot Price</p>
+                          <p className="font-semibold text-white">{formatCurrency(bot.currentPrice || 0)}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-gray-500">Next Entry</p>
+                          <p className="font-semibold text-blue-400">
+                            {bot.nextEntryPrice ? formatCurrency(bot.nextEntryPrice) : 'N/A'}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-gray-500">Tech/Trend</p>
+                          <p className="font-semibold">
+                            <span className={(bot.techScore || 0) > 50 ? 'text-green-400' : 'text-red-400'}>
+                              {bot.techScore || 0}
+                            </span>
+                            <span className="text-gray-500">/</span>
+                            <span className={(bot.trendScore || 0) > 50 ? 'text-green-400' : 'text-red-400'}>
+                              {bot.trendScore || 0}
+                            </span>
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-gray-500">P&L</p>
+                          <p className={`font-semibold ${bot.unrealizedPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                            {formatCurrency(bot.unrealizedPnL || 0)}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    <p className={`text-xs mt-2 ${nextAction.color}`}>
+                      {nextAction.message}
+                    </p>
                   </div>
 
                   {/* Expanded Details */}

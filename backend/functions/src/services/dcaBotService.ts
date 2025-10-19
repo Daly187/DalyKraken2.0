@@ -85,16 +85,19 @@ export class DCABotService {
     const lastEntry = sortedEntries[0];
     let nextEntryPrice = null;
 
-    if (lastEntry) {
+    if (filledEntries.length > 0) {
+      // Calculate step percentage for the next entry
       const nextStepPercent = this.calculateNextStepPercent(
         filledEntries.length,
         botData.stepPercent,
         botData.stepMultiplier
       );
-      nextEntryPrice = lastEntry.price * (1 - nextStepPercent / 100);
+      // IMPORTANT: Always calculate from CURRENT price (not last entry price)
+      // This ensures DCA is always entering BELOW current market price
+      nextEntryPrice = currentPrice * (1 - nextStepPercent / 100);
     } else {
-      // First entry at current market price
-      nextEntryPrice = currentPrice;
+      // First entry: calculate one step down from current price
+      nextEntryPrice = currentPrice * (1 - botData.stepPercent / 100);
     }
 
     // Calculate current TP price
