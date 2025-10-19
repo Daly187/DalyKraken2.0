@@ -270,7 +270,16 @@ export class MarketAnalysisService {
   ): Promise<{ shouldEnter: boolean; reason: string; analysis: TrendAnalysis }> {
     const analysis = await this.analyzeTrend(symbol);
 
-    // Check trend alignment if enabled
+    // FIRST ENTRY: Always allow immediately without any checks
+    if (currentEntryCount === 0) {
+      return {
+        shouldEnter: true,
+        reason: 'First entry - executing immediately',
+        analysis,
+      };
+    }
+
+    // RE-ENTRIES ONLY: Check trend alignment if enabled
     if (trendAlignmentEnabled) {
       if (analysis.techScore < 50 || analysis.trendScore < 50) {
         return {
@@ -281,8 +290,8 @@ export class MarketAnalysisService {
       }
     }
 
-    // Check support/resistance if enabled (only for re-entries, not first entry)
-    if (currentEntryCount > 0 && supportResistanceEnabled && analysis.support) {
+    // RE-ENTRIES ONLY: Check support/resistance if enabled
+    if (supportResistanceEnabled && analysis.support) {
       if (lastSupport === null) {
         // Re-entry - need to cross support first
         if (currentPrice > analysis.support) {
