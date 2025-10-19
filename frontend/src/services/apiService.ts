@@ -413,7 +413,7 @@ class ApiService {
   }
 
   async testTelegram() {
-    return this.post('/telegram/test');
+    return this.post('/trading/test-telegram');
   }
 
   async getTelegramStatus() {

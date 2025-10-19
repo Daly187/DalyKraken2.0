@@ -3,7 +3,7 @@
  * Manages the pending orders queue with retry logic and API key failover
  */
 
-import { db } from '../index.js';
+import { db } from '../db.js';
 import {
   PendingOrder,
   OrderStatus,

@@ -48,6 +48,11 @@ export default function DalyDCA() {
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const [pendingOrders, setPendingOrders] = useState<any[]>([]);
 
+  // Section collapse states
+  const [isCreateSectionExpanded, setIsCreateSectionExpanded] = useState(true);
+  const [isLiveBotsSectionExpanded, setIsLiveBotsSectionExpanded] = useState(true);
+  const [isPendingOrdersSectionExpanded, setIsPendingOrdersSectionExpanded] = useState(true);
+
   // Available trading pairs (only pairs supported by Kraken)
   const availableSymbols = [
     'BTC/USD', 'ETH/USD', 'SOL/USD', 'XRP/USD', 'ADA/USD',
@@ -530,16 +535,30 @@ export default function DalyDCA() {
 
           <div className="card relative">
             <div className="flex items-center justify-between mb-6">
-              <div>
-                <h2 className="text-2xl font-bold bg-gradient-to-r from-primary-400 to-purple-400 bg-clip-text text-transparent">
-                  Create New DCA Bot
-                </h2>
-                <p className="text-sm text-gray-400 mt-1">Configure your automated trading strategy</p>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setIsCreateSectionExpanded(!isCreateSectionExpanded)}
+                  className="p-2 hover:bg-slate-700/50 rounded-lg transition-colors"
+                >
+                  {isCreateSectionExpanded ? (
+                    <ChevronUp className="h-5 w-5 text-gray-400" />
+                  ) : (
+                    <ChevronDown className="h-5 w-5 text-gray-400" />
+                  )}
+                </button>
+                <div>
+                  <h2 className="text-2xl font-bold bg-gradient-to-r from-primary-400 to-purple-400 bg-clip-text text-transparent">
+                    Create New DCA Bot
+                  </h2>
+                  <p className="text-sm text-gray-400 mt-1">Configure your automated trading strategy</p>
+                </div>
               </div>
               <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-primary-500 to-purple-500 flex items-center justify-center">
                 <Plus className="h-6 w-6 text-white" />
               </div>
             </div>
+
+            {isCreateSectionExpanded && (
 
             <form onSubmit={handleCreateBot} className="space-y-6">
               {/* Symbol Selection */}
@@ -886,6 +905,7 @@ export default function DalyDCA() {
                 </div>
               )}
             </form>
+            )}
           </div>
         </div>
       )}
@@ -893,18 +913,30 @@ export default function DalyDCA() {
       {/* Live Bots Section */}
       <div className="card">
         <div className="flex justify-between items-center mb-4">
-          <div>
-            <h2 className="text-xl font-bold flex items-center gap-2">
-              Live Bots
-              {dcaBots.length > 0 && (
-                <span className="px-2 py-0.5 rounded-full bg-primary-500/20 text-primary-300 text-xs font-medium">
-                  {dcaBots.length}
-                </span>
+          <div className="flex items-center gap-3 flex-1">
+            <button
+              onClick={() => setIsLiveBotsSectionExpanded(!isLiveBotsSectionExpanded)}
+              className="p-2 hover:bg-slate-700/50 rounded-lg transition-colors"
+            >
+              {isLiveBotsSectionExpanded ? (
+                <ChevronUp className="h-5 w-5 text-gray-400" />
+              ) : (
+                <ChevronDown className="h-5 w-5 text-gray-400" />
               )}
-            </h2>
-            <p className="text-xs text-gray-500 mt-1">
-              Auto-refreshes every 5 minutes • Last update: {lastRefreshTime.toLocaleTimeString()}
-            </p>
+            </button>
+            <div>
+              <h2 className="text-xl font-bold flex items-center gap-2">
+                Live Bots
+                {dcaBots.length > 0 && (
+                  <span className="px-2 py-0.5 rounded-full bg-primary-500/20 text-primary-300 text-xs font-medium">
+                    {dcaBots.length}
+                  </span>
+                )}
+              </h2>
+              <p className="text-xs text-gray-500 mt-1">
+                Auto-refreshes every 5 minutes • Last update: {lastRefreshTime.toLocaleTimeString()}
+              </p>
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -917,6 +949,9 @@ export default function DalyDCA() {
             </button>
           </div>
         </div>
+
+        {isLiveBotsSectionExpanded && (
+        <>
 
         {/* Sort Controls */}
         {dcaBots.length > 0 && (
@@ -1464,23 +1499,37 @@ export default function DalyDCA() {
             </button>
           </div>
         )}
+        </>
+        )}
       </div>
 
       {/* Pending Orders Section */}
       <div className="card">
         <div className="flex justify-between items-center mb-4">
-          <div>
-            <h2 className="text-xl font-bold flex items-center gap-2">
-              Pending Orders
-              {pendingOrders.length > 0 && (
-                <span className="px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 text-xs font-medium">
-                  Last {pendingOrders.length}
-                </span>
+          <div className="flex items-center gap-3 flex-1">
+            <button
+              onClick={() => setIsPendingOrdersSectionExpanded(!isPendingOrdersSectionExpanded)}
+              className="p-2 hover:bg-slate-700/50 rounded-lg transition-colors"
+            >
+              {isPendingOrdersSectionExpanded ? (
+                <ChevronUp className="h-5 w-5 text-gray-400" />
+              ) : (
+                <ChevronDown className="h-5 w-5 text-gray-400" />
               )}
-            </h2>
-            <p className="text-xs text-gray-500 mt-1">
-              Most recent orders from the order queue
-            </p>
+            </button>
+            <div>
+              <h2 className="text-xl font-bold flex items-center gap-2">
+                Pending Orders
+                {pendingOrders.length > 0 && (
+                  <span className="px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 text-xs font-medium">
+                    Last {pendingOrders.length}
+                  </span>
+                )}
+              </h2>
+              <p className="text-xs text-gray-500 mt-1">
+                Most recent orders from the order queue
+              </p>
+            </div>
           </div>
           <button
             onClick={handleTrigger}
@@ -1492,6 +1541,9 @@ export default function DalyDCA() {
             {triggering ? 'Processing...' : 'Trigger Now'}
           </button>
         </div>
+
+        {isPendingOrdersSectionExpanded && (
+        <>
 
         {pendingOrders.length > 0 ? (
           <div className="overflow-x-auto">
@@ -1560,6 +1612,8 @@ export default function DalyDCA() {
             <p className="text-gray-400">No recent orders</p>
             <p className="text-xs text-gray-500 mt-1">Orders will appear here when DCA bots create trades</p>
           </div>
+        )}
+        </>
         )}
       </div>
 

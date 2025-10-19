@@ -80,5 +80,22 @@ service cloud.firestore {
       allow read: if isAuthenticated();
       allow write: if false; // Only admin SDK can write
     }
+
+    // Pending Orders Queue
+    match /pendingOrders/{orderId} {
+      allow read: if isAuthenticated();
+      allow write: if false; // Only Cloud Functions can write via Admin SDK
+    }
+
+    // Users collection (for storing Kraken API keys)
+    match /users/{userId} {
+      allow read, write: if isOwner(userId);
+    }
+
+    // System Logs
+    match /systemLogs/{logId} {
+      allow read: if isAuthenticated();
+      allow write: if false; // Only Cloud Functions can write
+    }
   }
 }

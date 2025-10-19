@@ -49,6 +49,9 @@
       }
     ]
   },
+  "firestore": {
+    "rules": "firestore.rules"
+  },
   "functions": {
     "source": "backend/functions",
     "predeploy": [
