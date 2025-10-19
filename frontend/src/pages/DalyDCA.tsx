@@ -45,6 +45,7 @@ export default function DalyDCA() {
   const [editFormData, setEditFormData] = useState<any>({});
   const [sortBy, setSortBy] = useState<'name' | 'invested' | 'pnl'>('name');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+  const [pendingOrders, setPendingOrders] = useState<any[]>([]);
 
   // Available trading pairs (only pairs supported by Kraken)
   const availableSymbols = [
@@ -81,10 +82,37 @@ export default function DalyDCA() {
     return () => clearInterval(refreshInterval);
   }, []);
 
+  const fetchPendingOrders = async () => {
+    try {
+      const token = localStorage.getItem('auth_token');
+      if (!token) return;
+
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/order-queue`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        // Get last 5 orders, sorted by most recent
+        const recentOrders = (data.orders || [])
+          .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+          .slice(0, 5);
+        setPendingOrders(recentOrders);
+      }
+    } catch (error) {
+      console.error('Failed to fetch pending orders:', error);
+    }
+  };
+
   const refreshData = async () => {
     setLoading(true);
     try {
-      await fetchDCABots();
+      await Promise.all([
+        fetchDCABots(),
+        fetchPendingOrders(),
+      ]);
       setLastRefreshTime(new Date());
     } catch (error) {
       console.error('Failed to refresh DCA bots:', error);
@@ -286,6 +314,74 @@ export default function DalyDCA() {
     if (diffDays < 7) return `${diffDays}d ago`;
 
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  };
+
+  const getOrderStatusColor = (status: string) => {
+    switch (status) {
+      case 'completed':
+        return 'text-green-500 bg-green-500/10';
+      case 'pending':
+        return 'text-blue-500 bg-blue-500/10';
+      case 'processing':
+        return 'text-yellow-500 bg-yellow-500/10';
+      case 'retry':
+        return 'text-orange-500 bg-orange-500/10';
+      case 'failed':
+        return 'text-red-500 bg-red-500/10';
+      default:
+        return 'text-gray-500 bg-gray-500/10';
+    }
+  };
+
+  const getOrderDebugMessage = (order: any) => {
+    if (order.status === 'completed') {
+      return 'Order executed successfully';
+    }
+    if (order.status === 'pending') {
+      return 'Waiting for next execution cycle';
+    }
+    if (order.status === 'processing') {
+      return 'Currently being processed';
+    }
+    if (order.status === 'retry') {
+      if (order.lastError) {
+        // Check for common errors
+        if (order.lastError.toLowerCase().includes('insufficient funds')) {
+          return `Insufficient funds - Retry in ${formatRetryTime(order.nextRetryAt)}`;
+        }
+        if (order.lastError.toLowerCase().includes('rate limit')) {
+          return `Rate limited - Retry in ${formatRetryTime(order.nextRetryAt)}`;
+        }
+        return `${order.lastError.substring(0, 50)}... - Retry ${order.attempts}/${order.maxAttempts}`;
+      }
+      return `Retrying - Attempt ${order.attempts}/${order.maxAttempts}`;
+    }
+    if (order.status === 'failed') {
+      if (order.lastError) {
+        if (order.lastError.toLowerCase().includes('insufficient funds')) {
+          return 'Failed: Insufficient funds';
+        }
+        if (order.lastError.toLowerCase().includes('invalid')) {
+          return 'Failed: Invalid order parameters';
+        }
+        return `Failed: ${order.lastError.substring(0, 50)}...`;
+      }
+      return 'Permanently failed after max attempts';
+    }
+    return 'Unknown status';
+  };
+
+  const formatRetryTime = (nextRetryAt: string | undefined) => {
+    if (!nextRetryAt) return 'soon';
+    const now = new Date();
+    const retryTime = new Date(nextRetryAt);
+    const diffMs = retryTime.getTime() - now.getTime();
+    const diffSecs = Math.floor(diffMs / 1000);
+    const diffMins = Math.floor(diffSecs / 60);
+
+    if (diffSecs < 60) return `${diffSecs}s`;
+    if (diffMins < 60) return `${diffMins}m`;
+    return `${Math.floor(diffMins / 60)}h`;
   };
 
   const getStatusColor = (status: string) => {
@@ -1369,6 +1465,92 @@ export default function DalyDCA() {
               <Plus className="h-5 w-5" />
               Create Your First Bot
             </button>
+          </div>
+        )}
+      </div>
+
+      {/* Pending Orders Section */}
+      <div className="card">
+        <div className="mb-4">
+          <h2 className="text-xl font-bold flex items-center gap-2">
+            Pending Orders
+            {pendingOrders.length > 0 && (
+              <span className="px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 text-xs font-medium">
+                Last {pendingOrders.length}
+              </span>
+            )}
+          </h2>
+          <p className="text-xs text-gray-500 mt-1">
+            Most recent orders from the order queue
+          </p>
+        </div>
+
+        {pendingOrders.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-700 text-gray-400">
+                  <th className="text-left py-3 px-2 font-medium">Pair</th>
+                  <th className="text-left py-3 px-2 font-medium">Side</th>
+                  <th className="text-left py-3 px-2 font-medium">Volume</th>
+                  <th className="text-left py-3 px-2 font-medium">Status</th>
+                  <th className="text-left py-3 px-2 font-medium">Debug Info</th>
+                  <th className="text-left py-3 px-2 font-medium">Created</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pendingOrders.map((order) => (
+                  <tr key={order.id} className="border-b border-slate-800 hover:bg-slate-800/30">
+                    <td className="py-3 px-2">
+                      <span className="font-medium text-white">{order.pair}</span>
+                    </td>
+                    <td className="py-3 px-2">
+                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                        order.side === 'buy' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'
+                      }`}>
+                        {order.side.toUpperCase()}
+                      </span>
+                    </td>
+                    <td className="py-3 px-2 text-gray-300">
+                      {parseFloat(order.volume).toFixed(8)}
+                    </td>
+                    <td className="py-3 px-2">
+                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${getOrderStatusColor(order.status)}`}>
+                        {order.status.toUpperCase()}
+                      </span>
+                    </td>
+                    <td className="py-3 px-2">
+                      <div className="flex items-start gap-2">
+                        {order.status === 'completed' ? (
+                          <CheckCircle className="h-4 w-4 text-green-400 mt-0.5 flex-shrink-0" />
+                        ) : order.status === 'failed' ? (
+                          <AlertTriangle className="h-4 w-4 text-red-400 mt-0.5 flex-shrink-0" />
+                        ) : order.status === 'retry' ? (
+                          <Clock className="h-4 w-4 text-orange-400 mt-0.5 flex-shrink-0" />
+                        ) : (
+                          <Activity className="h-4 w-4 text-blue-400 mt-0.5 flex-shrink-0" />
+                        )}
+                        <span className="text-gray-400 text-xs">{getOrderDebugMessage(order)}</span>
+                      </div>
+                    </td>
+                    <td className="py-3 px-2 text-gray-400 text-xs">
+                      {formatTimestamp(order.createdAt)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : loading ? (
+          <div className="text-center py-8">
+            <Activity className="h-8 w-8 text-blue-400 animate-spin mx-auto mb-2" />
+            <p className="text-gray-400 text-sm">Loading orders...</p>
+          </div>
+        ) : (
+          <div className="text-center py-8">
+            <Layers className="h-12 w-12 text-gray-600 mx-auto mb-3" />
+            <p className="text-gray-400">No recent orders</p>
+            <p className="text-xs text-gray-500 mt-1">Orders will appear here when DCA bots create trades</p>
           </div>
         )}
       </div>
