@@ -7,6 +7,8 @@ import { Firestore } from 'firebase-admin/firestore';
 import { DCABotConfig, LiveDCABot, DCABotEntry, BotExecutionLog } from '../types.js';
 import { KrakenService } from './krakenService.js';
 import { MarketAnalysisService } from './marketAnalysisService.js';
+import { orderQueueService } from './orderQueueService.js';
+import { OrderType } from '../types/orderQueue.js';
 
 export class DCABotService {
   private db: Firestore;
@@ -339,10 +341,19 @@ export class DCABotService {
       // Calculate quantity to buy
       const quantity = orderAmount / currentPrice;
 
-      // Place order
-      const orderResult = await krakenService.placeBuyOrder(bot.symbol, quantity);
+      // Create pending order in queue instead of executing directly
+      const pendingOrder = await orderQueueService.createOrder({
+        userId: bot.userId,
+        botId: bot.id,
+        pair: bot.symbol,
+        type: OrderType.MARKET,
+        side: 'buy',
+        volume: quantity.toFixed(8),
+      });
 
-      // Create entry record
+      console.log(`[DCABotService] Created pending order ${pendingOrder.id} for bot ${bot.id}`);
+
+      // Create entry record (marked as pending until order is executed)
       const entry: DCABotEntry = {
         id: `${bot.id}_entry_${bot.currentEntryCount + 1}`,
         botId: bot.id,
@@ -351,9 +362,9 @@ export class DCABotService {
         price: currentPrice,
         quantity,
         timestamp: new Date().toISOString(),
-        orderId: orderResult.txid ? orderResult.txid[0] : undefined,
-        status: 'filled',
-        txid: orderResult.txid ? orderResult.txid[0] : undefined,
+        orderId: pendingOrder.id, // Store pending order ID
+        status: 'pending', // Mark as pending
+        txid: undefined, // Will be set when order is executed
       };
 
       // Save entry to Firestore

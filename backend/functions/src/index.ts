@@ -17,11 +17,13 @@ import { MarketAnalysisService } from './services/marketAnalysisService.js';
 import { CostBasisService } from './services/costBasisService.js';
 import { quantifyCryptoService } from './services/quantifyCryptoService.js';
 import { settingsStore, encryptKey, maskApiKey } from './services/settingsStore.js';
+import { orderQueueService } from './services/orderQueueService.js';
+import { orderExecutorService } from './services/orderExecutorService.js';
 
 // Initialize Firebase Admin
 admin.initializeApp();
 
-const db = admin.firestore();
+export const db = admin.firestore();
 const app = express();
 
 // Middleware
@@ -1144,3 +1146,107 @@ export const triggerBotProcessing = functions.https.onRequest(async (req, res) =
     });
   }
 });
+
+/**
+ * Order Queue Monitoring Endpoints
+ */
+
+// Get pending orders for current user
+app.get('/order-queue', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user!.userId;
+    const orders = await orderQueueService.getOrdersByUser(userId);
+
+    res.json({
+      success: true,
+      orders,
+      count: orders.length,
+    });
+  } catch (error: any) {
+    console.error('[API] Error fetching order queue:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// Get order queue statistics
+app.get('/order-queue/stats', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user!.userId;
+    const counts = await orderQueueService.getPendingOrdersCount();
+    const executorStatus = orderExecutorService.getStatus();
+
+    res.json({
+      success: true,
+      stats: {
+        ...counts,
+        executor: executorStatus,
+      },
+    });
+  } catch (error: any) {
+    console.error('[API] Error fetching order queue stats:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// Get specific order details
+app.get('/order-queue/:orderId', authenticateToken, async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const userId = req.user!.userId;
+
+    const order = await orderQueueService.getOrder(orderId);
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        error: 'Order not found',
+      });
+    }
+
+    // Verify user owns this order
+    if (order.userId !== userId) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied',
+      });
+    }
+
+    res.json({
+      success: true,
+      order,
+    });
+  } catch (error: any) {
+    console.error('[API] Error fetching order:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+/**
+ * Scheduled function to process pending orders
+ * Runs every minute
+ */
+export const processOrderQueue = functions.pubsub
+  .schedule('* * * * *') // Every minute
+  .onRun(async (context) => {
+    console.log('[OrderQueue] Processing pending orders...');
+
+    try {
+      const result = await orderExecutorService.executePendingOrders();
+
+      console.log('[OrderQueue] Processing complete:', result);
+
+      return result;
+    } catch (error: any) {
+      console.error('[OrderQueue] Error processing orders:', error.message);
+      return null;
+    }
+  });
