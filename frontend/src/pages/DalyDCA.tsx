@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useStore } from '@/store/useStore';
+import config from '@/config/env';
 import {
   Play,
   Pause,
@@ -87,7 +88,7 @@ export default function DalyDCA() {
       const token = localStorage.getItem('auth_token');
       if (!token) return;
 
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/order-queue`, {
+      const response = await fetch(`${config.api.mainUrl}/order-queue`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
