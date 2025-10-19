@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useStore } from '@/store/useStore';
 import Sidebar from '@/components/navigation/Sidebar';
@@ -9,13 +9,45 @@ export default function ProtectedLayout() {
   const isAuthenticated = useStore((state) => state.isAuthenticated);
   const initialized = useStore((state) => state.initialized);
   const initialize = useStore((state) => state.initialize);
+  const checkAuth = useStore((state) => state.checkAuth);
   const location = useLocation();
+  const [authChecking, setAuthChecking] = useState(true);
+
+  // Check JWT token on mount
+  useEffect(() => {
+    const verifyAuth = async () => {
+      try {
+        const hasValidToken = await checkAuth();
+        if (hasValidToken && !initialized) {
+          await initialize();
+        }
+      } catch (error) {
+        console.error('[ProtectedLayout] Auth check failed:', error);
+      } finally {
+        setAuthChecking(false);
+      }
+    };
+
+    verifyAuth();
+  }, []);
 
   useEffect(() => {
-    if (isAuthenticated && !initialized) {
+    if (isAuthenticated && !initialized && !authChecking) {
       initialize();
     }
-  }, [isAuthenticated, initialized, initialize]);
+  }, [isAuthenticated, initialized, initialize, authChecking]);
+
+  // Show loading while checking auth
+  if (authChecking) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-slate-900">
+        <div className="text-center">
+          <div className="spinner mx-auto mb-4"></div>
+          <p className="text-gray-400">Verifying authentication...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (!isAuthenticated) {
     return <Navigate to="/login" state={{ from: location }} replace />;

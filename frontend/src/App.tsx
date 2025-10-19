@@ -9,6 +9,7 @@ import PublicLayout from '@/components/layouts/PublicLayout';
 // Pages
 import Landing from '@/pages/Landing';
 import Login from '@/pages/Login';
+import TOTPSetup from '@/pages/TOTPSetup';
 import Dashboard from '@/pages/Dashboard';
 import CryptoMarket from '@/pages/CryptoMarket';
 import CryptoTrends from '@/pages/CryptoTrends';
@@ -34,6 +35,7 @@ function App() {
               isAuthenticated ? <Navigate to="/dashboard" replace /> : <Login />
             }
           />
+          <Route path="/totp-setup" element={<TOTPSetup />} />
         </Route>
 
         {/* Protected routes */}

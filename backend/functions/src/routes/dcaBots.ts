@@ -13,13 +13,12 @@ export function createDCABotsRouter(db: Firestore): Router {
 
   /**
    * GET /dca-bots
-   * Get all DCA bots for a user
+   * Get all DCA bots for authenticated user
    */
   router.get('/', async (req, res) => {
     try {
-      // In production, get userId from authenticated user
-      // For now, use a default userId or from query params
-      const userId = req.query.userId as string || 'default-user';
+      // Get userId from authenticated user
+      const userId = req.user!.userId;
 
       const snapshot = await db
         .collection('dcaBots')
@@ -48,17 +47,27 @@ export function createDCABotsRouter(db: Firestore): Router {
 
   /**
    * GET /dca-bots/:id
-   * Get a single DCA bot by ID
+   * Get a single DCA bot by ID (with ownership verification)
    */
   router.get('/:id', async (req, res) => {
     try {
       const botId = req.params.id;
+      const userId = req.user!.userId;
+
       const bot = await dcaBotService.getBotById(botId);
 
       if (!bot) {
         return res.status(404).json({
           success: false,
           error: 'Bot not found',
+        });
+      }
+
+      // Verify ownership
+      if (bot.userId !== userId) {
+        return res.status(403).json({
+          success: false,
+          error: 'Access denied',
         });
       }
 
@@ -77,11 +86,11 @@ export function createDCABotsRouter(db: Firestore): Router {
 
   /**
    * POST /dca-bots
-   * Create a new DCA bot
+   * Create a new DCA bot for authenticated user
    */
   router.post('/', async (req, res) => {
     try {
-      const userId = req.body.userId || 'default-user';
+      const userId = req.user!.userId;
 
       const botData: Omit<DCABotConfig, 'id'> = {
         userId,
@@ -129,11 +138,12 @@ export function createDCABotsRouter(db: Firestore): Router {
 
   /**
    * PUT /dca-bots/:id
-   * Update a DCA bot
+   * Update a DCA bot (with ownership verification)
    */
   router.put('/:id', async (req, res) => {
     try {
       const botId = req.params.id;
+      const userId = req.user!.userId;
 
       // Get existing bot
       const botDoc = await db.collection('dcaBots').doc(botId).get();
@@ -142,6 +152,15 @@ export function createDCABotsRouter(db: Firestore): Router {
         return res.status(404).json({
           success: false,
           error: 'Bot not found',
+        });
+      }
+
+      // Verify ownership
+      const botData = botDoc.data() as DCABotConfig;
+      if (botData.userId !== userId) {
+        return res.status(403).json({
+          success: false,
+          error: 'Access denied',
         });
       }
 
@@ -187,11 +206,12 @@ export function createDCABotsRouter(db: Firestore): Router {
 
   /**
    * DELETE /dca-bots/:id
-   * Delete a DCA bot
+   * Delete a DCA bot (with ownership verification)
    */
   router.delete('/:id', async (req, res) => {
     try {
       const botId = req.params.id;
+      const userId = req.user!.userId;
 
       // Check if bot exists
       const botDoc = await db.collection('dcaBots').doc(botId).get();
@@ -200,6 +220,15 @@ export function createDCABotsRouter(db: Firestore): Router {
         return res.status(404).json({
           success: false,
           error: 'Bot not found',
+        });
+      }
+
+      // Verify ownership
+      const botData = botDoc.data() as DCABotConfig;
+      if (botData.userId !== userId) {
+        return res.status(403).json({
+          success: false,
+          error: 'Access denied',
         });
       }
 
@@ -237,11 +266,23 @@ export function createDCABotsRouter(db: Firestore): Router {
 
   /**
    * POST /dca-bots/:id/pause
-   * Pause a DCA bot
+   * Pause a DCA bot (with ownership verification)
    */
   router.post('/:id/pause', async (req, res) => {
     try {
       const botId = req.params.id;
+      const userId = req.user!.userId;
+
+      // Verify ownership
+      const botDoc = await db.collection('dcaBots').doc(botId).get();
+      if (!botDoc.exists) {
+        return res.status(404).json({ success: false, error: 'Bot not found' });
+      }
+
+      const botData = botDoc.data() as DCABotConfig;
+      if (botData.userId !== userId) {
+        return res.status(403).json({ success: false, error: 'Access denied' });
+      }
 
       await db.collection('dcaBots').doc(botId).update({
         status: 'paused',
@@ -265,11 +306,23 @@ export function createDCABotsRouter(db: Firestore): Router {
 
   /**
    * POST /dca-bots/:id/resume
-   * Resume a DCA bot
+   * Resume a DCA bot (with ownership verification)
    */
   router.post('/:id/resume', async (req, res) => {
     try {
       const botId = req.params.id;
+      const userId = req.user!.userId;
+
+      // Verify ownership
+      const botDoc = await db.collection('dcaBots').doc(botId).get();
+      if (!botDoc.exists) {
+        return res.status(404).json({ success: false, error: 'Bot not found' });
+      }
+
+      const botData = botDoc.data() as DCABotConfig;
+      if (botData.userId !== userId) {
+        return res.status(403).json({ success: false, error: 'Access denied' });
+      }
 
       await db.collection('dcaBots').doc(botId).update({
         status: 'active',
@@ -293,11 +346,23 @@ export function createDCABotsRouter(db: Firestore): Router {
 
   /**
    * GET /dca-bots/:id/executions
-   * Get execution history for a bot
+   * Get execution history for a bot (with ownership verification)
    */
   router.get('/:id/executions', async (req, res) => {
     try {
       const botId = req.params.id;
+      const userId = req.user!.userId;
+
+      // Verify ownership
+      const botDoc = await db.collection('dcaBots').doc(botId).get();
+      if (!botDoc.exists) {
+        return res.status(404).json({ success: false, error: 'Bot not found' });
+      }
+
+      const botData = botDoc.data() as DCABotConfig;
+      if (botData.userId !== userId) {
+        return res.status(403).json({ success: false, error: 'Access denied' });
+      }
       const limit = parseInt(req.query.limit as string) || 50;
 
       const executions = await dcaBotService.getBotExecutions(botId, limit);

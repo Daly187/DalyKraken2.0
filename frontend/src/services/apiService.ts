@@ -29,6 +29,29 @@ class ApiService {
       baseURL: config.api.snapshotUrl,
       timeout: config.api.timeout.snapshot,
     });
+
+    // Add request interceptor to attach JWT token to all requests
+    this.mainApi.interceptors.request.use((config) => {
+      const token = localStorage.getItem('auth_token');
+      if (token) {
+        config.headers.Authorization = `Bearer ${token}`;
+      }
+      return config;
+    });
+
+    // Add response interceptor to handle 401 errors
+    this.mainApi.interceptors.response.use(
+      (response) => response,
+      (error) => {
+        if (error.response?.status === 401) {
+          // Token expired or invalid, clear auth and redirect to login
+          localStorage.removeItem('auth_token');
+          localStorage.removeItem('user');
+          window.location.href = '/login';
+        }
+        return Promise.reject(error);
+      }
+    );
   }
 
   private shouldThrottle(key: string): boolean {
@@ -401,6 +424,37 @@ class ApiService {
   async getCostBasis(asset: string, userId?: string) {
     const params = userId ? { userId } : {};
     return this.get(`/portfolio/cost-basis/${asset}`, { params });
+  }
+
+  // Authentication methods
+  async login(username: string, password: string) {
+    const response = await this.mainApi.post('/auth/login', { username, password });
+    return response.data;
+  }
+
+  async verifyTOTP(userId: string, token: string) {
+    const response = await this.mainApi.post('/auth/verify-totp', { userId, token });
+    return response.data;
+  }
+
+  async setupTOTP(userId: string) {
+    const response = await this.mainApi.post('/auth/setup-totp', { userId });
+    return response.data;
+  }
+
+  async confirmTOTPSetup(userId: string, secret: string, token: string) {
+    const response = await this.mainApi.post('/auth/confirm-totp-setup', { userId, secret, token });
+    return response.data;
+  }
+
+  async verifyAuthToken() {
+    const response = await this.mainApi.get('/auth/verify');
+    return response.data;
+  }
+
+  async createUser(username: string, password: string) {
+    const response = await this.mainApi.post('/auth/create-user', { username, password });
+    return response.data;
   }
 }
 

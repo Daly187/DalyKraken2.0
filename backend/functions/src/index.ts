@@ -7,7 +7,9 @@ import * as functions from 'firebase-functions';
 import admin from 'firebase-admin';
 import express from 'express';
 import cors from 'cors';
+import { createAuthRouter } from './routes/auth.js';
 import { createDCABotsRouter } from './routes/dcaBots.js';
+import { authenticateToken } from './middleware/auth.js';
 import { DCABotService } from './services/dcaBotService.js';
 import { KrakenService } from './services/krakenService.js';
 import { MarketAnalysisService } from './services/marketAnalysisService.js';
@@ -55,7 +57,7 @@ const krakenService = new KrakenService();
 const marketAnalysisService = new MarketAnalysisService();
 const costBasisService = new CostBasisService(db);
 
-// Health check endpoint
+// Health check endpoint (public)
 app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
@@ -65,14 +67,17 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Mount DCA Bots routes
-app.use('/dca-bots', createDCABotsRouter(db));
+// Mount authentication routes (public)
+app.use('/auth', createAuthRouter(db));
+
+// Mount DCA Bots routes (protected)
+app.use('/dca-bots', authenticateToken, createDCABotsRouter(db));
 
 // ============================================
-// ACCOUNT ROUTES
+// ACCOUNT ROUTES (Protected)
 // ============================================
 
-app.get('/account/balance', async (req, res) => {
+app.get('/account/balance', authenticateToken, async (req, res) => {
   try {
     console.log('[API] Fetching account balance');
 
@@ -97,7 +102,7 @@ app.get('/account/balance', async (req, res) => {
   }
 });
 
-app.get('/account/info', async (req, res) => {
+app.get('/account/info', authenticateToken, async (req, res) => {
   try {
     console.log('[API] Fetching account info');
     const accountInfo = await krakenService.getAccountInfo();
@@ -118,10 +123,10 @@ app.get('/account/info', async (req, res) => {
 });
 
 // ============================================
-// MARKET ROUTES
+// MARKET ROUTES (Protected)
 // ============================================
 
-app.get('/market/overview', async (req, res) => {
+app.get('/market/overview', authenticateToken, async (req, res) => {
   try {
     console.log('[API] Fetching market overview');
 
@@ -154,7 +159,7 @@ app.get('/market/overview', async (req, res) => {
   }
 });
 
-app.get('/market/prices', async (req, res) => {
+app.get('/market/prices', authenticateToken, async (req, res) => {
   try {
     const pairs = req.query.pairs as string | undefined;
     console.log('[API] Fetching prices', pairs ? `for: ${pairs}` : 'for all pairs');
@@ -177,7 +182,7 @@ app.get('/market/prices', async (req, res) => {
   }
 });
 
-app.get('/market/ticker/:pair', async (req, res) => {
+app.get('/market/ticker/:pair', authenticateToken, async (req, res) => {
   try {
     const { pair } = req.params;
     console.log('[API] Fetching ticker for', pair);
@@ -200,7 +205,7 @@ app.get('/market/ticker/:pair', async (req, res) => {
 });
 
 // Enhanced trends endpoint using Kraken data
-app.get('/market/quantify-crypto/enhanced-trends', async (req, res) => {
+app.get('/market/quantify-crypto/enhanced-trends', authenticateToken, async (req, res) => {
   try {
     const limit = parseInt(req.query.limit as string) || 20;
     console.log('[API] Fetching enhanced trends from Kraken (limit:', limit, ')');
@@ -241,12 +246,12 @@ app.get('/market/quantify-crypto/enhanced-trends', async (req, res) => {
 // PORTFOLIO ROUTES
 // ============================================
 
-app.get('/portfolio/overview', async (req, res) => {
+app.get('/portfolio/overview', authenticateToken, async (req, res) => {
   try {
     console.log('[API] Fetching portfolio overview');
 
-    // Get userId from query or use default for demo
-    const userId = req.query.userId as string || 'default-user';
+    // Get userId from authenticated user
+    const userId = req.user!.userId;
 
     const cached = getCache(`portfolio_overview_${userId}`);
     if (cached) {
@@ -383,9 +388,9 @@ app.get('/portfolio/overview', async (req, res) => {
 // COST BASIS / TRADE HISTORY ROUTES
 // ============================================
 
-app.post('/portfolio/sync-trades', async (req, res) => {
+app.post('/portfolio/sync-trades', authenticateToken, async (req, res) => {
   try {
-    const userId = req.body.userId || 'default-user';
+    const userId = req.user!.userId;
 
     console.log('[API] Syncing trade history for user:', userId);
 
@@ -444,9 +449,9 @@ app.post('/portfolio/sync-trades', async (req, res) => {
   }
 });
 
-app.get('/portfolio/cost-basis/:asset', async (req, res) => {
+app.get('/portfolio/cost-basis/:asset', authenticateToken, async (req, res) => {
   try {
-    const userId = req.query.userId as string || 'default-user';
+    const userId = req.user!.userId;
     const asset = req.params.asset;
 
     console.log(`[API] Fetching cost basis for ${asset}`);
@@ -486,7 +491,7 @@ app.get('/portfolio/cost-basis/:asset', async (req, res) => {
 // ============================================
 
 // Get Quantify Crypto keys
-app.get('/settings/quantify-crypto-keys', async (req, res) => {
+app.get('/settings/quantify-crypto-keys', authenticateToken, async (req, res) => {
   try {
     console.log('[API] Fetching Quantify Crypto keys');
 
@@ -514,7 +519,7 @@ app.get('/settings/quantify-crypto-keys', async (req, res) => {
 });
 
 // Save Quantify Crypto keys
-app.post('/settings/quantify-crypto-keys', async (req, res) => {
+app.post('/settings/quantify-crypto-keys', authenticateToken, async (req, res) => {
   try {
     const { keys } = req.body;
 
@@ -554,7 +559,7 @@ app.post('/settings/quantify-crypto-keys', async (req, res) => {
 });
 
 // Get Kraken keys
-app.get('/settings/kraken-keys', async (req, res) => {
+app.get('/settings/kraken-keys', authenticateToken, async (req, res) => {
   try {
     console.log('[API] Fetching Kraken keys');
 
@@ -583,7 +588,7 @@ app.get('/settings/kraken-keys', async (req, res) => {
 });
 
 // Save Kraken keys
-app.post('/settings/kraken-keys', async (req, res) => {
+app.post('/settings/kraken-keys', authenticateToken, async (req, res) => {
   try {
     const { keys } = req.body;
 
@@ -624,7 +629,7 @@ app.post('/settings/kraken-keys', async (req, res) => {
 });
 
 // Get CoinMarketCap key
-app.get('/settings/coinmarketcap-key', async (req, res) => {
+app.get('/settings/coinmarketcap-key', authenticateToken, async (req, res) => {
   try {
     console.log('[API] Fetching CoinMarketCap key');
 
@@ -646,7 +651,7 @@ app.get('/settings/coinmarketcap-key', async (req, res) => {
 });
 
 // Save CoinMarketCap key
-app.post('/settings/coinmarketcap-key', async (req, res) => {
+app.post('/settings/coinmarketcap-key', authenticateToken, async (req, res) => {
   try {
     const { key } = req.body;
 
@@ -680,7 +685,7 @@ app.post('/settings/coinmarketcap-key', async (req, res) => {
 });
 
 // Test Quantify Crypto connection
-app.get('/quantify-crypto/test', async (req, res) => {
+app.get('/quantify-crypto/test', authenticateToken, async (req, res) => {
   try {
     console.log('[API] Testing Quantify Crypto API connection');
 
@@ -704,7 +709,7 @@ app.get('/quantify-crypto/test', async (req, res) => {
 // AUDIT ROUTES
 // ============================================
 
-app.get('/audit/trades', async (req, res) => {
+app.get('/audit/trades', authenticateToken, async (req, res) => {
   try {
     const limit = parseInt(req.query.limit as string) || 50;
     const offset = parseInt(req.query.offset as string) || 0;
@@ -750,7 +755,7 @@ app.get('/audit/trades', async (req, res) => {
   }
 });
 
-app.get('/audit/transactions', async (req, res) => {
+app.get('/audit/transactions', authenticateToken, async (req, res) => {
   try {
     const limit = parseInt(req.query.limit as string) || 50;
     console.log(`[API] Fetching transaction history (limit: ${limit})`);
@@ -791,9 +796,9 @@ app.get('/audit/transactions', async (req, res) => {
 // DCA ROUTES
 // ============================================
 
-app.get('/dca/status', async (req, res) => {
+app.get('/dca/status', authenticateToken, async (req, res) => {
   try {
-    const userId = req.query.userId as string || 'default-user';
+    const userId = req.user!.userId;
 
     // Get all active bots for user
     const snapshot = await db

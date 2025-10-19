@@ -78,7 +78,11 @@ export class DCABotService {
     const unrealizedPnLPercent = totalInvested > 0 ? (unrealizedPnL / totalInvested) * 100 : 0;
 
     // Calculate next entry price
-    const lastEntry = filledEntries[0];
+    // Sort entries by timestamp to get the actual last entry
+    const sortedEntries = [...filledEntries].sort((a, b) =>
+      new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    );
+    const lastEntry = sortedEntries[0];
     let nextEntryPrice = null;
 
     if (lastEntry) {
@@ -99,6 +103,11 @@ export class DCABotService {
     // Get trend analysis
     const trendAnalysis = await this.marketAnalysis.analyzeTrend(botData.symbol);
 
+    // Calculate Support & Resistance levels
+    const currentSupport = trendAnalysis.support || currentPrice * 0.95;
+    const currentResistance = trendAnalysis.resistance || currentPrice * 1.05;
+    const nextSupport = currentSupport * 0.95; // Next support level below current
+
     const liveBot: LiveDCABot = {
       ...botData,
       id: botId,
@@ -116,6 +125,9 @@ export class DCABotService {
       trendScore: trendAnalysis.trendScore,
       support: trendAnalysis.support,
       resistance: trendAnalysis.resistance,
+      currentSupport,
+      currentResistance,
+      nextSupport,
     };
 
     return liveBot;

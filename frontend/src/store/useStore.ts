@@ -60,7 +60,11 @@ interface AppState {
   dcaDeployments: DCADeployment[];
 
   // Actions
-  login: (username: string, password: string) => Promise<void>;
+  login: (username: string, password: string) => Promise<{ requiresTOTP: boolean; requiresTOTPSetup: boolean; userId: string; username: string }>;
+  verifyTOTP: (userId: string, token: string) => Promise<{ success: boolean }>;
+  setupTOTP: (userId: string) => Promise<{ success: boolean; secret: string; qrCode: string }>;
+  confirmTOTPSetup: (userId: string, secret: string, token: string) => Promise<{ success: boolean }>;
+  checkAuth: () => Promise<boolean>;
   logout: () => void;
   initialize: () => Promise<void>;
 
@@ -157,19 +161,118 @@ export const useStore = create<AppState>((set, get) => ({
 
   // Auth actions
   login: async (username: string, password: string) => {
-    // Development-only auth
-    if (username === 'admin' && password === 'admin') {
-      const user: User = {
-        id: '1',
-        username: 'admin',
-        email: 'admin@dalykraken.com',
-      };
-      set({ user, isAuthenticated: true });
+    try {
+      const response = await apiService.login(username, password);
 
-      // Initialize after login
-      await get().initialize();
-    } else {
-      throw new Error('Invalid credentials');
+      if (response.success) {
+        // Store user info for TOTP flow
+        return {
+          requiresTOTP: response.requiresTOTP || false,
+          requiresTOTPSetup: response.requiresTOTPSetup || false,
+          userId: response.userId,
+          username: response.username,
+        };
+      } else {
+        throw new Error(response.error || 'Login failed');
+      }
+    } catch (error: any) {
+      console.error('[Store] Login error:', error);
+      throw error;
+    }
+  },
+
+  verifyTOTP: async (userId: string, token: string) => {
+    try {
+      const response = await apiService.verifyTOTP(userId, token);
+
+      if (response.success && response.token) {
+        // Store JWT token
+        localStorage.setItem('auth_token', response.token);
+
+        // Set user info
+        const user: User = {
+          id: response.user.userId,
+          username: response.user.username,
+        };
+
+        set({ user, isAuthenticated: true });
+
+        // Initialize after successful login
+        await get().initialize();
+
+        return { success: true };
+      } else {
+        throw new Error(response.error || 'TOTP verification failed');
+      }
+    } catch (error: any) {
+      console.error('[Store] TOTP verification error:', error);
+      throw error;
+    }
+  },
+
+  setupTOTP: async (userId: string) => {
+    try {
+      const response = await apiService.setupTOTP(userId);
+      return response;
+    } catch (error: any) {
+      console.error('[Store] TOTP setup error:', error);
+      throw error;
+    }
+  },
+
+  confirmTOTPSetup: async (userId: string, secret: string, token: string) => {
+    try {
+      const response = await apiService.confirmTOTPSetup(userId, secret, token);
+
+      if (response.success && response.token) {
+        // Store JWT token
+        localStorage.setItem('auth_token', response.token);
+
+        // Set user info
+        const user: User = {
+          id: response.user.userId,
+          username: response.user.username,
+        };
+
+        set({ user, isAuthenticated: true });
+
+        // Initialize after successful setup
+        await get().initialize();
+
+        return { success: true };
+      } else {
+        throw new Error(response.error || 'TOTP confirmation failed');
+      }
+    } catch (error: any) {
+      console.error('[Store] TOTP confirmation error:', error);
+      throw error;
+    }
+  },
+
+  checkAuth: async () => {
+    try {
+      const token = localStorage.getItem('auth_token');
+      if (!token) {
+        return false;
+      }
+
+      const response = await apiService.verifyAuthToken();
+
+      if (response.success && response.user) {
+        const user: User = {
+          id: response.user.userId,
+          username: response.user.username,
+        };
+
+        set({ user, isAuthenticated: true });
+        return true;
+      }
+
+      return false;
+    } catch (error) {
+      console.error('[Store] Auth check failed:', error);
+      localStorage.removeItem('auth_token');
+      return false;
     }
   },
 
@@ -177,6 +280,11 @@ export const useStore = create<AppState>((set, get) => ({
     get().disconnectWebSocket();
     globalPriceManager.cleanup();
     console.log('[Store] Global price manager cleaned up');
+
+    // Clear auth token
+    localStorage.removeItem('auth_token');
+    localStorage.removeItem('user');
+
     set({
       user: null,
       isAuthenticated: false,

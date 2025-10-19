@@ -24,7 +24,20 @@
       "Bash(git log:*)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(git reset:*)",
+      "Bash(bash:*)",
+      "Bash(node scripts/fetch-trades-direct.js:*)",
+      "Bash(node scripts/fetch-with-clean-keys.js:*)",
+      "Bash(npx ts-node:*)",
+      "Bash(node scripts/populate-bots-simple.js:*)",
+      "Bash(node:*)",
+      "Bash(kill:*)",
+      "Bash(npm run firebase:deploy:hosting:*)",
+      "Bash(npm run firebase:deploy:functions:*)",
+      "Bash(npm install:*)",
+      "Bash(xargs dirname:*)",
+      "Bash(npm --prefix backend/functions run build)"
     ],
     "deny": [],
     "ask": []

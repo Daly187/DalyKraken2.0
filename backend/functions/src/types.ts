@@ -35,6 +35,9 @@ export interface LiveDCABot extends DCABotConfig {
   trendScore: number;
   support: number | null;
   resistance: number | null;
+  currentSupport?: number;
+  currentResistance?: number;
+  nextSupport?: number;
 }
 
 export interface DCABotEntry {
