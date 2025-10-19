@@ -453,11 +453,13 @@ export function createDCABotsRouter(db: Firestore): Router {
 
       console.log(`[DCABots API] Processing ${activeBots.length} active bots`);
 
-      // Get Kraken credentials from settingsStore
-      const krakenKeys = settingsStore.getKrakenKeys();
+      // Get Kraken credentials from Firestore user settings
+      const userDoc = await db.collection('users').doc(userId).get();
+      const userData = userDoc.data();
+      const krakenKeys = userData?.krakenKeys || [];
 
       if (!krakenKeys || krakenKeys.length === 0) {
-        console.error('[DCABots API] No Kraken API keys configured in settingsStore');
+        console.error('[DCABots API] No Kraken API keys configured for user');
         return res.status(500).json({
           success: false,
           error: 'No Kraken API credentials configured. Please add them in Settings.',
@@ -465,7 +467,7 @@ export function createDCABotsRouter(db: Firestore): Router {
       }
 
       // Use the first active key
-      const activeKey = krakenKeys.find(k => k.isActive);
+      const activeKey = krakenKeys.find((k: any) => k.isActive);
       const keyToUse = activeKey || krakenKeys[0];
 
       if (!keyToUse || !keyToUse.apiKey || !keyToUse.apiSecret) {
@@ -476,7 +478,7 @@ export function createDCABotsRouter(db: Firestore): Router {
         });
       }
 
-      // Decrypt the keys
+      // Decrypt the keys if encrypted
       const krakenApiKey = keyToUse.encrypted ? decryptKey(keyToUse.apiKey) : keyToUse.apiKey;
       const krakenApiSecret = keyToUse.encrypted ? decryptKey(keyToUse.apiSecret) : keyToUse.apiSecret;
 

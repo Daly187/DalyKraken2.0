@@ -75,17 +75,29 @@ export class DCABotService {
           const tradesData = await krakenService.queryTrades(txids);
 
           // Calculate average price from actual Kraken trades
-          // Kraken's QueryTrades returns: { txid: { price, cost, vol, ... }, ... }
+          // Kraken's QueryTrades returns: { txid: { price, cost, vol, fee, ... }, ... }
+          // Note: 'cost' includes fees, but we need to exclude fees for accurate average price
+          // Average Price = Sum(price * vol) / Sum(vol)
+          let weightedPriceSum = 0;
+
           for (const [txid, trade] of Object.entries(tradesData)) {
             const tradeData = trade as any;
-            // cost = total cost in quote currency (USD)
-            // vol = volume in base currency (crypto)
-            totalInvested += parseFloat(tradeData.cost);
-            totalQuantity += parseFloat(tradeData.vol);
+            const price = parseFloat(tradeData.price); // Execution price per unit
+            const vol = parseFloat(tradeData.vol);     // Volume in base currency (crypto)
+            const cost = parseFloat(tradeData.cost);   // Total cost (includes fees)
+            const fee = parseFloat(tradeData.fee);     // Trading fee
+
+            // Weighted price sum for average calculation
+            weightedPriceSum += price * vol;
+            totalQuantity += vol;
+
+            // Total invested includes fees (this is what you actually paid)
+            totalInvested += cost;
           }
 
-          averagePurchasePrice = totalQuantity > 0 ? totalInvested / totalQuantity : 0;
-          console.log(`[DCABotService] Using actual Kraken trade data for bot ${botId}: avg=${averagePurchasePrice}, invested=${totalInvested}, qty=${totalQuantity}`);
+          // Average purchase price = weighted average of all trade prices
+          averagePurchasePrice = totalQuantity > 0 ? weightedPriceSum / totalQuantity : 0;
+          console.log(`[DCABotService] Using actual Kraken trade data for bot ${botId}: avg=${averagePurchasePrice.toFixed(4)}, invested=${totalInvested.toFixed(2)}, qty=${totalQuantity.toFixed(6)}`);
         } else {
           // Fallback to stored values if no txids
           totalInvested = filledEntries.reduce((sum, e) => sum + e.orderAmount, 0);
