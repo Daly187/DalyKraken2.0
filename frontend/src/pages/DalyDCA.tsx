@@ -902,15 +902,6 @@ export default function DalyDCA() {
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={handleTrigger}
-              disabled={triggering || activeBots.length === 0}
-              className="btn btn-primary btn-sm flex items-center gap-2"
-              title="Manually trigger bot processing (bypasses 5-minute wait)"
-            >
-              <Zap className={`h-4 w-4 ${triggering ? 'animate-pulse' : ''}`} />
-              {triggering ? 'Processing...' : 'Trigger Now'}
-            </button>
-            <button
               onClick={refreshData}
               disabled={loading}
               className="btn btn-secondary btn-sm flex items-center gap-2"
@@ -1471,18 +1462,29 @@ export default function DalyDCA() {
 
       {/* Pending Orders Section */}
       <div className="card">
-        <div className="mb-4">
-          <h2 className="text-xl font-bold flex items-center gap-2">
-            Pending Orders
-            {pendingOrders.length > 0 && (
-              <span className="px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 text-xs font-medium">
-                Last {pendingOrders.length}
-              </span>
-            )}
-          </h2>
-          <p className="text-xs text-gray-500 mt-1">
-            Most recent orders from the order queue
-          </p>
+        <div className="flex justify-between items-center mb-4">
+          <div>
+            <h2 className="text-xl font-bold flex items-center gap-2">
+              Pending Orders
+              {pendingOrders.length > 0 && (
+                <span className="px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 text-xs font-medium">
+                  Last {pendingOrders.length}
+                </span>
+              )}
+            </h2>
+            <p className="text-xs text-gray-500 mt-1">
+              Most recent orders from the order queue
+            </p>
+          </div>
+          <button
+            onClick={handleTrigger}
+            disabled={triggering || activeBots.length === 0}
+            className="btn btn-primary btn-sm flex items-center gap-2"
+            title="Manually trigger bot processing (bypasses 5-minute wait)"
+          >
+            <Zap className={`h-4 w-4 ${triggering ? 'animate-pulse' : ''}`} />
+            {triggering ? 'Processing...' : 'Trigger Now'}
+          </button>
         </div>
 
         {pendingOrders.length > 0 ? (
