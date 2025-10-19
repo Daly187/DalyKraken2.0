@@ -602,9 +602,27 @@ app.post('/settings/quantify-crypto-keys', authenticateToken, async (req, res) =
 // Get Kraken keys
 app.get('/settings/kraken-keys', authenticateToken, async (req, res) => {
   try {
-    console.log('[API] Fetching Kraken keys');
+    const userId = req.user!.userId;
+    console.log(`[API] Fetching Kraken keys for user ${userId}`);
 
-    const keys = settingsStore.getKrakenKeys();
+    // Try to get from Firestore first
+    let keys = [];
+    try {
+      const userDoc = await db.collection('users').doc(userId).get();
+      if (userDoc.exists) {
+        const userData = userDoc.data();
+        keys = userData?.krakenKeys || [];
+        console.log(`[API] Found ${keys.length} Kraken keys in Firestore`);
+      }
+    } catch (firestoreError) {
+      console.warn('[API] Error reading from Firestore, falling back to in-memory store:', firestoreError);
+    }
+
+    // Fallback to in-memory store if no keys found in Firestore
+    if (keys.length === 0) {
+      keys = settingsStore.getKrakenKeys();
+      console.log(`[API] Using ${keys.length} Kraken keys from in-memory store`);
+    }
 
     // Mask the keys for security
     const maskedKeys = keys.map(key => ({
@@ -632,6 +650,7 @@ app.get('/settings/kraken-keys', authenticateToken, async (req, res) => {
 app.post('/settings/kraken-keys', authenticateToken, async (req, res) => {
   try {
     const { keys } = req.body;
+    const userId = req.user!.userId;
 
     if (!keys || !Array.isArray(keys)) {
       return res.status(400).json({
@@ -641,7 +660,7 @@ app.post('/settings/kraken-keys', authenticateToken, async (req, res) => {
       });
     }
 
-    console.log(`[API] Saving ${keys.length} Kraken key(s)`);
+    console.log(`[API] Saving ${keys.length} Kraken key(s) for user ${userId}`);
 
     // Encrypt API keys before storing
     const encryptedKeys = keys.map(key => ({
@@ -652,7 +671,19 @@ app.post('/settings/kraken-keys', authenticateToken, async (req, res) => {
       updatedAt: new Date().toISOString(),
     }));
 
+    // Save to in-memory store for backward compatibility
     settingsStore.setKrakenKeys(encryptedKeys);
+
+    // Also save to Firestore for persistence
+    await db.collection('users').doc(userId).set(
+      {
+        krakenKeys: encryptedKeys,
+        updatedAt: new Date().toISOString(),
+      },
+      { merge: true }
+    );
+
+    console.log(`[API] Kraken keys saved to Firestore for user ${userId}`);
 
     res.json({
       success: true,
