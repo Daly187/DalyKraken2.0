@@ -361,7 +361,7 @@ class ApiService {
   }
 
   async triggerDCABots() {
-    return this.post('/dca-bots/trigger');
+    return this.post('/dca-bots/trigger', {}, { headers: this.getKrakenHeaders() });
   }
 
   async getEnhancedTrends(limit: number = 20) {
