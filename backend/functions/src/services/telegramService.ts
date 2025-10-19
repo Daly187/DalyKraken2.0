@@ -259,11 +259,53 @@ export class TelegramService {
    * Send a test message
    */
   async sendTestMessage(): Promise<any> {
+    // Reload config before sending test message to get latest settings
+    await this.loadConfig();
+
+    // For test messages, bypass the enabled check
+    if (!this.botToken || !this.chatId) {
+      console.warn('[Telegram] Not configured, test message not sent');
+      return { sent: false, reason: 'not_configured' };
+    }
+
     const message = '🤖 *DalyKraken Test Message*\n\n' +
       'Your Telegram integration is working correctly!\n\n' +
       `⏰ ${new Date().toLocaleString()}`;
 
-    return await this.sendMessage(message);
+    // Send message directly without checking enabled flag for test
+    try {
+      const url = `https://api.telegram.org/bot${this.botToken}/sendMessage`;
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          chat_id: this.chatId,
+          text: message,
+          parse_mode: 'Markdown',
+          disable_web_page_preview: true,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        console.error('[Telegram] API error:', data);
+        throw new Error(data.description || 'Failed to send Telegram message');
+      }
+
+      console.log('[Telegram] Test message sent successfully');
+      return {
+        sent: true,
+        messageId: data.result.message_id,
+        timestamp: new Date().toISOString(),
+      };
+    } catch (error: any) {
+      console.error('[Telegram] Error sending test message:', error);
+      throw error;
+    }
   }
 
   /**
