@@ -172,6 +172,12 @@ class KrakenApiService {
         'Content-Type': 'application/json',
       };
 
+      // Add JWT token for authentication
+      const authToken = localStorage.getItem('auth_token');
+      if (authToken) {
+        headers['Authorization'] = `Bearer ${authToken}`;
+      }
+
       // Add API keys to headers if available
       if (credentials) {
         headers['x-kraken-api-key'] = credentials.apiKey;
@@ -361,6 +367,12 @@ class KrakenApiService {
         'x-kraken-api-secret': credentials.apiSecret,
       };
 
+      // Add JWT token for authentication
+      const authToken = localStorage.getItem('auth_token');
+      if (authToken) {
+        headers['Authorization'] = `Bearer ${authToken}`;
+      }
+
       const orderData = {
         pair,
         type,
@@ -423,6 +435,12 @@ class KrakenApiService {
         'x-kraken-api-key': credentials.apiKey,
         'x-kraken-api-secret': credentials.apiSecret,
       };
+
+      // Add JWT token for authentication
+      const authToken = localStorage.getItem('auth_token');
+      if (authToken) {
+        headers['Authorization'] = `Bearer ${authToken}`;
+      }
 
       const response = await fetch(`${this.backendUrl}/api/trading/cancelorder`, {
         method: 'POST',
