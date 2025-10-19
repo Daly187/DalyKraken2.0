@@ -28,7 +28,25 @@ export function setupPortfolioRoutes(router) {
       }
 
       const balance = await krakenService.getBalance();
-      const prices = await krakenService.getCurrentPrices();
+
+      // Build list of trading pairs for assets we hold
+      const assetPairs = [];
+      for (const asset of Object.keys(balance)) {
+        if (parseFloat(balance[asset]) > 0) {
+          // Skip USD and stablecoins - they don't need price lookup
+          if (['ZUSD', 'USD', 'USDT', 'USDC', 'DAI', 'BUSD'].includes(asset)) {
+            continue;
+          }
+          // Convert asset to Kraken pair format (e.g., XXBT -> XXBTZUSD, SOL -> SOLUSD)
+          const pair = asset.startsWith('X') || asset.startsWith('Z')
+            ? `${asset}ZUSD`
+            : `${asset}USD`;
+          assetPairs.push(pair);
+        }
+      }
+
+      // Fetch prices for all held assets
+      const prices = await krakenService.getCurrentPrices(assetPairs);
 
       // Calculate portfolio metrics
       let totalValue = 0;
@@ -37,7 +55,15 @@ export function setupPortfolioRoutes(router) {
 
       for (const [asset, amount] of Object.entries(balance)) {
         if (parseFloat(amount) > 0) {
-          const currentPrice = prices[asset] || 0;
+          // Handle USD and stablecoins with price = 1
+          let currentPrice;
+          if (['ZUSD', 'USD', 'USDT', 'USDC', 'DAI', 'BUSD'].includes(asset)) {
+            currentPrice = 1;
+          } else {
+            // Look up price from our fetched prices
+            currentPrice = prices[asset] || 0;
+          }
+
           const amountNum = parseFloat(amount);
           const value = amountNum * currentPrice;
           totalValue += value;

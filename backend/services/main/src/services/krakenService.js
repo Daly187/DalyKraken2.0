@@ -269,11 +269,15 @@ class KrakenService {
         pair: pairList.join(','),
       });
 
-      // Simplify the response
+      // Map response back to asset names
       const prices = {};
       for (const [pair, data] of Object.entries(ticker)) {
-        const simplePair = pair.replace(/^X/, '').replace(/Z(USD|EUR)$/, '');
-        prices[simplePair] = parseFloat(data.c[0]); // Last price
+        // Extract the base asset from the pair name
+        // Examples: XXBTZUSD -> XXBT, SOLUSD -> SOL, XETHZUSD -> XETH
+        let asset = pair.replace(/ZUSD$/, '').replace(/USD$/, '').replace(/ZEUR$/, '').replace(/EUR$/, '');
+
+        // Store the price with the asset name as key
+        prices[asset] = parseFloat(data.c[0]); // Last price
       }
 
       dataStore.set('kraken_prices', prices, 10000);
@@ -283,8 +287,8 @@ class KrakenService {
 
       // Return mock data on error
       return {
-        BTCUSD: 45000.50,
-        ETHUSD: 2500.75,
+        XXBT: 45000.50,
+        XETH: 2500.75,
         SOL: 120.30,
         ADA: 0.65,
         DOT: 8.50,
