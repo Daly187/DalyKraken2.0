@@ -40,7 +40,8 @@
       "Bash(npm --prefix backend/functions run build)",
       "Bash(npm run:*)",
       "Bash(gcloud functions logs read:*)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(npm --prefix backend/functions run deploy)"
     ],
     "deny": [],
     "ask": []

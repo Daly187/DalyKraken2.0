@@ -4,6 +4,7 @@
 
 import { Router } from 'express';
 import { Firestore } from 'firebase-admin/firestore';
+import * as functions from 'firebase-functions';
 import { DCABotConfig } from '../types.js';
 import { DCABotService } from '../services/dcaBotService.js';
 import { KrakenService } from '../services/krakenService.js';
@@ -451,14 +452,16 @@ export function createDCABotsRouter(db: Firestore): Router {
 
       console.log(`[DCABots API] Processing ${activeBots.length} active bots`);
 
-      // Get Kraken credentials from environment
-      const krakenApiKey = process.env.KRAKEN_API_KEY || '';
-      const krakenApiSecret = process.env.KRAKEN_API_SECRET || '';
+      // Get Kraken credentials from Firebase config
+      const config = functions.config();
+      const krakenApiKey = config.kraken?.api_key || '';
+      const krakenApiSecret = config.kraken?.api_secret || '';
 
       if (!krakenApiKey || !krakenApiSecret) {
+        console.error('[DCABots API] Kraken credentials not configured in Firebase');
         return res.status(500).json({
           success: false,
-          error: 'Kraken API credentials not configured',
+          error: 'Kraken API credentials not configured. Please contact support.',
         });
       }
 
