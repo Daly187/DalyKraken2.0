@@ -101,6 +101,7 @@ interface AppState {
   deleteDCABot: (id: string) => Promise<void>;
   pauseDCABot: (id: string) => Promise<void>;
   resumeDCABot: (id: string) => Promise<void>;
+  triggerDCABots: () => Promise<any>;
   selectBot: (bot: LiveDCABot | null) => void;
 
   // Cost Basis actions
@@ -818,6 +819,31 @@ export const useStore = create<AppState>((set, get) => ({
         type: 'error',
         title: 'Bot Resume Failed',
         message: error.message || 'Failed to resume DCA bot',
+      });
+      throw error;
+    }
+  },
+
+  triggerDCABots: async () => {
+    try {
+      const response = await apiService.triggerDCABots();
+      await get().fetchDCABots();
+
+      const summary = response.summary || {};
+      const message = `Processed ${summary.processed || 0} bots: ${summary.entries || 0} entries, ${summary.exits || 0} exits`;
+
+      get().addNotification({
+        type: 'success',
+        title: 'Bots Triggered',
+        message,
+      });
+
+      return response;
+    } catch (error: any) {
+      get().addNotification({
+        type: 'error',
+        title: 'Trigger Failed',
+        message: error.message || 'Failed to trigger bot processing',
       });
       throw error;
     }

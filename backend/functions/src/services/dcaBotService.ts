@@ -35,7 +35,7 @@ export class DCABotService {
   /**
    * Get bot by ID with live data
    */
-  async getBotById(botId: string): Promise<LiveDCABot | null> {
+  async getBotById(botId: string, krakenService?: KrakenService): Promise<LiveDCABot | null> {
     const botDoc = await this.db.collection('dcaBots').doc(botId).get();
 
     if (!botDoc.exists) {
@@ -56,18 +56,63 @@ export class DCABotService {
       ...doc.data(),
     })) as DCABotEntry[];
 
-    // Calculate live metrics
+    // Calculate live metrics using actual Kraken trade data
     const filledEntries = entries.filter((e) => e.status === 'filled');
 
-    const totalInvested = filledEntries.reduce((sum, e) => sum + e.orderAmount, 0);
-    const totalQuantity = filledEntries.reduce((sum, e) => sum + e.quantity, 0);
-    const averagePurchasePrice = totalQuantity > 0 ? totalInvested / totalQuantity : 0;
+    let totalInvested = 0;
+    let totalQuantity = 0;
+    let averagePurchasePrice = 0;
+
+    // Try to get actual trade data from Kraken if krakenService is provided
+    if (krakenService && filledEntries.length > 0) {
+      try {
+        // Get actual trade data from Kraken for entries with txids
+        const txids = filledEntries
+          .filter((e) => e.txid)
+          .map((e) => e.txid!);
+
+        if (txids.length > 0) {
+          const tradesData = await krakenService.queryTrades(txids);
+
+          // Calculate average price from actual Kraken trades
+          // Kraken's QueryTrades returns: { txid: { price, cost, vol, ... }, ... }
+          for (const [txid, trade] of Object.entries(tradesData)) {
+            const tradeData = trade as any;
+            // cost = total cost in quote currency (USD)
+            // vol = volume in base currency (crypto)
+            totalInvested += parseFloat(tradeData.cost);
+            totalQuantity += parseFloat(tradeData.vol);
+          }
+
+          averagePurchasePrice = totalQuantity > 0 ? totalInvested / totalQuantity : 0;
+          console.log(`[DCABotService] Using actual Kraken trade data for bot ${botId}: avg=${averagePurchasePrice}, invested=${totalInvested}, qty=${totalQuantity}`);
+        } else {
+          // Fallback to stored values if no txids
+          totalInvested = filledEntries.reduce((sum, e) => sum + e.orderAmount, 0);
+          totalQuantity = filledEntries.reduce((sum, e) => sum + e.quantity, 0);
+          averagePurchasePrice = totalQuantity > 0 ? totalInvested / totalQuantity : 0;
+          console.log(`[DCABotService] No txids found for bot ${botId}, using stored values`);
+        }
+      } catch (error) {
+        console.error('[DCABotService] Error fetching actual trade data, falling back to stored values:', error);
+        // Fallback to stored values on error
+        totalInvested = filledEntries.reduce((sum, e) => sum + e.orderAmount, 0);
+        totalQuantity = filledEntries.reduce((sum, e) => sum + e.quantity, 0);
+        averagePurchasePrice = totalQuantity > 0 ? totalInvested / totalQuantity : 0;
+      }
+    } else {
+      // Fallback to stored values if no krakenService provided
+      totalInvested = filledEntries.reduce((sum, e) => sum + e.orderAmount, 0);
+      totalQuantity = filledEntries.reduce((sum, e) => sum + e.quantity, 0);
+      averagePurchasePrice = totalQuantity > 0 ? totalInvested / totalQuantity : 0;
+    }
 
     // Get current market price
-    const krakenService = new KrakenService();
+    // Use provided krakenService if available, otherwise create a public one
+    const priceService = krakenService || new KrakenService();
     let currentPrice = 0;
     try {
-      const ticker = await krakenService.getTicker(botData.symbol);
+      const ticker = await priceService.getTicker(botData.symbol);
       currentPrice = ticker.price;
     } catch (error) {
       console.error('[DCABotService] Error fetching current price:', error);
@@ -387,8 +432,11 @@ export class DCABotService {
     krakenApiSecret: string
   ): Promise<{ processed: boolean; action?: string; reason: string }> {
     try {
-      // Get bot with live data
-      const bot = await this.getBotById(botId);
+      // Create KrakenService with credentials
+      const krakenService = new KrakenService(krakenApiKey, krakenApiSecret);
+
+      // Get bot with live data (pass krakenService to get accurate pricing)
+      const bot = await this.getBotById(botId, krakenService);
 
       if (!bot || bot.status !== 'active') {
         return {
@@ -396,8 +444,6 @@ export class DCABotService {
           reason: 'Bot not active or not found',
         };
       }
-
-      const krakenService = new KrakenService(krakenApiKey, krakenApiSecret);
 
       // Get current price
       const ticker = await krakenService.getTicker(bot.symbol);

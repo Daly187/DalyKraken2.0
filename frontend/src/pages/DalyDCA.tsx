@@ -33,8 +33,10 @@ export default function DalyDCA() {
   const pauseDCABot = useStore((state) => state.pauseDCABot);
   const resumeDCABot = useStore((state) => state.resumeDCABot);
   const deleteDCABot = useStore((state) => state.deleteDCABot);
+  const triggerDCABots = useStore((state) => state.triggerDCABots);
 
   const [loading, setLoading] = useState(false);
+  const [triggering, setTriggering] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(true);
   const [creating, setCreating] = useState(false);
   const [lastRefreshTime, setLastRefreshTime] = useState<Date>(new Date());
@@ -88,6 +90,18 @@ export default function DalyDCA() {
       console.error('Failed to refresh DCA bots:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleTrigger = async () => {
+    setTriggering(true);
+    try {
+      await triggerDCABots();
+      setLastRefreshTime(new Date());
+    } catch (error) {
+      console.error('Failed to trigger bot processing:', error);
+    } finally {
+      setTriggering(false);
     }
   };
 
@@ -790,14 +804,25 @@ export default function DalyDCA() {
               Auto-refreshes every 5 minutes • Last update: {lastRefreshTime.toLocaleTimeString()}
             </p>
           </div>
-          <button
-            onClick={refreshData}
-            disabled={loading}
-            className="btn btn-secondary btn-sm flex items-center gap-2"
-          >
-            <Activity className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-            {loading ? 'Refreshing...' : 'Refresh Now'}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleTrigger}
+              disabled={triggering || activeBots.length === 0}
+              className="btn btn-primary btn-sm flex items-center gap-2"
+              title="Manually trigger bot processing (bypasses 5-minute wait)"
+            >
+              <Zap className={`h-4 w-4 ${triggering ? 'animate-pulse' : ''}`} />
+              {triggering ? 'Processing...' : 'Trigger Now'}
+            </button>
+            <button
+              onClick={refreshData}
+              disabled={loading}
+              className="btn btn-secondary btn-sm flex items-center gap-2"
+            >
+              <Activity className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+              {loading ? 'Refreshing...' : 'Refresh Data'}
+            </button>
+          </div>
         </div>
 
         {/* Sort Controls */}

@@ -282,6 +282,22 @@ export class KrakenService {
   }
 
   /**
+   * Query specific trades by transaction IDs
+   * This is used to get actual execution details for orders
+   */
+  async queryTrades(txids: string[]): Promise<any> {
+    try {
+      const response = await this.client.api('QueryTrades', {
+        txid: txids.join(','),
+      });
+      return response.result;
+    } catch (error) {
+      console.error('[KrakenService] Error querying trades:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Test API connection
    */
   async testConnection(): Promise<boolean> {

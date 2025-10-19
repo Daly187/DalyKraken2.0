@@ -314,6 +314,10 @@ class ApiService {
     return this.post(`/dca-bots/${id}/resume`);
   }
 
+  async triggerDCABots() {
+    return this.post('/dca-bots/trigger');
+  }
+
   async getEnhancedTrends(limit: number = 20) {
     return this.get(`/market/quantify-crypto/enhanced-trends?limit=${limit}`);
   }
