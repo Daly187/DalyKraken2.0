@@ -507,6 +507,27 @@ export class OrderExecutorService {
         // Calculate total invested amount
         const newTotalInvested = (bot.totalInvested || 0) + newOrderCost;
 
+        // Create entry in the entries subcollection
+        const entryData = {
+          botId: order.botId,
+          entryNumber: newEntryCount,
+          id: `${order.botId}_entry_${newEntryCount}`,
+          orderAmount: newOrderCost,
+          quantity: executedVolume,
+          price: executedPrice,
+          status: 'filled',
+          timestamp: new Date().toISOString(),
+          orderId: result.orderId || order.id,
+        };
+
+        await db
+          .collection('dcaBots')
+          .doc(order.botId)
+          .collection('entries')
+          .add(entryData);
+
+        console.log(`[OrderExecutor] Created entry ${newEntryCount} for bot ${order.botId}`);
+
         // Update bot fields
         await db.collection('dcaBots').doc(order.botId).update({
           currentEntryCount: newEntryCount,

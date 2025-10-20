@@ -170,23 +170,30 @@ export default function Settings() {
     }, 2000);
   };
 
-  const saveKrakenKeys = () => {
+  const saveKrakenKeys = async () => {
     setSaving(true);
 
-    // Save to localStorage
-    localStorage.setItem('kraken_api_keys', JSON.stringify(krakenKeys));
+    try {
+      // Save to localStorage for backward compatibility
+      localStorage.setItem('kraken_api_keys', JSON.stringify(krakenKeys));
 
-    // TODO: Send to backend API
-    // await apiService.saveKrakenKeys(krakenKeys);
+      // Save to backend API (Firestore)
+      await apiService.saveKrakenKeys(krakenKeys);
 
-    setTimeout(() => {
       setSaving(false);
       addNotification({
         type: 'success',
         title: 'Kraken Keys Saved',
-        message: 'Your Kraken API keys have been saved securely',
+        message: 'Your Kraken API keys have been saved securely to the server',
       });
-    }, 1000);
+    } catch (error: any) {
+      setSaving(false);
+      addNotification({
+        type: 'error',
+        title: 'Failed to Save Keys',
+        message: error.message || 'Failed to save Kraken API keys',
+      });
+    }
   };
 
   const saveOtherApiKeys = async () => {

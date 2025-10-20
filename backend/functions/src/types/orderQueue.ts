@@ -25,11 +25,18 @@ export interface PendingOrder {
   pair: string;
   type: OrderType;
   side: 'buy' | 'sell';
-  volume: string;
-  price?: string; // For limit orders
+  volume: string; // Crypto amount
+  amount?: number; // USD amount
+  price?: string; // Expected market price or limit price
+
+  // Idempotency & tracing
+  clientOrderId: string; // Unique deterministic ID for deduplication
+  executionId?: string; // Trace ID for debugging entire flow
+  userref?: number; // Kraken's user reference field (32-bit int)
 
   // Status tracking
   status: OrderStatus;
+  reason?: string; // Reason why order is pending/not executed
   attempts: number;
   maxAttempts: number;
   lastAttemptAt?: string;
@@ -41,6 +48,7 @@ export interface PendingOrder {
     timestamp: string;
     error: string;
     apiKeyUsed?: string;
+    executionId?: string;
   }>;
 
   // API key tracking
@@ -74,7 +82,15 @@ export interface OrderQueueConfig {
   rateLimit: {
     maxOrdersPerSecond: number;
     maxConcurrentOrders: number;
+    maxConcurrentPerApiKey: number; // Limit per API key
   };
+  circuitBreaker: {
+    enabled: boolean;
+    failureThreshold: number; // Failures before opening circuit
+    resetTimeout: number; // Seconds before trying half-open
+    failureWindow: number; // Window to count failures (seconds)
+  };
+  stuckOrderTimeout: number; // Seconds before resetting stuck PROCESSING orders
 }
 
 export const DEFAULT_ORDER_QUEUE_CONFIG: OrderQueueConfig = {
@@ -85,5 +101,29 @@ export const DEFAULT_ORDER_QUEUE_CONFIG: OrderQueueConfig = {
   rateLimit: {
     maxOrdersPerSecond: 2,
     maxConcurrentOrders: 5,
+    maxConcurrentPerApiKey: 2, // Max 2 concurrent orders per API key
   },
+  circuitBreaker: {
+    enabled: true,
+    failureThreshold: 3, // Open circuit after 3 failures
+    resetTimeout: 300, // Try again after 5 minutes
+    failureWindow: 300, // Count failures in 5-minute window
+  },
+  stuckOrderTimeout: 600, // Reset orders stuck in PROCESSING for >10 minutes
 };
+
+// Circuit breaker states
+export enum CircuitState {
+  CLOSED = 'closed',   // Normal operation
+  OPEN = 'open',       // Circuit open, reject requests
+  HALF_OPEN = 'half_open', // Testing if service recovered
+}
+
+export interface CircuitBreakerState {
+  keyId: string;
+  state: CircuitState;
+  failures: number;
+  lastFailureTime?: string;
+  openedAt?: string;
+  lastSuccessTime?: string;
+}

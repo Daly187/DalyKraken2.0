@@ -273,6 +273,14 @@ export class DCABotService {
     shouldEnter: boolean;
     reason: string;
   }> {
+    // FIRST ENTRY: Always allow immediately without any checks
+    if (bot.currentEntryCount === 0) {
+      return {
+        shouldEnter: true,
+        reason: 'First entry - executing immediately',
+      };
+    }
+
     // Check if max entries reached
     if (bot.currentEntryCount >= bot.reEntryCount) {
       return {
@@ -282,7 +290,7 @@ export class DCABotService {
     }
 
     // Check re-entry delay (only for re-entries, not first entry)
-    if (bot.currentEntryCount > 0 && bot.lastEntryTime) {
+    if (bot.lastEntryTime) {
       const lastEntryTime = new Date(bot.lastEntryTime).getTime();
       const timeSinceLastEntry = Date.now() - lastEntryTime;
       const delayMs = bot.reEntryDelay * 60 * 1000; // Convert minutes to ms
@@ -295,8 +303,8 @@ export class DCABotService {
       }
     }
 
-    // Check if price has dropped enough (only for re-entries, not first entry)
-    if (bot.currentEntryCount > 0 && bot.nextEntryPrice && currentPrice > bot.nextEntryPrice) {
+    // Check if price has dropped enough (only for re-entries)
+    if (bot.nextEntryPrice && currentPrice > bot.nextEntryPrice) {
       return {
         shouldEnter: false,
         reason: `Price not low enough (current: ${currentPrice}, target: ${bot.nextEntryPrice})`,
@@ -327,6 +335,21 @@ export class DCABotService {
     krakenService: KrakenService
   ): Promise<{ success: boolean; entry?: DCABotEntry; error?: string }> {
     try {
+      // Check if there's already a pending order for this bot
+      const existingOrders = await this.db
+        .collection('pendingOrders')
+        .where('botId', '==', bot.id)
+        .where('status', 'in', ['pending', 'processing', 'retry'])
+        .get();
+
+      if (!existingOrders.empty) {
+        console.log(`[DCABotService] Bot ${bot.id} already has ${existingOrders.size} pending order(s), skipping`);
+        return {
+          success: false,
+          error: 'Bot already has a pending order',
+        };
+      }
+
       // Get current price
       const ticker = await krakenService.getTicker(bot.symbol);
       const currentPrice = ticker.price;
@@ -349,9 +372,12 @@ export class DCABotService {
         type: OrderType.MARKET,
         side: 'buy',
         volume: quantity.toFixed(8),
+        amount: orderAmount, // USD amount
+        price: currentPrice.toString(), // Expected market execution price
+        reason: 'Waiting for order queue to execute market buy',
       });
 
-      console.log(`[DCABotService] Created pending order ${pendingOrder.id} for bot ${bot.id}`);
+      console.log(`[DCABotService] Created pending order ${pendingOrder.id} for bot ${bot.id} - $${orderAmount} at $${currentPrice}`);
 
       // Create entry record (marked as pending until order is executed)
       const entry: DCABotEntry = {
@@ -364,16 +390,23 @@ export class DCABotService {
         timestamp: new Date().toISOString(),
         orderId: pendingOrder.id, // Store pending order ID
         status: 'pending', // Mark as pending
-        txid: undefined, // Will be set when order is executed
+        // txid will be set when order is executed
       };
 
-      // Save entry to Firestore
+      // Save entry to Firestore (remove undefined fields)
+      const cleanEntry: any = { ...entry };
+      Object.keys(cleanEntry).forEach(key => {
+        if (cleanEntry[key] === undefined) {
+          delete cleanEntry[key];
+        }
+      });
+
       await this.db
         .collection('dcaBots')
         .doc(bot.id)
         .collection('entries')
         .doc(entry.id)
-        .set(entry);
+        .set(cleanEntry);
 
       // Update bot updatedAt
       await this.db.collection('dcaBots').doc(bot.id).update({
@@ -570,7 +603,15 @@ export class DCABotService {
    */
   private async logExecution(log: BotExecutionLog): Promise<void> {
     try {
-      await this.db.collection('botExecutions').doc(log.id).set(log);
+      // Remove undefined fields to avoid Firestore errors
+      const cleanLog: any = { ...log };
+      Object.keys(cleanLog).forEach(key => {
+        if (cleanLog[key] === undefined) {
+          delete cleanLog[key];
+        }
+      });
+
+      await this.db.collection('botExecutions').doc(log.id).set(cleanLog);
     } catch (error) {
       console.error('[DCABotService] Error logging execution:', error);
     }

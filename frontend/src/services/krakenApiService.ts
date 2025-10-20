@@ -290,15 +290,17 @@ class KrakenApiService {
         if (cached) {
           try {
             const { data } = JSON.parse(cached);
-            // Silently return cached data when rate limited
+            console.warn('[KrakenApiService] Rate limited - using cached data');
             return data;
           } catch (e) {
-            // Cache is corrupted, fall through to mock data
+            // Cache is corrupted, throw error
+            console.error('[KrakenApiService] Rate limited and cache corrupted');
           }
         }
 
-        // If no cache, return mock data silently
-        return this.getMockBalances();
+        // If no cache, throw the error instead of returning mock data
+        console.error('[KrakenApiService] Rate limited with no cache available');
+        throw new Error('Rate limited by Kraken API. Please wait a moment and refresh.');
       }
 
       // For other errors, log and try cache as last resort

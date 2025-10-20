@@ -43,7 +43,15 @@
       "Bash(python3:*)",
       "Bash(npm --prefix backend/functions run deploy)",
       "Read(//Users/Daly/Desktop/DalyDough/**)",
-      "Read(//dev/**)"
+      "Read(//dev/**)",
+      "Read(//private/tmp/**)",
+      "Bash(for i in {1..3})",
+      "Bash(do curl -s -X POST https://us-central1-dalydough.cloudfunctions.net/api/trading/addorder -H 'Content-Type: application/json' -d '{}')",
+      "Bash(done)",
+      "Bash(pkill:*)",
+      "Read(//Users/Daly/Desktop/**)",
+      "Bash(GOOGLE_APPLICATION_CREDENTIALS=\"\" FIRESTORE_EMULATOR_HOST=\"\" GCLOUD_PROJECT=dalydough node:*)",
+      "Bash(npx firebase:*)"
     ],
     "deny": [],
     "ask": []
