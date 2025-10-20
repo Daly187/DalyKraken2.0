@@ -38,6 +38,9 @@ export default function DalyDCA() {
 
   const [loading, setLoading] = useState(false);
   const [triggering, setTriggering] = useState(false);
+  const [cleaning, setCleaning] = useState(false);
+  const [deletingAll, setDeletingAll] = useState(false);
+  const [executing, setExecuting] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(true);
   const [creating, setCreating] = useState(false);
   const [lastRefreshTime, setLastRefreshTime] = useState<Date>(new Date());
@@ -101,11 +104,10 @@ export default function DalyDCA() {
 
       if (response.ok) {
         const data = await response.json();
-        // Get last 5 orders, sorted by most recent
-        const recentOrders = (data.orders || [])
-          .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-          .slice(0, 5);
-        setPendingOrders(recentOrders);
+        // Get ALL orders, sorted by most recent
+        const allOrders = (data.orders || [])
+          .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        setPendingOrders(allOrders);
       }
     } catch (error) {
       console.error('Failed to fetch pending orders:', error);
@@ -136,6 +138,217 @@ export default function DalyDCA() {
       console.error('Failed to trigger bot processing:', error);
     } finally {
       setTriggering(false);
+    }
+  };
+
+  const handleCleanup = async () => {
+    console.log('[Cleanup] Button clicked, pending orders:', pendingOrders.length);
+
+    if (!window.confirm('This will delete duplicate pending orders (keeping only the oldest order per bot). Continue?')) {
+      console.log('[Cleanup] User cancelled');
+      return;
+    }
+
+    setCleaning(true);
+    try {
+      const token = localStorage.getItem('auth_token');
+      console.log('[Cleanup] Token:', token ? 'Found' : 'Missing');
+      console.log('[Cleanup] Calling:', `${config.api.mainUrl}/order-queue/cleanup`);
+
+      const response = await fetch(`${config.api.mainUrl}/order-queue/cleanup`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      console.log('[Cleanup] Response status:', response.status);
+      const data = await response.json();
+      console.log('[Cleanup] Response data:', data);
+
+      if (response.ok) {
+        useStore.getState().addNotification({
+          type: 'success',
+          title: 'Cleanup Complete',
+          message: `Deleted ${data.deletedCount} duplicate pending orders`,
+        });
+        // Refresh pending orders list
+        await fetchPendingOrders();
+      } else {
+        useStore.getState().addNotification({
+          type: 'error',
+          title: 'Cleanup Failed',
+          message: data.error || 'Failed to cleanup pending orders',
+        });
+      }
+    } catch (error) {
+      console.error('Failed to cleanup pending orders:', error);
+      useStore.getState().addNotification({
+        type: 'error',
+        title: 'Cleanup Failed',
+        message: 'Failed to cleanup pending orders',
+      });
+    } finally {
+      setCleaning(false);
+    }
+  };
+
+  const handleDeleteAll = async () => {
+    console.log('[DeleteAll] Button clicked, pending orders:', pendingOrders.length);
+
+    if (!window.confirm('⚠️ WARNING: This will delete ALL pending orders. This action cannot be undone. Continue?')) {
+      console.log('[DeleteAll] User cancelled');
+      return;
+    }
+
+    setDeletingAll(true);
+    try {
+      const token = localStorage.getItem('auth_token');
+      const response = await fetch(`${config.api.mainUrl}/order-queue/delete-all`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        useStore.getState().addNotification({
+          type: 'success',
+          title: 'All Orders Deleted',
+          message: `Deleted ${data.deletedCount} pending orders`,
+        });
+        // Refresh pending orders list
+        await fetchPendingOrders();
+      } else {
+        useStore.getState().addNotification({
+          type: 'error',
+          title: 'Delete Failed',
+          message: data.error || 'Failed to delete pending orders',
+        });
+      }
+    } catch (error) {
+      console.error('Failed to delete all pending orders:', error);
+      useStore.getState().addNotification({
+        type: 'error',
+        title: 'Delete Failed',
+        message: 'Failed to delete all pending orders',
+      });
+    } finally {
+      setDeletingAll(false);
+    }
+  };
+
+  const handleExecuteNow = async () => {
+    console.log('[ExecuteNow] Button clicked, pending orders:', pendingOrders.length);
+
+    setExecuting(true);
+    try {
+      const token = localStorage.getItem('auth_token');
+
+      // Get Kraken API keys using the same logic as manual trades
+      const getApiKeys = (): { apiKey: string; apiSecret: string } | null => {
+        try {
+          const keysJson = localStorage.getItem('kraken_api_keys');
+          if (!keysJson) {
+            console.warn('[ExecuteNow] No API keys found in localStorage');
+            return null;
+          }
+
+          const keys = JSON.parse(keysJson);
+
+          // Keys are stored as an array of objects with type property
+          if (!Array.isArray(keys)) {
+            console.error('[ExecuteNow] Invalid API keys format');
+            return null;
+          }
+
+          // Try primary key first
+          const primaryKey = keys.find((k) => k.type === 'primary');
+          if (primaryKey?.apiKey && primaryKey?.apiSecret && primaryKey.isActive) {
+            console.log('[ExecuteNow] Using primary API key');
+            return {
+              apiKey: primaryKey.apiKey,
+              apiSecret: primaryKey.apiSecret,
+            };
+          }
+
+          // Try fallback1
+          const fallback1Key = keys.find((k) => k.type === 'fallback1');
+          if (fallback1Key?.apiKey && fallback1Key?.apiSecret && fallback1Key.isActive) {
+            console.log('[ExecuteNow] Using fallback #1 API key');
+            return {
+              apiKey: fallback1Key.apiKey,
+              apiSecret: fallback1Key.apiSecret,
+            };
+          }
+
+          // Try fallback2
+          const fallback2Key = keys.find((k) => k.type === 'fallback2');
+          if (fallback2Key?.apiKey && fallback2Key?.apiSecret && fallback2Key.isActive) {
+            console.log('[ExecuteNow] Using fallback #2 API key');
+            return {
+              apiKey: fallback2Key.apiKey,
+              apiSecret: fallback2Key.apiSecret,
+            };
+          }
+
+          console.warn('[ExecuteNow] No valid API keys found (all inactive or empty)');
+          return null;
+        } catch (error) {
+          console.error('[ExecuteNow] Error reading API keys:', error);
+          return null;
+        }
+      };
+
+      const credentials = getApiKeys();
+
+      if (!credentials) {
+        useStore.getState().addNotification({
+          type: 'error',
+          title: 'Kraken API Keys Missing',
+          message: 'Please configure your Kraken API keys in Settings',
+        });
+        setExecuting(false);
+        return;
+      }
+
+      const response = await fetch(`${config.api.mainUrl}/order-queue/execute-now`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'x-kraken-api-key': credentials.apiKey,
+          'x-kraken-api-secret': credentials.apiSecret,
+        },
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        useStore.getState().addNotification({
+          type: 'success',
+          title: 'Orders Executed',
+          message: data.message,
+        });
+        // Refresh pending orders and bots
+        await Promise.all([fetchPendingOrders(), fetchDCABots()]);
+      } else {
+        useStore.getState().addNotification({
+          type: 'error',
+          title: 'Execution Failed',
+          message: data.error || 'Failed to execute orders',
+        });
+      }
+    } catch (error) {
+      console.error('Failed to execute orders:', error);
+      useStore.getState().addNotification({
+        type: 'error',
+        title: 'Execution Failed',
+        message: 'Failed to execute pending orders',
+      });
+    } finally {
+      setExecuting(false);
     }
   };
 
@@ -1522,24 +1735,53 @@ export default function DalyDCA() {
                 Pending Orders
                 {pendingOrders.length > 0 && (
                   <span className="px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 text-xs font-medium">
-                    Last {pendingOrders.length}
+                    {pendingOrders.length}
                   </span>
                 )}
               </h2>
               <p className="text-xs text-gray-500 mt-1">
-                Most recent orders from the order queue
+                All pending orders from the order queue
               </p>
             </div>
           </div>
-          <button
-            onClick={handleTrigger}
-            disabled={triggering || activeBots.length === 0}
-            className="btn btn-primary btn-sm flex items-center gap-2"
-            title="Manually trigger bot processing (bypasses 5-minute wait)"
-          >
-            <Zap className={`h-4 w-4 ${triggering ? 'animate-pulse' : ''}`} />
-            {triggering ? 'Processing...' : 'Trigger Now'}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleCleanup}
+              disabled={cleaning}
+              className="btn btn-secondary btn-sm flex items-center gap-2"
+              title="Delete duplicate pending orders (keeps only the oldest order per bot)"
+            >
+              <Trash2 className={`h-4 w-4 ${cleaning ? 'animate-pulse' : ''}`} />
+              {cleaning ? 'Cleaning...' : 'Cleanup Duplicates'}
+            </button>
+            <button
+              onClick={handleDeleteAll}
+              disabled={deletingAll}
+              className="btn btn-sm flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white"
+              title="Delete ALL pending orders (WARNING: Cannot be undone)"
+            >
+              <X className={`h-4 w-4 ${deletingAll ? 'animate-pulse' : ''}`} />
+              {deletingAll ? 'Deleting...' : 'Delete All'}
+            </button>
+            <button
+              onClick={handleExecuteNow}
+              disabled={executing || pendingOrders.length === 0}
+              className="btn btn-success btn-sm flex items-center gap-2"
+              title="Manually execute all pending orders now"
+            >
+              <Zap className={`h-4 w-4 ${executing ? 'animate-pulse' : ''}`} />
+              {executing ? 'Executing...' : 'Execute Now'}
+            </button>
+            <button
+              onClick={handleTrigger}
+              disabled={triggering || activeBots.length === 0}
+              className="btn btn-primary btn-sm flex items-center gap-2"
+              title="Manually trigger bot processing (bypasses 5-minute wait)"
+            >
+              <Zap className={`h-4 w-4 ${triggering ? 'animate-pulse' : ''}`} />
+              {triggering ? 'Processing...' : 'Trigger Now'}
+            </button>
+          </div>
         </div>
 
         {isPendingOrdersSectionExpanded && (
@@ -1552,9 +1794,10 @@ export default function DalyDCA() {
                 <tr className="border-b border-slate-700 text-gray-400">
                   <th className="text-left py-3 px-2 font-medium">Pair</th>
                   <th className="text-left py-3 px-2 font-medium">Side</th>
-                  <th className="text-left py-3 px-2 font-medium">Volume</th>
+                  <th className="text-right py-3 px-2 font-medium">Amount (USD)</th>
+                  <th className="text-right py-3 px-2 font-medium">Price</th>
+                  <th className="text-right py-3 px-2 font-medium">Volume</th>
                   <th className="text-left py-3 px-2 font-medium">Status</th>
-                  <th className="text-left py-3 px-2 font-medium">Debug Info</th>
                   <th className="text-left py-3 px-2 font-medium">Created</th>
                 </tr>
               </thead>
@@ -1571,27 +1814,21 @@ export default function DalyDCA() {
                         {order.side.toUpperCase()}
                       </span>
                     </td>
-                    <td className="py-3 px-2 text-gray-300">
+                    <td className="py-3 px-2 text-right">
+                      <span className="text-white font-medium">
+                        ${order.amount ? order.amount.toFixed(2) : '0.00'}
+                      </span>
+                    </td>
+                    <td className="py-3 px-2 text-right text-gray-300">
+                      {order.price ? `$${parseFloat(order.price).toFixed(2)}` : 'Market'}
+                    </td>
+                    <td className="py-3 px-2 text-right text-gray-300">
                       {parseFloat(order.volume).toFixed(8)}
                     </td>
                     <td className="py-3 px-2">
                       <span className={`px-2 py-0.5 rounded text-xs font-medium ${getOrderStatusColor(order.status)}`}>
                         {order.status.toUpperCase()}
                       </span>
-                    </td>
-                    <td className="py-3 px-2">
-                      <div className="flex items-start gap-2">
-                        {order.status === 'completed' ? (
-                          <CheckCircle className="h-4 w-4 text-green-400 mt-0.5 flex-shrink-0" />
-                        ) : order.status === 'failed' ? (
-                          <AlertTriangle className="h-4 w-4 text-red-400 mt-0.5 flex-shrink-0" />
-                        ) : order.status === 'retry' ? (
-                          <Clock className="h-4 w-4 text-orange-400 mt-0.5 flex-shrink-0" />
-                        ) : (
-                          <Activity className="h-4 w-4 text-blue-400 mt-0.5 flex-shrink-0" />
-                        )}
-                        <span className="text-gray-400 text-xs">{getOrderDebugMessage(order)}</span>
-                      </div>
                     </td>
                     <td className="py-3 px-2 text-gray-400 text-xs">
                       {formatTimestamp(order.createdAt)}
