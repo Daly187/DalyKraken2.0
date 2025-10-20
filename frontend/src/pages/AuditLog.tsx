@@ -115,9 +115,16 @@ export default function AuditLog() {
         throw new Error('No Kraken API keys configured. Please add your API keys in Settings.');
       }
 
+      // Get JWT token for authentication
+      const authToken = localStorage.getItem('auth_token');
+      if (!authToken) {
+        throw new Error('Not authenticated. Please log in again.');
+      }
+
       // Fetch actual trade history from Kraken via backend
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authToken}`,
         'x-kraken-api-key': credentials.apiKey,
         'x-kraken-api-secret': credentials.apiSecret,
       };
