@@ -65,7 +65,8 @@ export class KrakenService {
     pair: string,
     volume: number,
     orderType: 'market' | 'limit' = 'market',
-    price?: number
+    price?: number,
+    userref?: number
   ): Promise<any> {
     try {
       const orderParams: any = {
@@ -79,10 +80,30 @@ export class KrakenService {
         orderParams.price = price.toString();
       }
 
+      if (userref !== undefined) {
+        orderParams.userref = userref;
+      }
+
+      console.log(`[KrakenService] Placing buy order:`, JSON.stringify(orderParams));
+
       const response = await this.client.api('AddOrder', orderParams);
+
+      console.log(`[KrakenService] Kraken response received:`, JSON.stringify(response));
+
+      if (!response || !response.result) {
+        throw new Error('Invalid response from Kraken API - no result field');
+      }
+
+      if (response.error && response.error.length > 0) {
+        throw new Error(`Kraken API error: ${response.error.join(', ')}`);
+      }
+
       return response.result;
-    } catch (error) {
-      console.error('[KrakenService] Error placing buy order:', error);
+    } catch (error: any) {
+      console.error('[KrakenService] Error placing buy order:', error?.message || error);
+      if (error.response) {
+        console.error('[KrakenService] Error response:', JSON.stringify(error.response));
+      }
       throw error;
     }
   }
@@ -94,7 +115,8 @@ export class KrakenService {
     pair: string,
     volume: number,
     orderType: 'market' | 'limit' = 'market',
-    price?: number
+    price?: number,
+    userref?: number
   ): Promise<any> {
     try {
       const orderParams: any = {
@@ -108,10 +130,30 @@ export class KrakenService {
         orderParams.price = price.toString();
       }
 
+      if (userref !== undefined) {
+        orderParams.userref = userref;
+      }
+
+      console.log(`[KrakenService] Placing sell order:`, JSON.stringify(orderParams));
+
       const response = await this.client.api('AddOrder', orderParams);
+
+      console.log(`[KrakenService] Kraken response received:`, JSON.stringify(response));
+
+      if (!response || !response.result) {
+        throw new Error('Invalid response from Kraken API - no result field');
+      }
+
+      if (response.error && response.error.length > 0) {
+        throw new Error(`Kraken API error: ${response.error.join(', ')}`);
+      }
+
       return response.result;
-    } catch (error) {
-      console.error('[KrakenService] Error placing sell order:', error);
+    } catch (error: any) {
+      console.error('[KrakenService] Error placing sell order:', error?.message || error);
+      if (error.response) {
+        console.error('[KrakenService] Error response:', JSON.stringify(error.response));
+      }
       throw error;
     }
   }
