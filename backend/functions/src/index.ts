@@ -1425,6 +1425,12 @@ app.post('/order-queue/execute-now', authenticateToken, async (req, res) => {
     console.log('[API] Clearing circuit breakers for manual execution');
     orderExecutorService.clearAllCircuitBreakers();
 
+    // Reset ALL PROCESSING orders immediately (don't wait for timeout)
+    // This ensures stuck orders from previous failures can be retried
+    console.log('[API] Force-resetting all PROCESSING orders for manual execution');
+    const resetCount = await orderQueueService.resetAllProcessingOrders();
+    console.log(`[API] Reset ${resetCount} PROCESSING orders to RETRY`);
+
     // Execute orders using the API keys from headers (same as manual trades)
     const result = await orderExecutorService.executePendingOrders(krakenApiKey, krakenApiSecret);
 

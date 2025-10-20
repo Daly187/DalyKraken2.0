@@ -444,6 +444,51 @@ export class OrderQueueService {
   }
 
   /**
+   * Reset ALL PROCESSING orders back to RETRY immediately
+   * Used when user manually clicks "Execute Now" to retry all stuck orders
+   */
+  async resetAllProcessingOrders(): Promise<number> {
+    const snapshot = await db
+      .collection('pendingOrders')
+      .where('status', '==', OrderStatus.PROCESSING)
+      .get();
+
+    if (snapshot.empty) {
+      return 0;
+    }
+
+    const batch = db.batch();
+    const now = new Date().toISOString();
+
+    snapshot.forEach((doc) => {
+      const order = doc.data() as PendingOrder;
+      const retryDelay = this.calculateRetryDelay(order.attempts + 1);
+      const nextRetryAt = new Date(Date.now() + retryDelay * 1000).toISOString();
+
+      console.log(`[OrderQueue] Force-resetting order ${order.id} from PROCESSING to RETRY`);
+
+      batch.update(doc.ref, {
+        status: OrderStatus.RETRY,
+        nextRetryAt,
+        updatedAt: now,
+        lastError: 'Manually reset via Execute Now button',
+        errors: [
+          ...order.errors,
+          {
+            timestamp: now,
+            error: 'Force-reset from PROCESSING to RETRY (manual execution)',
+          },
+        ],
+      });
+    });
+
+    await batch.commit();
+
+    console.log(`[OrderQueue] Force-reset ${snapshot.size} PROCESSING orders to RETRY`);
+    return snapshot.size;
+  }
+
+  /**
    * Reset stuck PROCESSING orders back to RETRY
    * Orders stuck in PROCESSING for longer than stuckOrderTimeout
    */
