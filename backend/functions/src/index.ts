@@ -1355,6 +1355,289 @@ app.get('/order-queue/:orderId', authenticateToken, async (req, res) => {
   }
 });
 
+// Debug endpoint to check Kraken keys
+app.get('/debug/kraken-keys', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user!.userId;
+    const userDoc = await db.collection('users').doc(userId).get();
+    const userData = userDoc.data();
+
+    res.json({
+      userExists: userDoc.exists,
+      hasKrakenKeys: !!userData?.krakenKeys,
+      keyCount: userData?.krakenKeys?.length || 0,
+      keys: userData?.krakenKeys?.map((k: any) => ({
+        name: k.name,
+        isActive: k.isActive,
+        encrypted: k.encrypted,
+      })) || [],
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Manually trigger order execution for testing/debugging
+app.post('/order-queue/execute-now', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user!.userId;
+    console.log(`[API] Manual order execution triggered by user ${userId}`);
+
+    // Get Kraken API keys from headers (same as manual trades)
+    const krakenApiKey = req.headers['x-kraken-api-key'] as string;
+    const krakenApiSecret = req.headers['x-kraken-api-secret'] as string;
+
+    if (!krakenApiKey || !krakenApiSecret) {
+      console.error('[API] No Kraken API keys provided in headers');
+      return res.status(400).json({
+        success: false,
+        error: 'Kraken API keys required. Please configure them in Settings.',
+      });
+    }
+
+    console.log('[API] Kraken API keys received from headers');
+
+    // Save keys to Firestore for future automated executions
+    const encryptedKeys = [
+      {
+        id: 'primary',
+        name: 'Primary Key',
+        apiKey: encryptKey(krakenApiKey),
+        apiSecret: encryptKey(krakenApiSecret),
+        isActive: true,
+        encrypted: true,
+        createdAt: new Date().toISOString(),
+      },
+    ];
+
+    await db.collection('users').doc(userId).set(
+      {
+        krakenKeys: encryptedKeys,
+        updatedAt: new Date().toISOString(),
+      },
+      { merge: true }
+    );
+
+    console.log('[API] Saved Kraken keys to Firestore for user', userId);
+
+    // Clear all circuit breakers when user manually clicks Execute Now
+    // This allows fresh attempts with their current API keys
+    console.log('[API] Clearing circuit breakers for manual execution');
+    orderExecutorService.clearAllCircuitBreakers();
+
+    // Execute orders using the API keys from headers (same as manual trades)
+    const result = await orderExecutorService.executePendingOrders(krakenApiKey, krakenApiSecret);
+
+    res.json({
+      success: true,
+      message: `Processed ${result.processed} orders: ${result.successful} successful, ${result.failed} failed`,
+      ...result,
+    });
+  } catch (error: any) {
+    console.error('[API] Error executing orders:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// Cleanup duplicate pending orders (keeps only the oldest order per bot)
+app.post('/order-queue/cleanup', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user!.userId;
+    console.log(`[API] Cleaning up duplicate pending orders for user ${userId}`);
+
+    // Get all pending orders for this user
+    const snapshot = await db.collection('pendingOrders')
+      .where('userId', '==', userId)
+      .where('status', 'in', ['pending', 'processing', 'retry'])
+      .get();
+
+    console.log(`[API] Found ${snapshot.size} pending orders`);
+
+    // Group orders by botId
+    const ordersByBot: { [key: string]: any[] } = {};
+    snapshot.forEach((doc) => {
+      const docData = doc.data() as any;
+      const data = { id: doc.id, ref: doc.ref, ...docData };
+      if (!ordersByBot[data.botId]) {
+        ordersByBot[data.botId] = [];
+      }
+      ordersByBot[data.botId].push(data);
+    });
+
+    let deletedCount = 0;
+    const batch = db.batch();
+
+    // For each bot, keep only the oldest order and delete the rest
+    Object.values(ordersByBot).forEach((orders) => {
+      if (orders.length > 1) {
+        // Sort by createdAt (oldest first)
+        orders.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
+        // Delete all except the first one
+        for (let i = 1; i < orders.length; i++) {
+          console.log(`[API] Deleting duplicate order ${orders[i].id} for bot ${orders[i].botId}`);
+          batch.delete(orders[i].ref);
+          deletedCount++;
+        }
+      }
+    });
+
+    if (deletedCount > 0) {
+      await batch.commit();
+      console.log(`[API] Successfully deleted ${deletedCount} duplicate pending orders`);
+    }
+
+    res.json({
+      success: true,
+      message: `Cleaned up ${deletedCount} duplicate pending orders`,
+      deletedCount,
+    });
+  } catch (error: any) {
+    console.error('[API] Error cleaning up pending orders:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// Delete ALL pending orders and bot executions
+app.post('/order-queue/delete-all', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user!.userId;
+    console.log(`[API] Deleting all pending orders and bot executions for user ${userId}`);
+
+    // Get all pending orders for this user
+    const pendingOrdersSnapshot = await db.collection('pendingOrders')
+      .where('userId', '==', userId)
+      .get();
+
+    // Get all user's bots to find their bot executions
+    const userBotsSnapshot = await db.collection('dcaBots')
+      .where('userId', '==', userId)
+      .get();
+
+    const botIds = userBotsSnapshot.docs.map(doc => doc.id);
+    console.log(`[API] Found ${userBotsSnapshot.size} bots for user: ${botIds.join(', ')}`);
+
+    let totalDeleted = 0;
+
+    // Delete pending orders
+    if (pendingOrdersSnapshot.size > 0) {
+      const batch1 = db.batch();
+      pendingOrdersSnapshot.forEach((doc) => {
+        batch1.delete(doc.ref);
+      });
+      await batch1.commit();
+      totalDeleted += pendingOrdersSnapshot.size;
+      console.log(`[API] Successfully deleted ${pendingOrdersSnapshot.size} pending orders`);
+    }
+
+    // Delete bot executions for each bot
+    let botExecutionsDeleted = 0;
+    if (botIds.length > 0) {
+      // Process in batches of 10 bots to avoid 'in' query limit
+      for (let i = 0; i < botIds.length; i += 10) {
+        const botIdBatch = botIds.slice(i, i + 10);
+        const botExecutionsSnapshot = await db.collection('botExecutions')
+          .where('botId', 'in', botIdBatch)
+          .get();
+
+        if (botExecutionsSnapshot.size > 0) {
+          const batch = db.batch();
+          botExecutionsSnapshot.forEach((doc) => {
+            batch.delete(doc.ref);
+          });
+          await batch.commit();
+          botExecutionsDeleted += botExecutionsSnapshot.size;
+          console.log(`[API] Deleted ${botExecutionsSnapshot.size} bot executions for batch`);
+        }
+      }
+      totalDeleted += botExecutionsDeleted;
+    }
+
+    console.log(`[API] Total deleted: ${pendingOrdersSnapshot.size} pending orders, ${botExecutionsDeleted} bot executions`);
+
+    res.json({
+      success: true,
+      message: `Deleted ${pendingOrdersSnapshot.size} pending orders and ${botExecutionsDeleted} bot executions (${totalDeleted} total)`,
+      deletedCount: totalDeleted,
+      pendingOrders: pendingOrdersSnapshot.size,
+      botExecutions: botExecutionsDeleted,
+    });
+  } catch (error: any) {
+    console.error('[API] Error deleting all pending orders:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// Admin: Reset stuck PROCESSING orders
+app.post('/order-queue/reset-stuck', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user!.userId;
+    console.log(`[API] Resetting stuck orders for user ${userId}`);
+
+    const resetCount = await orderQueueService.resetStuckOrders();
+
+    res.json({
+      success: true,
+      message: `Reset ${resetCount} stuck orders`,
+      resetCount,
+    });
+  } catch (error: any) {
+    console.error('[API] Error resetting stuck orders:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// Admin: Get circuit breaker status
+app.get('/order-queue/circuit-breakers', authenticateToken, async (req, res) => {
+  try {
+    const status = orderExecutorService.getCircuitBreakerStatus();
+
+    res.json({
+      success: true,
+      circuitBreakers: status,
+    });
+  } catch (error: any) {
+    console.error('[API] Error getting circuit breaker status:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// Admin: Reset a specific circuit breaker
+app.post('/order-queue/circuit-breakers/:keyId/reset', authenticateToken, async (req, res) => {
+  try {
+    const { keyId } = req.params;
+    console.log(`[API] Resetting circuit breaker for key ${keyId}`);
+
+    orderExecutorService.resetCircuitBreaker(keyId);
+
+    res.json({
+      success: true,
+      message: `Circuit breaker reset for key ${keyId}`,
+    });
+  } catch (error: any) {
+    console.error('[API] Error resetting circuit breaker:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
 /**
  * Scheduled function to process pending orders
  * Runs every minute
