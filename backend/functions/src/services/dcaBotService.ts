@@ -464,6 +464,22 @@ export class DCABotService {
     krakenService: KrakenService
   ): Promise<{ success: boolean; error?: string }> {
     try {
+      // Check if there's already a pending exit order for this bot
+      const existingOrders = await this.db
+        .collection('pendingOrders')
+        .where('botId', '==', bot.id)
+        .where('side', '==', 'sell')
+        .where('status', 'in', ['pending', 'processing', 'retry'])
+        .get();
+
+      if (!existingOrders.empty) {
+        console.log(`[DCABotService] Bot ${bot.id} already has ${existingOrders.size} pending exit order(s), skipping`);
+        return {
+          success: false,
+          error: 'Bot already has a pending exit order',
+        };
+      }
+
       // Get current price
       const ticker = await krakenService.getTicker(bot.symbol);
       const currentPrice = ticker.price;
@@ -476,12 +492,27 @@ export class DCABotService {
         return { success: false, error: 'No quantity to sell' };
       }
 
-      // Place sell order
-      const orderResult = await krakenService.placeSellOrder(bot.symbol, totalQuantity);
+      // Calculate total amount (USD value)
+      const totalAmount = totalQuantity * currentPrice;
 
-      // Update bot status to completed
+      // Create pending order in queue instead of executing directly
+      const pendingOrder = await orderQueueService.createOrder({
+        userId: bot.userId,
+        botId: bot.id,
+        pair: bot.symbol,
+        type: OrderType.MARKET,
+        side: 'sell',
+        volume: totalQuantity.toFixed(8),
+        amount: totalAmount, // USD amount
+        price: currentPrice.toString(), // Expected market execution price
+        reason: 'Take profit target reached - waiting for order queue to execute market sell',
+      });
+
+      console.log(`[DCABotService] Created pending exit order ${pendingOrder.id} for bot ${bot.id} - ${totalQuantity.toFixed(8)} ${bot.symbol} at $${currentPrice}`);
+
+      // Update bot status to 'exiting' (will be set to 'completed' after order executes)
       await this.db.collection('dcaBots').doc(bot.id).update({
-        status: 'completed',
+        status: 'exiting',
         updatedAt: new Date().toISOString(),
       });
 
@@ -493,13 +524,13 @@ export class DCABotService {
         symbol: bot.symbol,
         price: currentPrice,
         quantity: totalQuantity,
-        amount: totalQuantity * currentPrice,
-        reason: 'Take profit target reached',
+        amount: totalAmount,
+        reason: 'Take profit target reached - exit order queued',
         techScore: bot.techScore,
         trendScore: bot.trendScore,
         timestamp: new Date().toISOString(),
         success: true,
-        orderId: orderResult.txid ? orderResult.txid[0] : undefined,
+        orderId: pendingOrder.id, // Store pending order ID
       });
 
       return { success: true };
@@ -542,10 +573,18 @@ export class DCABotService {
       // Get bot with live data (pass krakenService to get accurate pricing)
       const bot = await this.getBotById(botId, krakenService);
 
-      if (!bot || bot.status !== 'active') {
+      if (!bot) {
         return {
           processed: false,
-          reason: 'Bot not active or not found',
+          reason: 'Bot not found',
+        };
+      }
+
+      // Only process active bots (skip exiting, paused, stopped, completed)
+      if (bot.status !== 'active') {
+        return {
+          processed: false,
+          reason: `Bot status is '${bot.status}', only 'active' bots are processed`,
         };
       }
 

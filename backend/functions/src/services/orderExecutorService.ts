@@ -568,8 +568,9 @@ export class OrderExecutorService {
 
         console.log(`[OrderExecutor] Bot ${order.botId} updated: entry count ${newEntryCount}, avg price ${newAverageEntryPrice.toFixed(2)}, total volume ${newTotalVolume.toFixed(8)}, total invested $${newTotalInvested.toFixed(2)}`);
       } else {
-        // For sell orders, reset the bot
+        // For sell orders, reset the bot and mark as completed
         await db.collection('dcaBots').doc(order.botId).update({
+          status: 'completed', // Mark bot as completed after exit order executes
           currentEntryCount: 0,
           averageEntryPrice: 0,
           averagePurchasePrice: 0,
@@ -580,7 +581,7 @@ export class OrderExecutorService {
           updatedAt: new Date().toISOString(),
         });
 
-        console.log(`[OrderExecutor] Bot ${order.botId} reset after exit`);
+        console.log(`[OrderExecutor] Bot ${order.botId} reset and marked as completed after exit`);
       }
     } catch (error: any) {
       console.error(`[OrderExecutor] Error updating bot ${order.botId}:`, error.message);

@@ -15,7 +15,7 @@ export interface DCABotConfig {
   supportResistanceEnabled: boolean;
   reEntryDelay: number;
   trendAlignmentEnabled: boolean;
-  status: 'active' | 'paused' | 'completed' | 'stopped';
+  status: 'active' | 'paused' | 'completed' | 'stopped' | 'exiting';
   createdAt: string;
   updatedAt: string;
 }
