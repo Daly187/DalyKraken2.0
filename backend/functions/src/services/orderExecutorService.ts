@@ -304,14 +304,40 @@ export class OrderExecutorService {
 
       // KrakenService returns the result directly
       if (response && response.txid && response.txid.length > 0) {
-        console.log(`[OrderExecutor] [${execId}] Order placed successfully: ${response.txid[0]}`);
+        const txid = response.txid[0];
+        console.log(`[OrderExecutor] [${execId}] Order placed successfully: ${txid}`);
+
+        // Query the order to get execution details (price and volume)
+        let executedPrice: string | undefined;
+        let executedVolume: string | undefined;
+
+        try {
+          console.log(`[OrderExecutor] [${execId}] Querying order details for ${txid}`);
+          const orderDetails = await krakenService.queryOrders([txid]);
+
+          if (orderDetails && orderDetails[txid]) {
+            const orderInfo = orderDetails[txid];
+            // Market orders: use average price and executed volume
+            executedPrice = orderInfo.price || orderInfo.avg_price;
+            executedVolume = orderInfo.vol_exec || orderInfo.vol;
+
+            console.log(`[OrderExecutor] [${execId}] Order execution details: price=${executedPrice}, volume=${executedVolume}`);
+          } else {
+            console.warn(`[OrderExecutor] [${execId}] Could not fetch order details, will use order parameters as fallback`);
+          }
+        } catch (error: any) {
+          console.warn(`[OrderExecutor] [${execId}] Error querying order details:`, error.message);
+          // Continue without execution details - updateBotAfterOrderCompletion will use order params as fallback
+        }
 
         // Record success in circuit breaker
         this.circuitBreaker.recordSuccess(apiKey.id, execId);
 
         return {
           success: true,
-          orderId: response.txid[0],
+          orderId: txid,
+          executedPrice,
+          executedVolume,
           shouldRetry: false,
         };
       }

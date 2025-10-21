@@ -51,7 +51,8 @@
       "Bash(pkill:*)",
       "Read(//Users/Daly/Desktop/**)",
       "Bash(GOOGLE_APPLICATION_CREDENTIALS=\"\" FIRESTORE_EMULATOR_HOST=\"\" GCLOUD_PROJECT=dalydough node:*)",
-      "Bash(npx firebase:*)"
+      "Bash(npx firebase:*)",
+      "Bash(xargs:*)"
     ],
     "deny": [],
     "ask": []

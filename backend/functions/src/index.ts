@@ -20,6 +20,7 @@ import { quantifyCryptoService } from './services/quantifyCryptoService.js';
 import { settingsStore, encryptKey, maskApiKey } from './services/settingsStore.js';
 import { orderQueueService } from './services/orderQueueService.js';
 import { orderExecutorService } from './services/orderExecutorService.js';
+import { tradesSyncService } from './services/tradesSyncService.js';
 const app = express();
 
 // Middleware
@@ -967,6 +968,33 @@ app.get('/audit/transactions', authenticateToken, async (req, res) => {
   }
 });
 
+/**
+ * Sync Kraken trades to live bots
+ * POST /audit/sync-trades
+ */
+app.post('/audit/sync-trades', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user!.userId;
+    console.log(`[API] Syncing trades for user ${userId}`);
+
+    const result = await tradesSyncService.syncUserTrades(userId);
+
+    res.json({
+      success: result.success,
+      message: `Synced ${result.added} new trades to live bots`,
+      data: result,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    console.error('[API] Error syncing trades:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
 // ============================================
 // DCA ROUTES
 // ============================================
@@ -1661,6 +1689,27 @@ export const processOrderQueue = functions.pubsub
       return result;
     } catch (error: any) {
       console.error('[OrderQueue] Error processing orders:', error.message);
+      return null;
+    }
+  });
+
+/**
+ * Scheduled function to sync Kraken trades to live bots
+ * Runs every 15 minutes
+ */
+export const syncKrakenTrades = functions.pubsub
+  .schedule('*/15 * * * *') // Every 15 minutes
+  .onRun(async (context) => {
+    console.log('[TradesSync] Running scheduled trade sync...');
+
+    try {
+      const result = await tradesSyncService.syncAllUsers();
+
+      console.log('[TradesSync] Sync complete:', result);
+
+      return result;
+    } catch (error: any) {
+      console.error('[TradesSync] Error syncing trades:', error.message);
       return null;
     }
   });
