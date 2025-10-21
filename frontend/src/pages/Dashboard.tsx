@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useStore } from '@/store/useStore';
 import { getCommonName } from '@/utils/assetNames';
 import {
@@ -31,9 +31,23 @@ export default function Dashboard() {
     profitLoss: 0,
   });
 
-  // Animated counter effect
+  // Throttle state - update portfolio value only once per minute
+  const lastUpdateRef = useRef<number>(0);
+  const UPDATE_INTERVAL = 60000; // 60 seconds
+
+  // Animated counter effect (throttled to update once per minute)
   useEffect(() => {
     if (portfolio) {
+      const now = Date.now();
+      const timeSinceLastUpdate = now - lastUpdateRef.current;
+
+      // Skip update if less than UPDATE_INTERVAL has passed
+      if (timeSinceLastUpdate < UPDATE_INTERVAL && lastUpdateRef.current !== 0) {
+        return;
+      }
+
+      // Update the last update timestamp
+      lastUpdateRef.current = now;
       // Calculate total value with live prices
       const liveTotal = portfolio.holdings?.reduce((total, holding) => {
         const commonName = getCommonName(holding.asset);
