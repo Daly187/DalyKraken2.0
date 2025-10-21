@@ -17,7 +17,7 @@ import { KrakenService } from './services/krakenService.js';
 import { MarketAnalysisService } from './services/marketAnalysisService.js';
 import { CostBasisService } from './services/costBasisService.js';
 import { quantifyCryptoService } from './services/quantifyCryptoService.js';
-import { settingsStore, encryptKey, maskApiKey } from './services/settingsStore.js';
+import { settingsStore, encryptKey, decryptKey, maskApiKey } from './services/settingsStore.js';
 import { orderQueueService } from './services/orderQueueService.js';
 import { orderExecutorService } from './services/orderExecutorService.js';
 import { tradesSyncService } from './services/tradesSyncService.js';
@@ -1052,45 +1052,77 @@ export const processDCABots = functions.pubsub
 
       console.log(`[Scheduled] Found ${activeBots.length} active bots`);
 
-      // Get Kraken credentials from Firebase Config
-      // In production, you'd store encrypted credentials per user in Firestore
-      const config = functions.config();
-      const krakenApiKey = config.kraken?.api_key || '';
-      const krakenApiSecret = config.kraken?.api_secret || '';
+      // Group bots by user to get their API keys
+      const botsByUser: Record<string, typeof activeBots> = {};
+      activeBots.forEach(bot => {
+        if (!botsByUser[bot.userId]) {
+          botsByUser[bot.userId] = [];
+        }
+        botsByUser[bot.userId].push(bot);
+      });
 
-      if (!krakenApiKey || !krakenApiSecret) {
-        console.warn('[Scheduled] No Kraken credentials configured');
-        return null;
+      console.log(`[Scheduled] Processing bots for ${Object.keys(botsByUser).length} users`);
+
+      // Process each user's bots with their own API keys
+      const allResults: any[] = [];
+      for (const [userId, userBots] of Object.entries(botsByUser)) {
+        try {
+          // Get user's Kraken API keys from Firestore
+          const userDoc = await db.collection('users').doc(userId).get();
+          const userData = userDoc.data();
+
+          if (!userData || !userData.krakenKeys || userData.krakenKeys.length === 0) {
+            console.warn(`[Scheduled] No Kraken keys for user ${userId}, skipping ${userBots.length} bots`);
+            continue;
+          }
+
+          const activeKey = userData.krakenKeys.find((k: any) => k.isActive);
+          if (!activeKey) {
+            console.warn(`[Scheduled] No active Kraken key for user ${userId}`);
+            continue;
+          }
+
+          const krakenApiKey = activeKey.encrypted ? decryptKey(activeKey.apiKey) : activeKey.apiKey;
+          const krakenApiSecret = activeKey.encrypted ? decryptKey(activeKey.apiSecret) : activeKey.apiSecret;
+
+          // Process each bot for this user
+          const userResults = await Promise.all(
+            userBots.map(async (bot) => {
+              try {
+                const result = await dcaBotService.processBot(
+                  bot.id,
+                  krakenApiKey,
+                  krakenApiSecret
+                );
+
+                console.log(`[Scheduled] Bot ${bot.id} (${bot.symbol}):`, result);
+
+                return {
+                  botId: bot.id,
+                  symbol: bot.symbol,
+                  userId: bot.userId,
+                  ...result,
+                };
+              } catch (error: any) {
+                console.error(`[Scheduled] Error processing bot ${bot.id}:`, error);
+                return {
+                  botId: bot.id,
+                  symbol: bot.symbol,
+                  userId: bot.userId,
+                  processed: false,
+                  reason: error.message,
+                };
+              }
+            })
+          );
+
+          allResults.push(...userResults);
+        } catch (error: any) {
+          console.error(`[Scheduled] Error processing user ${userId}:`, error.message);
+        }
       }
 
-      // Process each bot
-      const results = await Promise.all(
-        activeBots.map(async (bot) => {
-          try {
-            const result = await dcaBotService.processBot(
-              bot.id,
-              krakenApiKey,
-              krakenApiSecret
-            );
-
-            console.log(`[Scheduled] Bot ${bot.id} (${bot.symbol}):`, result);
-
-            return {
-              botId: bot.id,
-              symbol: bot.symbol,
-              ...result,
-            };
-          } catch (error: any) {
-            console.error(`[Scheduled] Error processing bot ${bot.id}:`, error);
-            return {
-              botId: bot.id,
-              symbol: bot.symbol,
-              processed: false,
-              reason: error.message,
-            };
-          }
-        })
-      );
+      const results = allResults;
 
       // Log summary
       const processed = results.filter((r) => r.processed).length;
