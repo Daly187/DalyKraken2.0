@@ -372,11 +372,16 @@ export class OrderExecutorService {
   private isRetryableError(error: string): boolean {
     const errorLower = error.toLowerCase();
 
+    // IMPORTANT: Insufficient funds should be retryable (user may deposit more funds)
+    // The order should stay in RETRY state, not FAILED, so it can be retried later
+    if (errorLower.includes('insufficient funds') || errorLower.includes('insufficient balance')) {
+      console.log('[OrderExecutor] Insufficient funds error - marking as RETRYABLE (waiting for user deposit)');
+      return true;
+    }
+
     // Non-retryable errors (permanent failures)
     const nonRetryableErrors = [
-      // Insufficient balance
-      'insufficient funds',
-      'insufficient balance',
+      // Volume issues
       'egeneral:invalid arguments:volume',
 
       // Invalid parameters

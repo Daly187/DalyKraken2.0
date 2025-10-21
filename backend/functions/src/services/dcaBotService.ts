@@ -335,22 +335,8 @@ export class DCABotService {
     krakenService: KrakenService
   ): Promise<{ success: boolean; entry?: DCABotEntry; error?: string }> {
     try {
-      // Check if there's already a pending order for this bot
-      const existingOrders = await this.db
-        .collection('pendingOrders')
-        .where('botId', '==', bot.id)
-        .where('status', 'in', ['pending', 'processing', 'retry'])
-        .get();
-
-      if (!existingOrders.empty) {
-        console.log(`[DCABotService] Bot ${bot.id} already has ${existingOrders.size} pending order(s), skipping`);
-        return {
-          success: false,
-          error: 'Bot already has a pending order',
-        };
-      }
-
       // Get current price
+      // Note: Duplicate order prevention is now handled in orderQueueService.createOrder()
       const ticker = await krakenService.getTicker(bot.symbol);
       const currentPrice = ticker.price;
 
@@ -464,23 +450,8 @@ export class DCABotService {
     krakenService: KrakenService
   ): Promise<{ success: boolean; error?: string }> {
     try {
-      // Check if there's already a pending exit order for this bot
-      const existingOrders = await this.db
-        .collection('pendingOrders')
-        .where('botId', '==', bot.id)
-        .where('side', '==', 'sell')
-        .where('status', 'in', ['pending', 'processing', 'retry'])
-        .get();
-
-      if (!existingOrders.empty) {
-        console.log(`[DCABotService] Bot ${bot.id} already has ${existingOrders.size} pending exit order(s), skipping`);
-        return {
-          success: false,
-          error: 'Bot already has a pending exit order',
-        };
-      }
-
       // Get current price
+      // Note: Duplicate order prevention is now handled in orderQueueService.createOrder()
       const ticker = await krakenService.getTicker(bot.symbol);
       const currentPrice = ticker.price;
 

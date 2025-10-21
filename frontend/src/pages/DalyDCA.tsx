@@ -23,6 +23,7 @@ import {
   BarChart3,
   Zap,
   Layers,
+  RefreshCw,
 } from 'lucide-react';
 import type { DCABotConfig } from '@/types';
 
@@ -38,7 +39,7 @@ export default function DalyDCA() {
 
   const [loading, setLoading] = useState(false);
   const [triggering, setTriggering] = useState(false);
-  const [cleaning, setCleaning] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [deletingAll, setDeletingAll] = useState(false);
   const [executing, setExecuting] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(true);
@@ -141,55 +142,25 @@ export default function DalyDCA() {
     }
   };
 
-  const handleCleanup = async () => {
-    console.log('[Cleanup] Button clicked, pending orders:', pendingOrders.length);
-
-    if (!window.confirm('This will delete duplicate pending orders (keeping only the oldest order per bot). Continue?')) {
-      console.log('[Cleanup] User cancelled');
-      return;
-    }
-
-    setCleaning(true);
+  const handleRefresh = async () => {
+    console.log('[Refresh] Button clicked, refreshing pending orders');
+    setRefreshing(true);
     try {
-      const token = localStorage.getItem('auth_token');
-      console.log('[Cleanup] Token:', token ? 'Found' : 'Missing');
-      console.log('[Cleanup] Calling:', `${config.api.mainUrl}/order-queue/cleanup`);
-
-      const response = await fetch(`${config.api.mainUrl}/order-queue/cleanup`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
+      await fetchPendingOrders();
+      useStore.getState().addNotification({
+        type: 'success',
+        title: 'Refreshed',
+        message: 'Pending orders list updated',
       });
-
-      console.log('[Cleanup] Response status:', response.status);
-      const data = await response.json();
-      console.log('[Cleanup] Response data:', data);
-
-      if (response.ok) {
-        useStore.getState().addNotification({
-          type: 'success',
-          title: 'Cleanup Complete',
-          message: `Deleted ${data.deletedCount} duplicate pending orders`,
-        });
-        // Refresh pending orders list
-        await fetchPendingOrders();
-      } else {
-        useStore.getState().addNotification({
-          type: 'error',
-          title: 'Cleanup Failed',
-          message: data.error || 'Failed to cleanup pending orders',
-        });
-      }
     } catch (error) {
-      console.error('Failed to cleanup pending orders:', error);
+      console.error('Failed to refresh pending orders:', error);
       useStore.getState().addNotification({
         type: 'error',
-        title: 'Cleanup Failed',
-        message: 'Failed to cleanup pending orders',
+        title: 'Refresh Failed',
+        message: 'Failed to refresh pending orders',
       });
     } finally {
-      setCleaning(false);
+      setRefreshing(false);
     }
   };
 
@@ -1746,13 +1717,13 @@ export default function DalyDCA() {
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={handleCleanup}
-              disabled={cleaning}
+              onClick={handleRefresh}
+              disabled={refreshing}
               className="btn btn-secondary btn-sm flex items-center gap-2"
-              title="Delete duplicate pending orders (keeps only the oldest order per bot)"
+              title="Refresh pending orders list"
             >
-              <Trash2 className={`h-4 w-4 ${cleaning ? 'animate-pulse' : ''}`} />
-              {cleaning ? 'Cleaning...' : 'Cleanup Duplicates'}
+              <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+              {refreshing ? 'Refreshing...' : 'Refresh'}
             </button>
             <button
               onClick={handleDeleteAll}

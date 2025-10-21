@@ -68,6 +68,22 @@ export class OrderQueueService {
   }): Promise<PendingOrder> {
     const now = new Date().toISOString();
 
+    // CRITICAL: First check if bot already has ANY active order (prevents duplicates)
+    // Only ONE order (pending, processing, retry, OR failed) should exist per bot at any time
+    // Failed orders should remain visible until manually cleared
+    const existingBotOrders = await db
+      .collection('pendingOrders')
+      .where('botId', '==', params.botId)
+      .where('status', 'in', [OrderStatus.PENDING, OrderStatus.PROCESSING, OrderStatus.RETRY, OrderStatus.FAILED])
+      .limit(1)
+      .get();
+
+    if (!existingBotOrders.empty) {
+      const existingOrder = existingBotOrders.docs[0].data() as PendingOrder;
+      console.log(`[OrderQueue] Bot ${params.botId} already has a ${existingOrder.side} order in status '${existingOrder.status}' (${existingOrder.id}). Skipping duplicate.`);
+      return existingOrder;
+    }
+
     // Generate clientOrderId for idempotency
     const clientOrderId = this.generateClientOrderId({
       userId: params.userId,
@@ -78,7 +94,7 @@ export class OrderQueueService {
       timestamp: now,
     });
 
-    // Check for duplicate orders (deduplication)
+    // Check for duplicate orders by clientOrderId (secondary check)
     const duplicateCheck = await db
       .collection('pendingOrders')
       .where('clientOrderId', '==', clientOrderId)
