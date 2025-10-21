@@ -11,6 +11,9 @@ import {
   PieChart,
   Activity,
   AlertCircle,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
 } from 'lucide-react';
 
 interface Balance {
@@ -32,6 +35,9 @@ interface HoldingWithPrice extends Balance {
 
 const CACHE_KEY = 'portfolio_balances_cache';
 const CACHE_TIMESTAMP_KEY = 'portfolio_balances_timestamp';
+
+type SortField = 'asset' | 'holdings' | 'price' | 'value' | 'change' | 'weight';
+type SortDirection = 'asc' | 'desc';
 
 export default function Portfolio() {
   // Get global live prices from store
@@ -57,6 +63,8 @@ export default function Portfolio() {
     const timestamp = localStorage.getItem(CACHE_TIMESTAMP_KEY);
     return timestamp ? new Date(timestamp) : null;
   });
+  const [sortField, setSortField] = useState<SortField>('value');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
 
   useEffect(() => {
     // Fetch initial balances (will use cache if API fails)
@@ -172,8 +180,45 @@ export default function Portfolio() {
     holding.weight = totalValue > 0 ? (holding.value / totalValue) * 100 : 0;
   });
 
-  // Sort by value (highest first)
-  holdings.sort((a, b) => b.value - a.value);
+  // Sorting handler
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      // Toggle direction if clicking the same field
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      // Set new field with default direction
+      setSortField(field);
+      setSortDirection(field === 'asset' ? 'asc' : 'desc');
+    }
+  };
+
+  // Apply sorting
+  holdings.sort((a, b) => {
+    let compareValue = 0;
+
+    switch (sortField) {
+      case 'asset':
+        compareValue = a.commonName.localeCompare(b.commonName);
+        break;
+      case 'holdings':
+        compareValue = a.amount - b.amount;
+        break;
+      case 'price':
+        compareValue = a.currentPrice - b.currentPrice;
+        break;
+      case 'value':
+        compareValue = a.value - b.value;
+        break;
+      case 'change':
+        compareValue = (a.amount * a.change24h) - (b.amount * b.change24h);
+        break;
+      case 'weight':
+        compareValue = a.weight - b.weight;
+        break;
+    }
+
+    return sortDirection === 'asc' ? compareValue : -compareValue;
+  });
 
   // Calculate portfolio 24h change
   const totalChange24h = holdings.reduce((sum, h) => {
@@ -371,12 +416,78 @@ export default function Portfolio() {
             <table className="w-full">
               <thead>
                 <tr className="text-left text-gray-400 text-sm">
-                  <th className="pb-3">Asset</th>
-                  <th className="pb-3">Holdings</th>
-                  <th className="pb-3">Price</th>
-                  <th className="pb-3">Value</th>
-                  <th className="pb-3">24h Change</th>
-                  <th className="pb-3">Weight</th>
+                  <th className="pb-3">
+                    <button
+                      onClick={() => handleSort('asset')}
+                      className="flex items-center gap-1 hover:text-gray-200 transition-colors"
+                    >
+                      Asset
+                      {sortField === 'asset' && (
+                        sortDirection === 'asc' ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />
+                      )}
+                      {sortField !== 'asset' && <ArrowUpDown className="h-3 w-3 opacity-40" />}
+                    </button>
+                  </th>
+                  <th className="pb-3">
+                    <button
+                      onClick={() => handleSort('holdings')}
+                      className="flex items-center gap-1 hover:text-gray-200 transition-colors"
+                    >
+                      Holdings
+                      {sortField === 'holdings' && (
+                        sortDirection === 'asc' ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />
+                      )}
+                      {sortField !== 'holdings' && <ArrowUpDown className="h-3 w-3 opacity-40" />}
+                    </button>
+                  </th>
+                  <th className="pb-3">
+                    <button
+                      onClick={() => handleSort('price')}
+                      className="flex items-center gap-1 hover:text-gray-200 transition-colors"
+                    >
+                      Price
+                      {sortField === 'price' && (
+                        sortDirection === 'asc' ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />
+                      )}
+                      {sortField !== 'price' && <ArrowUpDown className="h-3 w-3 opacity-40" />}
+                    </button>
+                  </th>
+                  <th className="pb-3">
+                    <button
+                      onClick={() => handleSort('value')}
+                      className="flex items-center gap-1 hover:text-gray-200 transition-colors"
+                    >
+                      Value
+                      {sortField === 'value' && (
+                        sortDirection === 'asc' ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />
+                      )}
+                      {sortField !== 'value' && <ArrowUpDown className="h-3 w-3 opacity-40" />}
+                    </button>
+                  </th>
+                  <th className="pb-3">
+                    <button
+                      onClick={() => handleSort('change')}
+                      className="flex items-center gap-1 hover:text-gray-200 transition-colors"
+                    >
+                      24h Change
+                      {sortField === 'change' && (
+                        sortDirection === 'asc' ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />
+                      )}
+                      {sortField !== 'change' && <ArrowUpDown className="h-3 w-3 opacity-40" />}
+                    </button>
+                  </th>
+                  <th className="pb-3">
+                    <button
+                      onClick={() => handleSort('weight')}
+                      className="flex items-center gap-1 hover:text-gray-200 transition-colors"
+                    >
+                      Weight
+                      {sortField === 'weight' && (
+                        sortDirection === 'asc' ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />
+                      )}
+                      {sortField !== 'weight' && <ArrowUpDown className="h-3 w-3 opacity-40" />}
+                    </button>
+                  </th>
                   <th className="pb-3">Status</th>
                 </tr>
               </thead>
