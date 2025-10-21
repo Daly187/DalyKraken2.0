@@ -270,28 +270,22 @@ export class MarketAnalysisService {
   ): Promise<{ shouldEnter: boolean; reason: string; analysis: TrendAnalysis }> {
     const analysis = await this.analyzeTrend(symbol);
 
-    // FIRST ENTRY: Always allow immediately without any checks
-    if (currentEntryCount === 0) {
-      return {
-        shouldEnter: true,
-        reason: 'First entry - executing immediately',
-        analysis,
-      };
-    }
+    console.log(`[MarketAnalysis] ${symbol} shouldEnter - trendAlignmentEnabled=${trendAlignmentEnabled}, currentEntryCount=${currentEntryCount}, techScore=${analysis.techScore.toFixed(0)}, trendScore=${analysis.trendScore.toFixed(0)}`);
 
-    // RE-ENTRIES ONLY: Check trend alignment if enabled
+    // Check trend alignment if enabled (applies to BOTH first entry and re-entries)
     if (trendAlignmentEnabled) {
       if (analysis.techScore < 50 || analysis.trendScore < 50) {
+        console.log(`[MarketAnalysis] ${symbol} BLOCKED - Trend alignment not bullish`);
         return {
           shouldEnter: false,
-          reason: 'Trend alignment not bullish',
+          reason: `Trend alignment not bullish (Tech: ${analysis.techScore.toFixed(0)}, Trend: ${analysis.trendScore.toFixed(0)})`,
           analysis,
         };
       }
     }
 
     // RE-ENTRIES ONLY: Check support/resistance if enabled
-    if (supportResistanceEnabled && analysis.support) {
+    if (currentEntryCount > 0 && supportResistanceEnabled && analysis.support) {
       if (lastSupport === null) {
         // Re-entry - need to cross support first
         if (currentPrice > analysis.support) {
@@ -306,7 +300,9 @@ export class MarketAnalysisService {
 
     return {
       shouldEnter: true,
-      reason: 'All entry conditions met',
+      reason: currentEntryCount === 0
+        ? `First entry - trend conditions met (Tech: ${analysis.techScore.toFixed(0)}, Trend: ${analysis.trendScore.toFixed(0)})`
+        : 'All entry conditions met',
       analysis,
     };
   }

@@ -1665,6 +1665,72 @@ app.post('/order-queue/reset-stuck', authenticateToken, async (req, res) => {
   }
 });
 
+// Admin: Clean up stale entries from exited bots
+app.post('/dca-bots/cleanup-stale-entries', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user!.userId;
+    console.log(`[API] Cleaning up stale entries for user ${userId}`);
+
+    // Find all active bots for this user that have totalInvested = 0 but might have entries
+    const botsSnapshot = await db.collection('dcaBots')
+      .where('userId', '==', userId)
+      .where('status', '==', 'active')
+      .where('totalInvested', '==', 0)
+      .where('currentEntryCount', '==', 0)
+      .get();
+
+    console.log(`[API] Found ${botsSnapshot.size} bots with totalInvested=0`);
+
+    let totalEntriesDeleted = 0;
+    const botsAffected: string[] = [];
+
+    for (const botDoc of botsSnapshot.docs) {
+      const botData = botDoc.data() as any;
+      const botId = botDoc.id;
+      const symbol = botData.symbol;
+
+      // Check if this bot has entries
+      const entriesSnapshot = await db
+        .collection('dcaBots')
+        .doc(botId)
+        .collection('entries')
+        .get();
+
+      if (entriesSnapshot.size === 0) {
+        continue; // No entries to clean up
+      }
+
+      console.log(`[API] Bot ${symbol} has ${entriesSnapshot.size} stale entries, deleting...`);
+
+      // Delete all entries in a batch
+      const batch = db.batch();
+      entriesSnapshot.docs.forEach((doc) => {
+        batch.delete(doc.ref);
+      });
+
+      await batch.commit();
+
+      totalEntriesDeleted += entriesSnapshot.size;
+      botsAffected.push(symbol);
+
+      console.log(`[API] Deleted ${entriesSnapshot.size} entries from ${symbol}`);
+    }
+
+    res.json({
+      success: true,
+      message: `Cleaned up ${totalEntriesDeleted} stale entries from ${botsAffected.length} bots`,
+      totalEntriesDeleted,
+      botsAffected,
+    });
+  } catch (error: any) {
+    console.error('[API] Error cleaning up stale entries:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
 // Admin: Get circuit breaker status
 app.get('/order-queue/circuit-breakers', authenticateToken, async (req, res) => {
   try {

@@ -11,12 +11,39 @@ import {
   Target,
   Percent,
   Calendar,
+  RefreshCw,
 } from 'lucide-react';
 
 export default function Stats() {
   const portfolio = useStore((state) => state.portfolio);
   const dcaStatus = useStore((state) => state.dcaStatus);
   const livePrices = useStore((state) => state.livePrices);
+  const dcaBots = useStore((state) => state.dcaBots);
+  const transactions = useStore((state) => state.transactions);
+  const auditSummary = useStore((state) => state.auditSummary);
+  const fetchDCABots = useStore((state) => state.fetchDCABots);
+  const fetchTransactions = useStore((state) => state.fetchTransactions);
+  const fetchAuditSummary = useStore((state) => state.fetchAuditSummary);
+  const fetchPortfolio = useStore((state) => state.fetchPortfolio);
+  const fetchDCAStatus = useStore((state) => state.fetchDCAStatus);
+
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadData = async () => {
+    setIsLoading(true);
+    await Promise.all([
+      fetchPortfolio().catch(console.error),
+      fetchDCAStatus().catch(console.error),
+      fetchDCABots().catch(console.error),
+      fetchTransactions().catch(console.error),
+      fetchAuditSummary().catch(console.error),
+    ]);
+    setIsLoading(false);
+  };
 
   const formatCurrency = (value: number | undefined | null) => {
     if (value === undefined || value === null) return '$0.00';
@@ -34,15 +61,35 @@ export default function Stats() {
   };
 
   // Calculate portfolio statistics
+  const holdings = portfolio?.holdings || [];
+  const portfolioTotalValue = portfolio?.totalValue || 0;
+  const portfolioTotalProfitLoss = portfolio?.totalProfitLoss || 0;
+  const portfolioTotalProfitLossPercent = portfolio?.totalProfitLossPercent || 0;
+
+  // Debug logging
+  console.log('[Stats] Portfolio:', portfolio);
+  console.log('[Stats] Holdings:', holdings.length);
+  console.log('[Stats] DCA Bots:', dcaBots.length);
+  console.log('[Stats] Transactions:', transactions.length);
+  console.log('[Stats] Audit Summary:', auditSummary);
+
   const portfolioStats = {
-    totalAssets: portfolio?.holdings?.length || 0,
-    profitableAssets: portfolio?.holdings?.filter((h) => (h.profitLoss || 0) > 0).length || 0,
-    losingAssets: portfolio?.holdings?.filter((h) => (h.profitLoss || 0) < 0).length || 0,
-    avgReturn: (portfolio?.holdings?.reduce((sum, h) => sum + (h.profitLossPercent || 0), 0) || 0) / (portfolio?.holdings?.length || 1),
-    totalInvested: portfolio?.holdings?.reduce((sum, h) => sum + ((h.value || 0) - (h.profitLoss || 0)), 0) || 0,
-    largestHolding: portfolio?.holdings?.sort((a, b) => (b.value || 0) - (a.value || 0))[0] || null,
-    bestPerformer: portfolio?.holdings?.sort((a, b) => (b.profitLossPercent || 0) - (a.profitLossPercent || 0))[0] || null,
-    worstPerformer: portfolio?.holdings?.sort((a, b) => (a.profitLossPercent || 0) - (b.profitLossPercent || 0))[0] || null,
+    totalAssets: holdings.length,
+    profitableAssets: holdings.filter((h) => (h.profitLoss || 0) > 0).length,
+    losingAssets: holdings.filter((h) => (h.profitLoss || 0) < 0).length,
+    avgReturn: holdings.length > 0
+      ? holdings.reduce((sum, h) => sum + (h.profitLossPercent || 0), 0) / holdings.length
+      : 0,
+    totalInvested: holdings.reduce((sum, h) => sum + ((h.value || 0) - (h.profitLoss || 0)), 0),
+    largestHolding: holdings.length > 0
+      ? [...holdings].sort((a, b) => (b.value || 0) - (a.value || 0))[0]
+      : null,
+    bestPerformer: holdings.length > 0
+      ? [...holdings].sort((a, b) => (b.profitLossPercent || 0) - (a.profitLossPercent || 0))[0]
+      : null,
+    worstPerformer: holdings.length > 0
+      ? [...holdings].sort((a, b) => (a.profitLossPercent || 0) - (b.profitLossPercent || 0))[0]
+      : null,
   };
 
   // Calculate DCA statistics
@@ -51,6 +98,36 @@ export default function Stats() {
     successRate: dcaStatus?.successRate || 0,
     totalDeployed: dcaStatus?.totalDeployed || 0,
     avgOrderSize: dcaStatus?.totalOrders ? (dcaStatus.totalDeployed || 0) / dcaStatus.totalOrders : 0,
+  };
+
+  // Calculate DCA Bot statistics
+  const activeBots = dcaBots.filter(b => b.status === 'active');
+  const pausedBots = dcaBots.filter(b => b.status === 'paused');
+  const completedBots = dcaBots.filter(b => b.status === 'completed');
+
+  const botStats = {
+    totalBots: dcaBots.length,
+    activeBots: activeBots.length,
+    pausedBots: pausedBots.length,
+    completedBots: completedBots.length,
+    totalInvested: dcaBots.reduce((sum, bot) => sum + (bot.totalInvested || 0), 0),
+    totalUnrealizedPnL: dcaBots.reduce((sum, bot) => sum + (bot.unrealizedPnL || 0), 0),
+    avgPnLPercent: dcaBots.length > 0
+      ? dcaBots.reduce((sum, bot) => sum + (bot.unrealizedPnLPercent || 0), 0) / dcaBots.length
+      : 0,
+    profitableBots: dcaBots.filter(b => (b.unrealizedPnL || 0) > 0).length,
+    losingBots: dcaBots.filter(b => (b.unrealizedPnL || 0) < 0).length,
+  };
+
+  // Calculate transaction statistics
+  const txStats = {
+    totalTransactions: auditSummary?.totalTransactions || transactions.length || 0,
+    totalBuys: auditSummary?.totalBuys || transactions.filter(t => t.type === 'buy').length || 0,
+    totalSells: auditSummary?.totalSells || transactions.filter(t => t.type === 'sell').length || 0,
+    totalFees: auditSummary?.totalFees || transactions.reduce((sum, t) => sum + (t.fee || 0), 0) || 0,
+    netProfitLoss: auditSummary?.netProfitLoss || 0,
+    buyVolume: transactions.filter(t => t.type === 'buy').reduce((sum, t) => sum + (t.total || 0), 0),
+    sellVolume: transactions.filter(t => t.type === 'sell').reduce((sum, t) => sum + (t.total || 0), 0),
   };
 
   // Calculate time-based metrics
@@ -70,11 +147,71 @@ export default function Stats() {
 
       <div className="relative space-y-6 p-6">
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">
-            Statistics & Analytics
-          </h1>
-          <p className="text-slate-400 mt-2">Comprehensive overview of your trading performance</p>
+        <div className="mb-8 flex items-start justify-between">
+          <div>
+            <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">
+              Statistics & Analytics
+            </h1>
+            <p className="text-slate-400 mt-2">Comprehensive overview of your trading performance</p>
+            {isLoading && (
+              <div className="mt-2 flex items-center gap-2 text-sm text-blue-400">
+                <Activity className="h-4 w-4 animate-pulse" />
+                <span>Loading latest data...</span>
+              </div>
+            )}
+          </div>
+          <button
+            onClick={loadData}
+            disabled={isLoading}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 rounded-lg border border-blue-500/20 hover:border-blue-500/40 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+            <span>Refresh Data</span>
+          </button>
+        </div>
+
+        {/* Overall Performance Summary */}
+        <div className="relative overflow-hidden rounded-xl bg-gradient-to-br from-blue-500/10 via-purple-500/10 to-pink-500/10 backdrop-blur-xl border border-blue-500/20 p-8">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+            <div className="text-center">
+              <p className="text-sm text-slate-400 mb-2">Portfolio Value</p>
+              <p className="text-3xl font-bold text-white mb-1">{formatCurrency(portfolioTotalValue)}</p>
+              <p className={`text-sm font-semibold ${
+                portfolioTotalProfitLoss >= 0 ? 'text-green-400' : 'text-red-400'
+              }`}>
+                {formatCurrency(portfolioTotalProfitLoss)} ({formatPercent(portfolioTotalProfitLossPercent)})
+              </p>
+            </div>
+            <div className="text-center">
+              <p className="text-sm text-slate-400 mb-2">DCA Bots P&L</p>
+              <p className={`text-3xl font-bold ${botStats.totalUnrealizedPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                {formatCurrency(botStats.totalUnrealizedPnL)}
+              </p>
+              <p className={`text-sm font-semibold ${botStats.avgPnLPercent >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                {formatPercent(botStats.avgPnLPercent)} avg
+              </p>
+            </div>
+            <div className="text-center">
+              <p className="text-sm text-slate-400 mb-2">Trading Volume</p>
+              <p className="text-3xl font-bold text-white mb-1">
+                {formatCurrency(txStats.buyVolume + txStats.sellVolume)}
+              </p>
+              <p className="text-sm text-slate-400">
+                {txStats.totalTransactions} trades
+              </p>
+            </div>
+            <div className="text-center">
+              <p className="text-sm text-slate-400 mb-2">Win Rate</p>
+              <p className="text-3xl font-bold text-purple-400">
+                {portfolioStats.totalAssets > 0
+                  ? ((portfolioStats.profitableAssets / portfolioStats.totalAssets) * 100).toFixed(1)
+                  : '0.0'}%
+              </p>
+              <p className="text-sm text-slate-400">
+                {portfolioStats.profitableAssets} / {portfolioStats.totalAssets} assets
+              </p>
+            </div>
+          </div>
         </div>
 
         {/* Key Metrics Grid */}
@@ -87,7 +224,7 @@ export default function Stats() {
               </div>
             </div>
             <p className="text-sm text-slate-400 mb-1">Total Value</p>
-            <p className="text-2xl font-bold text-white">{formatCurrency(portfolio?.totalValue)}</p>
+            <p className="text-2xl font-bold text-white">{formatCurrency(portfolioTotalValue)}</p>
           </div>
 
           {/* Total Invested */}
@@ -123,6 +260,59 @@ export default function Stats() {
             </div>
             <p className="text-sm text-slate-400 mb-1">Total Assets</p>
             <p className="text-2xl font-bold text-white">{portfolioStats.totalAssets}</p>
+          </div>
+        </div>
+
+        {/* Trading Overview Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          {/* Total Trades */}
+          <div className="relative overflow-hidden rounded-xl bg-gradient-to-br from-cyan-500/10 via-slate-800/50 to-slate-900/50 backdrop-blur-xl border border-cyan-500/20 p-6 hover:border-cyan-500/40 transition-all duration-300">
+            <div className="flex items-center justify-between mb-4">
+              <div className="p-3 bg-cyan-500/20 rounded-xl ring-1 ring-cyan-500/30">
+                <Activity className="h-6 w-6 text-cyan-400" />
+              </div>
+            </div>
+            <p className="text-sm text-slate-400 mb-1">Total Trades</p>
+            <p className="text-2xl font-bold text-white">{txStats.totalTransactions}</p>
+            <p className="text-xs text-slate-500 mt-1">{txStats.totalBuys} buys / {txStats.totalSells} sells</p>
+          </div>
+
+          {/* Trade Volume */}
+          <div className="relative overflow-hidden rounded-xl bg-gradient-to-br from-emerald-500/10 via-slate-800/50 to-slate-900/50 backdrop-blur-xl border border-emerald-500/20 p-6 hover:border-emerald-500/40 transition-all duration-300">
+            <div className="flex items-center justify-between mb-4">
+              <div className="p-3 bg-emerald-500/20 rounded-xl ring-1 ring-emerald-500/30">
+                <BarChart3 className="h-6 w-6 text-emerald-400" />
+              </div>
+            </div>
+            <p className="text-sm text-slate-400 mb-1">Trade Volume</p>
+            <p className="text-2xl font-bold text-white">{formatCurrency(txStats.buyVolume + txStats.sellVolume)}</p>
+            <p className="text-xs text-slate-500 mt-1">Buy: {formatCurrency(txStats.buyVolume)}</p>
+          </div>
+
+          {/* Total Fees Paid */}
+          <div className="relative overflow-hidden rounded-xl bg-gradient-to-br from-orange-500/10 via-slate-800/50 to-slate-900/50 backdrop-blur-xl border border-orange-500/20 p-6 hover:border-orange-500/40 transition-all duration-300">
+            <div className="flex items-center justify-between mb-4">
+              <div className="p-3 bg-orange-500/20 rounded-xl ring-1 ring-orange-500/30">
+                <DollarSign className="h-6 w-6 text-orange-400" />
+              </div>
+            </div>
+            <p className="text-sm text-slate-400 mb-1">Total Fees</p>
+            <p className="text-2xl font-bold text-white">{formatCurrency(txStats.totalFees)}</p>
+            <p className="text-xs text-slate-500 mt-1">Cumulative trading fees</p>
+          </div>
+
+          {/* Net P&L */}
+          <div className="relative overflow-hidden rounded-xl bg-gradient-to-br from-violet-500/10 via-slate-800/50 to-slate-900/50 backdrop-blur-xl border border-violet-500/20 p-6 hover:border-violet-500/40 transition-all duration-300">
+            <div className="flex items-center justify-between mb-4">
+              <div className="p-3 bg-violet-500/20 rounded-xl ring-1 ring-violet-500/30">
+                <TrendingUp className="h-6 w-6 text-violet-400" />
+              </div>
+            </div>
+            <p className="text-sm text-slate-400 mb-1">Net Realized P&L</p>
+            <p className={`text-2xl font-bold ${txStats.netProfitLoss >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+              {formatCurrency(txStats.netProfitLoss)}
+            </p>
+            <p className="text-xs text-slate-500 mt-1">From completed trades</p>
           </div>
         </div>
 
@@ -197,7 +387,142 @@ export default function Stats() {
               </div>
             </div>
           </div>
+
+          {/* DCA Bot Performance */}
+          <div className="relative overflow-hidden rounded-xl bg-slate-800/40 backdrop-blur-xl border border-slate-700/50">
+            <div className="p-6 border-b border-slate-700/50">
+              <h2 className="text-xl font-bold text-white flex items-center">
+                <Target className="h-5 w-5 mr-2 text-cyan-400" />
+                DCA Bot Performance
+              </h2>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="flex items-center justify-between p-4 rounded-lg bg-slate-900/50 border border-slate-700/30">
+                <div className="flex items-center space-x-3">
+                  <Activity className="h-5 w-5 text-cyan-400" />
+                  <span className="text-slate-300">Active Bots</span>
+                </div>
+                <span className="text-2xl font-bold text-cyan-400">{botStats.activeBots} / {botStats.totalBots}</span>
+              </div>
+              <div className="flex items-center justify-between p-4 rounded-lg bg-slate-900/50 border border-slate-700/30">
+                <div className="flex items-center space-x-3">
+                  <DollarSign className="h-5 w-5 text-blue-400" />
+                  <span className="text-slate-300">Total Invested</span>
+                </div>
+                <span className="text-2xl font-bold text-blue-400">{formatCurrency(botStats.totalInvested)}</span>
+              </div>
+              <div className="flex items-center justify-between p-4 rounded-lg bg-slate-900/50 border border-slate-700/30">
+                <div className="flex items-center space-x-3">
+                  {botStats.totalUnrealizedPnL >= 0 ? (
+                    <TrendingUp className="h-5 w-5 text-green-400" />
+                  ) : (
+                    <TrendingDown className="h-5 w-5 text-red-400" />
+                  )}
+                  <span className="text-slate-300">Unrealized P&L</span>
+                </div>
+                <div className="text-right">
+                  <span className={`text-2xl font-bold ${botStats.totalUnrealizedPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                    {formatCurrency(botStats.totalUnrealizedPnL)}
+                  </span>
+                  <p className={`text-sm ${botStats.avgPnLPercent >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                    {formatPercent(botStats.avgPnLPercent)} avg
+                  </p>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="p-4 rounded-lg bg-green-500/10 border border-green-500/20">
+                  <p className="text-sm text-slate-400 mb-1">Profitable</p>
+                  <p className="text-xl font-bold text-green-400">{botStats.profitableBots}</p>
+                </div>
+                <div className="p-4 rounded-lg bg-red-500/10 border border-red-500/20">
+                  <p className="text-sm text-slate-400 mb-1">Losing</p>
+                  <p className="text-xl font-bold text-red-400">{botStats.losingBots}</p>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
+
+        {/* Top Performing DCA Bots */}
+        {dcaBots.length > 0 && (
+          <div className="relative overflow-hidden rounded-xl bg-slate-800/40 backdrop-blur-xl border border-slate-700/50">
+            <div className="p-6 border-b border-slate-700/50">
+              <h2 className="text-xl font-bold text-white">Top Performing Bots</h2>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="text-left text-slate-400 text-sm border-b border-slate-700/50">
+                    <th className="pb-4 pt-4 pl-6 font-semibold">Symbol</th>
+                    <th className="pb-4 pt-4 font-semibold">Status</th>
+                    <th className="pb-4 pt-4 font-semibold">Invested</th>
+                    <th className="pb-4 pt-4 font-semibold">Entries</th>
+                    <th className="pb-4 pt-4 font-semibold">Avg Price</th>
+                    <th className="pb-4 pt-4 font-semibold">Current Price</th>
+                    <th className="pb-4 pt-4 font-semibold">P&L</th>
+                    <th className="pb-4 pt-4 pr-6 font-semibold">P&L %</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...dcaBots]
+                    .sort((a, b) => (b.unrealizedPnLPercent || 0) - (a.unrealizedPnLPercent || 0))
+                    .slice(0, 10)
+                    .map((bot) => (
+                      <tr
+                        key={bot.id}
+                        className="border-b border-slate-700/30 hover:bg-slate-700/20 transition-colors duration-200"
+                      >
+                        <td className="py-4 pl-6">
+                          <span className="font-semibold text-white">{bot.symbol}</span>
+                        </td>
+                        <td className="py-4">
+                          <span className={`text-xs px-2 py-1 rounded-full font-semibold ${
+                            bot.status === 'active'
+                              ? 'bg-green-500/20 text-green-400'
+                              : bot.status === 'paused'
+                              ? 'bg-yellow-500/20 text-yellow-400'
+                              : bot.status === 'completed'
+                              ? 'bg-blue-500/20 text-blue-400'
+                              : 'bg-gray-500/20 text-gray-400'
+                          }`}>
+                            {bot.status}
+                          </span>
+                        </td>
+                        <td className="py-4 text-slate-300 font-mono">
+                          {formatCurrency(bot.totalInvested || 0)}
+                        </td>
+                        <td className="py-4 text-slate-300">
+                          {bot.currentEntryCount} / {bot.reEntryCount + 1}
+                        </td>
+                        <td className="py-4 text-slate-300 font-mono">
+                          {formatCurrency(bot.averagePurchasePrice || 0)}
+                        </td>
+                        <td className="py-4 text-slate-300 font-mono">
+                          {formatCurrency(bot.currentPrice || 0)}
+                        </td>
+                        <td className="py-4">
+                          <span className={`font-semibold ${
+                            (bot.unrealizedPnL || 0) >= 0 ? 'text-green-400' : 'text-red-400'
+                          }`}>
+                            {formatCurrency(bot.unrealizedPnL || 0)}
+                          </span>
+                        </td>
+                        <td className="py-4 pr-6">
+                          <span className={`text-sm px-3 py-1 rounded-full font-semibold ${
+                            (bot.unrealizedPnLPercent || 0) >= 0
+                              ? 'bg-green-500/20 text-green-400'
+                              : 'bg-red-500/20 text-red-400'
+                          }`}>
+                            {formatPercent(bot.unrealizedPnLPercent || 0)}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
 
         {/* Top Holdings Stats */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -247,31 +572,104 @@ export default function Stats() {
           )}
         </div>
 
-        {/* Time-based Metrics */}
-        <div className="relative overflow-hidden rounded-xl bg-slate-800/40 backdrop-blur-xl border border-slate-700/50">
-          <div className="p-6 border-b border-slate-700/50">
-            <h2 className="text-xl font-bold text-white flex items-center">
-              <Clock className="h-5 w-5 mr-2 text-cyan-400" />
-              Time-based Metrics
-            </h2>
+        {/* Recent Transactions & Time Metrics */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Recent Transactions */}
+          <div className="relative overflow-hidden rounded-xl bg-slate-800/40 backdrop-blur-xl border border-slate-700/50">
+            <div className="p-6 border-b border-slate-700/50">
+              <h2 className="text-xl font-bold text-white flex items-center">
+                <Clock className="h-5 w-5 mr-2 text-cyan-400" />
+                Recent Transactions
+              </h2>
+            </div>
+            <div className="p-6">
+              {transactions.length > 0 ? (
+                <div className="space-y-3">
+                  {transactions.slice(0, 5).map((tx) => (
+                    <div
+                      key={tx.id}
+                      className="flex items-center justify-between p-3 rounded-lg bg-slate-900/50 border border-slate-700/30 hover:bg-slate-700/30 transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className={`p-2 rounded-lg ${
+                          tx.type === 'buy'
+                            ? 'bg-green-500/20 text-green-400'
+                            : tx.type === 'sell'
+                            ? 'bg-red-500/20 text-red-400'
+                            : 'bg-blue-500/20 text-blue-400'
+                        }`}>
+                          {tx.type === 'buy' ? (
+                            <TrendingUp className="h-4 w-4" />
+                          ) : tx.type === 'sell' ? (
+                            <TrendingDown className="h-4 w-4" />
+                          ) : (
+                            <DollarSign className="h-4 w-4" />
+                          )}
+                        </div>
+                        <div>
+                          <p className="text-sm font-semibold text-white">
+                            {tx.type.toUpperCase()} {tx.symbol}
+                          </p>
+                          <p className="text-xs text-slate-400">
+                            {new Date(tx.timestamp).toLocaleDateString()} {new Date(tx.timestamp).toLocaleTimeString()}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm font-semibold text-white">{formatCurrency(tx.total)}</p>
+                        <p className="text-xs text-slate-400">{tx.amount.toFixed(4)} @ {formatCurrency(tx.price)}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8">
+                  <Activity className="h-12 w-12 text-slate-600 mx-auto mb-3" />
+                  <p className="text-slate-400">No recent transactions</p>
+                </div>
+              )}
+            </div>
           </div>
-          <div className="p-6">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="text-center p-6 rounded-xl bg-slate-900/30 border border-slate-700/30">
-                <Calendar className="h-8 w-8 text-cyan-400 mx-auto mb-3" />
-                <p className="text-sm text-slate-400 mb-2">Portfolio Age</p>
-                <p className="text-2xl font-bold text-white">{timeMetrics.portfolioAge}</p>
+
+          {/* Time-based Metrics */}
+          <div className="relative overflow-hidden rounded-xl bg-slate-800/40 backdrop-blur-xl border border-slate-700/50">
+            <div className="p-6 border-b border-slate-700/50">
+              <h2 className="text-xl font-bold text-white flex items-center">
+                <Calendar className="h-5 w-5 mr-2 text-cyan-400" />
+                Time Metrics
+              </h2>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="flex items-center justify-between p-4 rounded-lg bg-slate-900/50 border border-slate-700/30">
+                <div className="flex items-center space-x-3">
+                  <Calendar className="h-5 w-5 text-cyan-400" />
+                  <span className="text-slate-300">Portfolio Age</span>
+                </div>
+                <span className="text-xl font-bold text-white">{timeMetrics.portfolioAge}</span>
               </div>
-              <div className="text-center p-6 rounded-xl bg-slate-900/30 border border-slate-700/30">
-                <Activity className="h-8 w-8 text-purple-400 mx-auto mb-3" />
-                <p className="text-sm text-slate-400 mb-2">Trading Days</p>
-                <p className="text-2xl font-bold text-white">{timeMetrics.tradingDays}</p>
+              <div className="flex items-center justify-between p-4 rounded-lg bg-slate-900/50 border border-slate-700/30">
+                <div className="flex items-center space-x-3">
+                  <Activity className="h-5 w-5 text-purple-400" />
+                  <span className="text-slate-300">Trading Days</span>
+                </div>
+                <span className="text-xl font-bold text-white">{timeMetrics.tradingDays}</span>
               </div>
-              <div className="text-center p-6 rounded-xl bg-slate-900/30 border border-slate-700/30">
-                <Clock className="h-8 w-8 text-blue-400 mx-auto mb-3" />
-                <p className="text-sm text-slate-400 mb-2">Last Update</p>
-                <p className="text-lg font-semibold text-white">{timeMetrics.lastUpdate}</p>
+              <div className="flex items-center justify-between p-4 rounded-lg bg-slate-900/50 border border-slate-700/30">
+                <div className="flex items-center space-x-3">
+                  <Clock className="h-5 w-5 text-blue-400" />
+                  <span className="text-slate-300">Last Update</span>
+                </div>
+                <span className="text-sm font-semibold text-white">{timeMetrics.lastUpdate}</span>
               </div>
+              {dcaBots.length > 0 && activeBots.length > 0 && (
+                <div className="flex items-center justify-between p-4 rounded-lg bg-green-500/10 border border-green-500/20">
+                  <div className="flex items-center space-x-3">
+                    <Activity className="h-5 w-5 text-green-400 animate-pulse" />
+                    <span className="text-slate-300">Active Bots</span>
+                  </div>
+                  <span className="text-xl font-bold text-green-400">{activeBots.length} Running</span>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -294,7 +692,7 @@ export default function Stats() {
                 </tr>
               </thead>
               <tbody>
-                {portfolio?.holdings?.map((holding, idx) => (
+                {holdings.map((holding, idx) => (
                   <tr
                     key={holding.symbol || holding.asset}
                     className="border-b border-slate-700/30 hover:bg-slate-700/20 transition-colors duration-200"

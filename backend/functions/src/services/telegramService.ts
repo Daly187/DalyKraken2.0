@@ -14,9 +14,10 @@ export class TelegramService {
     alerts: true,
     dailySummary: true,
   };
+  private configLoaded: Promise<void>;
 
   constructor() {
-    this.loadConfig();
+    this.configLoaded = this.loadConfig();
   }
 
   /**
@@ -30,7 +31,14 @@ export class TelegramService {
         this.botToken = data?.botToken || process.env.TELEGRAM_BOT_TOKEN || null;
         this.chatId = data?.chatId || process.env.TELEGRAM_CHAT_ID || null;
         this.enabled = data?.enabled || false;
-        this.notifications = data?.notifications || this.notifications;
+
+        // Only use data.notifications if it has properties, otherwise keep defaults
+        if (data?.notifications && Object.keys(data.notifications).length > 0) {
+          this.notifications = {
+            ...this.notifications,
+            ...data.notifications,
+          };
+        }
       } else {
         // Fallback to environment variables
         this.botToken = process.env.TELEGRAM_BOT_TOKEN || null;
@@ -112,6 +120,9 @@ export class TelegramService {
    * Send a message via Telegram
    */
   async sendMessage(message: string, parseMode: string = 'Markdown'): Promise<any> {
+    // Ensure config is loaded before proceeding
+    await this.configLoaded;
+
     if (!this.enabled) {
       console.log('[Telegram] Notifications disabled, message not sent');
       return { sent: false, reason: 'disabled' };

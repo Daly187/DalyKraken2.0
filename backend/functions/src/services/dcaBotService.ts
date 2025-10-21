@@ -184,6 +184,8 @@ export class DCABotService {
     const unrealizedPnL = currentValue - totalInvested;
     const unrealizedPnLPercent = totalInvested > 0 ? (unrealizedPnL / totalInvested) * 100 : 0;
 
+    console.log(`[DCABotService] Bot ${botId} FINAL CALCULATED VALUES: filledEntries=${filledEntries.length}, totalInvested=${totalInvested}, totalQuantity=${totalQuantity}, currentValue=${currentValue}`);
+
     // Calculate next entry price
     // Sort entries by timestamp to get the actual last entry
     const sortedEntries = [...filledEntries].sort((a, b) =>
@@ -221,9 +223,11 @@ export class DCABotService {
     const liveBot: LiveDCABot = {
       ...botData,
       id: botId,
+      // IMPORTANT: Use calculated values, not stored values from botData
+      // These are recalculated from actual entries and current market data
       currentEntryCount: filledEntries.length,
-      averagePurchasePrice,
-      totalInvested,
+      averagePurchasePrice, // Calculated from entries
+      totalInvested, // Calculated from entries (will be 0 if no entries)
       currentPrice,
       unrealizedPnL,
       unrealizedPnLPercent,
@@ -273,14 +277,6 @@ export class DCABotService {
     shouldEnter: boolean;
     reason: string;
   }> {
-    // FIRST ENTRY: Always allow immediately without any checks
-    if (bot.currentEntryCount === 0) {
-      return {
-        shouldEnter: true,
-        reason: 'First entry - executing immediately',
-      };
-    }
-
     // Check if max entries reached
     if (bot.currentEntryCount >= bot.reEntryCount) {
       return {
@@ -290,7 +286,7 @@ export class DCABotService {
     }
 
     // Check re-entry delay (only for re-entries, not first entry)
-    if (bot.lastEntryTime) {
+    if (bot.currentEntryCount > 0 && bot.lastEntryTime) {
       const lastEntryTime = new Date(bot.lastEntryTime).getTime();
       const timeSinceLastEntry = Date.now() - lastEntryTime;
       const delayMs = bot.reEntryDelay * 60 * 1000; // Convert minutes to ms
@@ -304,14 +300,16 @@ export class DCABotService {
     }
 
     // Check if price has dropped enough (only for re-entries)
-    if (bot.nextEntryPrice && currentPrice > bot.nextEntryPrice) {
+    if (bot.currentEntryCount > 0 && bot.nextEntryPrice && currentPrice > bot.nextEntryPrice) {
       return {
         shouldEnter: false,
         reason: `Price not low enough (current: ${currentPrice}, target: ${bot.nextEntryPrice})`,
       };
     }
 
-    // Check trend alignment and support/resistance
+    // Check trend alignment and support/resistance (applies to both first entry and re-entries)
+    console.log(`[DCABotService] Bot ${bot.id}: Checking entry conditions - trendAlignmentEnabled=${bot.trendAlignmentEnabled}, currentEntryCount=${bot.currentEntryCount}, techScore=${bot.techScore}, trendScore=${bot.trendScore}`);
+
     const entryCheck = await this.marketAnalysis.shouldEnter(
       bot.symbol,
       currentPrice,
@@ -320,6 +318,8 @@ export class DCABotService {
       bot.support,
       bot.currentEntryCount
     );
+
+    console.log(`[DCABotService] Bot ${bot.id}: Entry check result - shouldEnter=${entryCheck.shouldEnter}, reason=${entryCheck.reason}`);
 
     return {
       shouldEnter: entryCheck.shouldEnter,

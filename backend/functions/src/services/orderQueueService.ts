@@ -37,12 +37,21 @@ export class OrderQueueService {
   }
 
   /**
-   * Generate a userref (32-bit int) from clientOrderId for Kraken
+   * Generate a userref (32-bit signed int) from clientOrderId for Kraken
+   * Kraken requires userref to be a 32-bit SIGNED integer (max: 2147483647)
    */
   private generateUserref(clientOrderId: string): number {
     // Convert first 8 hex chars to a 32-bit int
     const hex = clientOrderId.substring(0, 8);
-    return parseInt(hex, 16) >>> 0; // Unsigned 32-bit
+    const unsigned = parseInt(hex, 16) >>> 0; // Unsigned 32-bit
+
+    // Convert to signed 32-bit by using bitwise OR with 0
+    // This ensures the value fits within Kraken's signed 32-bit integer range
+    const signed = unsigned | 0;
+
+    // If negative, convert to positive by taking absolute value and reducing to fit
+    // This ensures we always have a positive number within the signed 32-bit range
+    return Math.abs(signed) % 2147483647;
   }
 
   /**

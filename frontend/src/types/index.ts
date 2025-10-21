@@ -179,7 +179,7 @@ export interface DCABotConfig {
   supportResistanceEnabled: boolean; // Default false
   reEntryDelay: number; // Default 888 minutes
   trendAlignmentEnabled: boolean; // Default true
-  status: 'active' | 'paused' | 'completed' | 'stopped';
+  status: 'active' | 'paused' | 'completed' | 'stopped' | 'exiting';
   createdAt: string;
   updatedAt: string;
 }

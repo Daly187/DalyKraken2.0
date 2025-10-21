@@ -380,9 +380,9 @@ export default function DalyDCA() {
 
   const handlePauseResume = async (bot: any) => {
     try {
-      if (bot.status === 'active') {
+      if (bot.status === 'active' || bot.status === 'exiting') {
         await pauseDCABot(bot.id);
-      } else if (bot.status === 'paused') {
+      } else if (bot.status === 'paused' || bot.status === 'completed' || bot.status === 'stopped') {
         await resumeDCABot(bot.id);
       }
     } catch (error) {
@@ -442,12 +442,7 @@ export default function DalyDCA() {
       return { message: 'Max entries reached', color: 'text-orange-500' };
     }
 
-    // FIRST ENTRY: Always ready (no trend/support checks)
-    if (bot.currentEntryCount === 0) {
-      return { message: 'Ready to enter on next trigger', color: 'text-green-400' };
-    }
-
-    // RE-ENTRIES ONLY: Check trend alignment if enabled
+    // Check trend alignment if enabled (applies to BOTH first entry and re-entries)
     if (bot.trendAlignmentEnabled && (bot.techScore < 50 || bot.trendScore < 50)) {
       return { message: 'Waiting for trend alignment', color: 'text-blue-400' };
     }
@@ -585,6 +580,8 @@ export default function DalyDCA() {
         return 'text-green-500 bg-green-500/10';
       case 'paused':
         return 'text-yellow-500 bg-yellow-500/10';
+      case 'exiting':
+        return 'text-orange-500 bg-orange-500/10';
       case 'completed':
         return 'text-blue-500 bg-blue-500/10';
       case 'stopped':
@@ -1219,8 +1216,9 @@ export default function DalyDCA() {
                             handlePauseResume(bot);
                           }}
                           className="btn btn-sm btn-secondary"
+                          title={bot.status === 'active' || bot.status === 'exiting' ? 'Pause bot' : 'Resume bot'}
                         >
-                          {bot.status === 'active' ? (
+                          {bot.status === 'active' || bot.status === 'exiting' ? (
                             <Pause className="h-3 w-3" />
                           ) : (
                             <Play className="h-3 w-3" />
@@ -1769,6 +1767,7 @@ export default function DalyDCA() {
                   <th className="text-right py-3 px-2 font-medium">Price</th>
                   <th className="text-right py-3 px-2 font-medium">Volume</th>
                   <th className="text-left py-3 px-2 font-medium">Status</th>
+                  <th className="text-left py-3 px-2 font-medium">Error</th>
                   <th className="text-left py-3 px-2 font-medium">Created</th>
                 </tr>
               </thead>
@@ -1800,6 +1799,15 @@ export default function DalyDCA() {
                       <span className={`px-2 py-0.5 rounded text-xs font-medium ${getOrderStatusColor(order.status)}`}>
                         {order.status.toUpperCase()}
                       </span>
+                    </td>
+                    <td className="py-3 px-2 text-xs">
+                      {order.status === 'failed' || order.status === 'retry' ? (
+                        <span className="text-red-400" title={order.lastError || 'Unknown error'}>
+                          {order.lastError ? (order.lastError.length > 50 ? order.lastError.substring(0, 50) + '...' : order.lastError) : '-'}
+                        </span>
+                      ) : (
+                        <span className="text-gray-500">-</span>
+                      )}
                     </td>
                     <td className="py-3 px-2 text-gray-400 text-xs">
                       {formatTimestamp(order.createdAt)}

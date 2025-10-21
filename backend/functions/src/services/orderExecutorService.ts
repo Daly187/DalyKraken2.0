@@ -573,9 +573,29 @@ export class OrderExecutorService {
 
         console.log(`[OrderExecutor] Bot ${order.botId} updated: entry count ${newEntryCount}, avg price ${newAverageEntryPrice.toFixed(2)}, total volume ${newTotalVolume.toFixed(8)}, total invested $${newTotalInvested.toFixed(2)}`);
       } else {
-        // For sell orders, reset the bot and mark as completed
-        await db.collection('dcaBots').doc(order.botId).update({
-          status: 'completed', // Mark bot as completed after exit order executes
+        // For sell orders, reset the bot to restart the cycle
+        console.log(`[OrderExecutor] Processing SELL order completion for bot ${order.botId}`);
+
+        // First, delete all entries to ensure clean restart
+        const entriesSnapshot = await db
+          .collection('dcaBots')
+          .doc(order.botId)
+          .collection('entries')
+          .get();
+
+        console.log(`[OrderExecutor] Found ${entriesSnapshot.size} entries to delete for bot ${order.botId}`);
+
+        const batch = db.batch();
+        entriesSnapshot.docs.forEach((doc) => {
+          batch.delete(doc.ref);
+        });
+        await batch.commit();
+
+        console.log(`[OrderExecutor] Successfully deleted ${entriesSnapshot.size} entries for bot ${order.botId}`);
+
+        // Reset bot to active status to restart the cycle
+        const resetData = {
+          status: 'active', // Keep bot active to restart the cycle
           currentEntryCount: 0,
           averageEntryPrice: 0,
           averagePurchasePrice: 0,
@@ -584,9 +604,13 @@ export class OrderExecutorService {
           lastExitPrice: result.executedPrice ? parseFloat(result.executedPrice) : parseFloat(order.price || '0'),
           lastExitTime: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
-        });
+        };
 
-        console.log(`[OrderExecutor] Bot ${order.botId} reset and marked as completed after exit`);
+        console.log(`[OrderExecutor] Resetting bot ${order.botId} with data:`, resetData);
+
+        await db.collection('dcaBots').doc(order.botId).update(resetData);
+
+        console.log(`[OrderExecutor] ✅ Bot ${order.botId} successfully reset to active with totalInvested=0, ready to restart cycle`);
       }
     } catch (error: any) {
       console.error(`[OrderExecutor] Error updating bot ${order.botId}:`, error.message);
@@ -612,10 +636,42 @@ export class OrderExecutorService {
       try {
         const accountBalance = await krakenService.getBalance(decryptedApiKey, decryptedApiSecret);
         if (accountBalance) {
-          // Calculate total balance
+          // Get current prices for all assets
+          const assetPairs: string[] = [];
+          for (const asset of Object.keys(accountBalance)) {
+            const amountNum = typeof accountBalance[asset] === 'number'
+              ? accountBalance[asset]
+              : parseFloat(String(accountBalance[asset]));
+
+            if (amountNum > 0) {
+              // Skip USD and stablecoins - they don't need price lookup
+              if (['ZUSD', 'USD', 'USDT', 'USDC', 'DAI', 'BUSD'].includes(asset)) {
+                continue;
+              }
+              // Convert asset to Kraken pair format
+              const pair = asset.startsWith('X') || asset.startsWith('Z')
+                ? `${asset}ZUSD`
+                : `${asset}USD`;
+              assetPairs.push(pair);
+            }
+          }
+
+          // Fetch prices
+          const prices = await krakenService.getCurrentPrices(assetPairs);
+
+          // Calculate total balance in USD
           balance.total = Object.entries(accountBalance).reduce((sum, [asset, amount]) => {
             const amountNum = typeof amount === 'number' ? amount : parseFloat(String(amount));
-            return sum + amountNum;
+
+            if (amountNum <= 0) return sum;
+
+            // Handle USD and stablecoins with price = 1
+            let currentPrice = 1;
+            if (!['ZUSD', 'USD', 'USDT', 'USDC', 'DAI', 'BUSD'].includes(asset)) {
+              currentPrice = prices[asset] || 0;
+            }
+
+            return sum + (amountNum * currentPrice);
           }, 0);
 
           // Calculate stables (USD, USDT, USDC, etc.)
@@ -640,6 +696,32 @@ export class OrderExecutorService {
       const isExit = order.side === 'sell';
 
       if (isExit) {
+        // Get bot data to calculate profit
+        let profit = 0;
+        let profitPercent = 0;
+
+        try {
+          const botDoc = await db.collection('dcaBots').doc(order.botId).get();
+          if (botDoc.exists) {
+            const bot = botDoc.data();
+            if (bot) {
+              const averageEntryPrice = bot.averageEntryPrice || 0;
+              const totalVolume = bot.totalVolume || 0;
+              const totalInvested = bot.totalInvested || 0;
+
+              // Calculate profit based on average entry price
+              if (averageEntryPrice > 0 && totalVolume > 0) {
+                profit = (price - averageEntryPrice) * totalVolume;
+                profitPercent = ((price - averageEntryPrice) / averageEntryPrice) * 100;
+              }
+
+              console.log(`[OrderExecutor] Exit notification: avg entry ${averageEntryPrice.toFixed(2)}, exit ${price.toFixed(2)}, profit $${profit.toFixed(2)} (${profitPercent.toFixed(2)}%)`);
+            }
+          }
+        } catch (error: any) {
+          console.warn('[OrderExecutor] Failed to get bot data for profit calculation:', error.message);
+        }
+
         // Trade closure notification
         await telegramService.sendTradeClosure(
           {
@@ -648,8 +730,8 @@ export class OrderExecutorService {
             volume: volume.toString(),
             price,
             amount,
-            profit: 0, // We don't have entry price to calculate profit
-            profitPercent: 0,
+            profit,
+            profitPercent,
             orderResult: { txid: [result.orderId || 'N/A'] },
           },
           balance
