@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fix Bot Cycles</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #1a1a1a;
+            color: #fff;
+        }
+        .container {
+            background: #2a2a2a;
+            border-radius: 10px;
+            padding: 30px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        h1 {
+            color: #4CAF50;
+            margin-top: 0;
+        }
+        .info {
+            background: #333;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+            border-left: 4px solid #2196F3;
+        }
+        button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 16px;
+            border-radius: 5px;
+            cursor: pointer;
+            width: 100%;
+            margin: 10px 0;
+        }
+        button:hover {
+            background: #45a049;
+        }
+        button:disabled {
+            background: #666;
+            cursor: not-allowed;
+        }
+        #output {
+            background: #1a1a1a;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 20px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            white-space: pre-wrap;
+            max-height: 400px;
+            overflow-y: auto;
+            display: none;
+        }
+        .success {
+            color: #4CAF50;
+        }
+        .error {
+            color: #f44336;
+        }
+        .warning {
+            color: #ff9800;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔧 Fix Bot Cycles</h1>
+
+        <div class="info">
+            <strong>What this does:</strong>
+            <ul>
+                <li>Initializes cycle tracking for all your bots</li>
+                <li>Deletes entries from previous closed cycles</li>
+                <li>Recalculates correct totalInvested and currentEntryCount</li>
+                <li>Ensures all bots show accurate entry data</li>
+            </ul>
+        </div>
+
+        <button id="fixButton" onclick="fixBotCycles()">Run Fix Bot Cycles</button>
+
+        <div id="output"></div>
+    </div>
+
+    <script>
+        async function fixBotCycles() {
+            const button = document.getElementById('fixButton');
+            const output = document.getElementById('output');
+
+            button.disabled = true;
+            button.textContent = 'Processing...';
+            output.style.display = 'block';
+            output.innerHTML = 'Starting bot cycle fix...\n\n';
+
+            try {
+                // Get auth token from localStorage
+                const token = localStorage.getItem('token');
+
+                if (!token) {
+                    output.innerHTML += '<span class="error">❌ Error: No authentication token found. Please log in to DalyDough first.</span>\n';
+                    button.disabled = false;
+                    button.textContent = 'Run Fix Bot Cycles';
+                    return;
+                }
+
+                output.innerHTML += '🔑 Found authentication token\n';
+                output.innerHTML += '📡 Calling fix-cycles endpoint...\n\n';
+
+                const response = await fetch('https://us-central1-dalydough.cloudfunctions.net/api/dca-bots/fix-cycles', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    output.innerHTML += '<span class="success">✅ Success!</span>\n\n';
+                    output.innerHTML += `📊 Summary:\n`;
+                    output.innerHTML += `   - Processed: ${data.processed} bots\n`;
+                    output.innerHTML += `   - Fixed: ${data.fixed} bots\n`;
+                    output.innerHTML += `   - Errors: ${data.errors}\n\n`;
+
+                    if (data.results && data.results.length > 0) {
+                        output.innerHTML += '📝 Details:\n';
+                        data.results.forEach(result => {
+                            if (result.error) {
+                                output.innerHTML += `   <span class="error">❌ ${result.symbol}: ${result.error}</span>\n`;
+                            } else {
+                                output.innerHTML += `   <span class="success">✅ ${result.symbol}:</span>\n`;
+                                output.innerHTML += `      Cycle: ${result.cycleNumber}\n`;
+                                output.innerHTML += `      Entries kept: ${result.entriesKept}\n`;
+                                output.innerHTML += `      Entries deleted: ${result.entriesDeleted}\n`;
+                                output.innerHTML += `      Total invested: $${result.totalInvested}\n\n`;
+                            }
+                        });
+                    }
+
+                    output.innerHTML += '\n<span class="success">🎉 All bots have been fixed! Refresh your dashboard to see the updated data.</span>\n';
+                } else {
+                    output.innerHTML += `<span class="error">❌ Error: ${data.error}</span>\n`;
+                }
+
+            } catch (error) {
+                output.innerHTML += `<span class="error">❌ Error: ${error.message}</span>\n`;
+                console.error('Error:', error);
+            } finally {
+                button.disabled = false;
+                button.textContent = 'Run Fix Bot Cycles Again';
+            }
+        }
+    </script>
+</body>
+</html>
