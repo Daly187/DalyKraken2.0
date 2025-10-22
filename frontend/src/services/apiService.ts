@@ -506,6 +506,78 @@ class ApiService {
     const response = await this.mainApi.post('/auth/create-user', { username, password });
     return response.data;
   }
+
+  // ============================================
+  // DEPEG STRATEGY API METHODS
+  // ============================================
+
+  /**
+   * Get current stablecoin prices
+   */
+  async getDepegPrices() {
+    return this.get('/depeg/prices', { headers: this.getKrakenHeaders() });
+  }
+
+  /**
+   * Get detected arbitrage opportunities
+   */
+  async getDepegOpportunities() {
+    return this.get('/depeg/opportunities', { headers: this.getKrakenHeaders() });
+  }
+
+  /**
+   * Execute a depeg arbitrage trade
+   */
+  async executeDepegTrade(opportunity: {
+    pair: string;
+    entryPrice: number;
+    targetPrice: number;
+    type: 'buy' | 'sell';
+  }) {
+    return this.post('/depeg/execute', opportunity, { headers: this.getKrakenHeaders() });
+  }
+
+  /**
+   * Get open depeg positions
+   */
+  async getDepegPositions() {
+    return this.get('/depeg/positions', { headers: this.getKrakenHeaders() });
+  }
+
+  /**
+   * Close an open depeg position
+   */
+  async closeDepegPosition(positionId: string) {
+    return this.post(`/depeg/close/${positionId}`, {}, { headers: this.getKrakenHeaders() });
+  }
+
+  /**
+   * Get depeg trade history
+   */
+  async getDepegHistory(limit: number = 50) {
+    return this.get(`/depeg/history?limit=${limit}`, { headers: this.getKrakenHeaders() });
+  }
+
+  /**
+   * Get user's depeg strategy configuration
+   */
+  async getDepegConfig() {
+    return this.get('/depeg/config', { headers: this.getKrakenHeaders() });
+  }
+
+  /**
+   * Update user's depeg strategy configuration
+   */
+  async updateDepegConfig(config: any) {
+    return this.put('/depeg/config', config, { headers: this.getKrakenHeaders() });
+  }
+
+  /**
+   * Manually trigger monitoring and auto-execution
+   */
+  async triggerDepegMonitor() {
+    return this.post('/depeg/monitor', {}, { headers: this.getKrakenHeaders() });
+  }
 }
 
 export const apiService = new ApiService();

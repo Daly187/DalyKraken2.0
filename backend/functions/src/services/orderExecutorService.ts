@@ -704,8 +704,10 @@ export class OrderExecutorService {
             }
           }
 
-          // Fetch prices
-          const prices = await krakenService.getCurrentPrices(assetPairs);
+          // Fetch prices (only if we have non-stablecoin assets)
+          const prices = assetPairs.length > 0 ? await krakenService.getCurrentPrices(assetPairs) : {};
+
+          console.log(`[OrderExecutor] Fetched prices for ${assetPairs.length} assets:`, prices);
 
           // Calculate total balance in USD
           balance.total = Object.entries(accountBalance).reduce((sum, [asset, amount]) => {
@@ -717,10 +719,18 @@ export class OrderExecutorService {
             let currentPrice = 1;
             if (!['ZUSD', 'USD', 'USDT', 'USDC', 'DAI', 'BUSD'].includes(asset)) {
               currentPrice = prices[asset] || 0;
+              if (!currentPrice) {
+                console.warn(`[OrderExecutor] No price found for asset ${asset}, skipping`);
+              }
             }
 
-            return sum + (amountNum * currentPrice);
+            const assetValue = amountNum * currentPrice;
+            console.log(`[OrderExecutor] Asset ${asset}: ${amountNum} × $${currentPrice} = $${assetValue.toFixed(2)}`);
+
+            return sum + assetValue;
           }, 0);
+
+          console.log(`[OrderExecutor] Total portfolio balance: $${balance.total.toFixed(2)}`);
 
           // Calculate stables (USD, USDT, USDC, etc.)
           balance.stables = Object.entries(accountBalance).reduce((sum, [asset, amount]) => {

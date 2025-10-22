@@ -52,7 +52,17 @@
       "Read(//Users/Daly/Desktop/**)",
       "Bash(GOOGLE_APPLICATION_CREDENTIALS=\"\" FIRESTORE_EMULATOR_HOST=\"\" GCLOUD_PROJECT=dalydough node:*)",
       "Bash(npx firebase:*)",
-      "Bash(xargs:*)"
+      "Bash(xargs:*)",
+      "Bash(NODE_PATH=backend/functions/node_modules node:*)",
+      "Bash(open:*)",
+      "Bash(gcloud auth application-default print-access-token:*)",
+      "Bash(/dev/null)",
+      "Bash(gcloud auth application-default login:*)",
+      "Bash(GOOGLE_APPLICATION_CREDENTIALS=\"\" FIRESTORE_EMULATOR_HOST=\"\" NODE_PATH=backend/functions/node_modules node:*)",
+      "Bash(GOOGLE_APPLICATION_CREDENTIALS=\"\" FIRESTORE_EMULATOR_HOST=\"\" GCLOUD_PROJECT=dalydough NODE_PATH=backend/functions/node_modules node:*)",
+      "Bash(npm --prefix /Users/Daly/Desktop/DalyDough/DalyKraken2.0/backend/functions run build)",
+      "Bash(git -C /Users/Daly/Desktop/DalyDough/DalyKraken2.0 status --short)",
+      "Bash(git -C /Users/Daly/Desktop/DalyDough/DalyKraken2.0 add -A)"
     ],
     "deny": [],
     "ask": []

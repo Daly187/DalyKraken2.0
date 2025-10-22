@@ -9,6 +9,7 @@ import cors from 'cors';
 import { db } from './db.js';
 import { createAuthRouter } from './routes/auth.js';
 import { createDCABotsRouter } from './routes/dcaBots.js';
+import { createDepegRouter } from './routes/depeg.js';
 import { createMigrateRouter } from './routes/migrate.js';
 import { createTradingRouter } from './routes/trading.js';
 import { authenticateToken } from './middleware/auth.js';
@@ -86,6 +87,9 @@ app.use('/dca-bots', (req, res, next) => {
 
 // Mount DCA Bots routes (protected)
 app.use('/dca-bots', authenticateToken, createDCABotsRouter(db));
+
+// Mount Depeg routes (protected)
+app.use('/depeg', authenticateToken, createDepegRouter(db));
 
 // Mount Trading routes (protected)
 app.use('/trading', authenticateToken, createTradingRouter());
@@ -1965,6 +1969,116 @@ export const syncKrakenTrades = functions.pubsub
       return result;
     } catch (error: any) {
       console.error('[TradesSync] Error syncing trades:', error.message);
+      return null;
+    }
+  });
+
+/**
+ * Scheduled function to monitor depeg opportunities and execute trades
+ * Runs every minute
+ */
+export const monitorDepegOpportunities = functions.pubsub
+  .schedule('* * * * *') // Every minute
+  .onRun(async (context) => {
+    console.log('[DepegMonitor] Running scheduled depeg monitoring...');
+
+    try {
+      const { DepegMonitorService } = await import('./services/depegMonitorService.js');
+      const depegService = new DepegMonitorService(db);
+
+      // Get all users with enabled depeg strategies
+      const usersSnapshot = await db.collection('users').get();
+
+      let totalOpportunities = 0;
+      let totalExecuted = 0;
+      const errors: string[] = [];
+
+      for (const userDoc of usersSnapshot.docs) {
+        const userId = userDoc.id;
+        const userData = userDoc.data();
+
+        try {
+          // Get user's depeg config
+          const config = await depegService.getConfig(userId);
+
+          // Skip if strategy is disabled or auto-execute is off
+          if (!config.enabled || !config.autoExecute) {
+            continue;
+          }
+
+          // Get user's Kraken API keys
+          const krakenKeys = userData.krakenKeys || [];
+          const activeKey = krakenKeys.find((k: any) => k.isActive);
+
+          if (!activeKey) {
+            console.warn(`[DepegMonitor] No active Kraken key for user ${userId}`);
+            continue;
+          }
+
+          const apiKey = activeKey.encrypted ? decryptKey(activeKey.apiKey) : activeKey.apiKey;
+          const apiSecret = activeKey.encrypted ? decryptKey(activeKey.apiSecret) : activeKey.apiSecret;
+
+          // Get current stablecoin prices
+          const prices = await depegService.getStablecoinPrices(config.enabledPairs);
+
+          // Detect opportunities
+          const opportunities = await depegService.detectOpportunities(prices, config);
+          totalOpportunities += opportunities.length;
+
+          if (opportunities.length > 0) {
+            console.log(`[DepegMonitor] Found ${opportunities.length} opportunities for user ${userId}`);
+
+            // Execute the best opportunity (highest estimated profit)
+            const sortedOpps = opportunities.sort((a, b) => b.estimatedProfitPercent - a.estimatedProfitPercent);
+            const bestOpp = sortedOpps[0];
+
+            try {
+              const position = await depegService.executeTrade(
+                userId,
+                bestOpp,
+                config,
+                apiKey,
+                apiSecret
+              );
+
+              console.log(`[DepegMonitor] Executed trade for user ${userId}: ${bestOpp.pair} ${bestOpp.type} at $${bestOpp.entryPrice}`);
+              totalExecuted++;
+            } catch (executeError: any) {
+              console.error(`[DepegMonitor] Failed to execute trade for user ${userId}:`, executeError.message);
+              errors.push(`User ${userId}: ${executeError.message}`);
+            }
+          }
+
+          // Update open positions with current prices
+          await depegService.updatePositions(userId);
+
+        } catch (userError: any) {
+          console.error(`[DepegMonitor] Error processing user ${userId}:`, userError.message);
+          errors.push(`User ${userId}: ${userError.message}`);
+        }
+      }
+
+      console.log(`[DepegMonitor] Summary: ${totalOpportunities} opportunities detected, ${totalExecuted} trades executed, ${errors.length} errors`);
+
+      // Log summary to Firestore
+      await db.collection('systemLogs').add({
+        type: 'depeg_monitoring',
+        timestamp: new Date().toISOString(),
+        summary: {
+          totalOpportunities,
+          totalExecuted,
+          errorCount: errors.length,
+        },
+        errors,
+      });
+
+      return {
+        totalOpportunities,
+        totalExecuted,
+        errors,
+      };
+    } catch (error: any) {
+      console.error('[DepegMonitor] Error in monitorDepegOpportunities:', error.message);
       return null;
     }
   });
