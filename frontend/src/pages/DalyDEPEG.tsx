@@ -26,7 +26,6 @@ import {
   X,
   Plus,
   ShieldAlert,
-  TrendingDownUp,
   Wallet,
   Eye,
   EyeOff,
@@ -358,34 +357,43 @@ export default function DalyDEPEG() {
   useEffect(() => {
     const stablecoinPairs = ['USDTZUSD', 'USDCZUSD', 'DAIUSD', 'PYUSDUSD'];
 
-    // Subscribe to price updates for each stablecoin
-    const unsubscribes = stablecoinPairs.map(pair => {
-      return globalPriceManager.subscribeToPrice(pair, (priceData) => {
-        setStablecoinPrices(prev => {
-          const updated = [...prev];
-          const index = updated.findIndex(p => p.pair === pair.replace('ZUSD', '/USD').replace('USD', '/USD'));
-          if (index !== -1 && priceData) {
-            const currentPrice = priceData.last || priceData.c?.[0] || updated[index].currentPrice;
-            const depegPercentage = ((currentPrice - 1.0) / 1.0) * 100;
-            updated[index] = {
-              ...updated[index],
-              currentPrice,
-              depegPercentage,
-              depegAmount: currentPrice - 1.0,
-              bid: priceData.b?.[0] || updated[index].bid,
-              ask: priceData.a?.[0] || updated[index].ask,
-              spread: priceData.a?.[0] && priceData.b?.[0] ? priceData.a[0] - priceData.b[0] : updated[index].spread,
-              volume24h: priceData.v?.[1] || updated[index].volume24h,
-              lastUpdate: new Date().toISOString(),
-            };
+    // Subscribe to price updates for all stablecoins
+    const unsubscribe = globalPriceManager.subscribeToPrices((pricesMap: Record<string, any>) => {
+      setStablecoinPrices(prev => {
+        const updated = [...prev];
+
+        stablecoinPairs.forEach(pair => {
+          const priceData = pricesMap[pair];
+          if (priceData) {
+            const index = updated.findIndex(p => {
+              const normalizedPair = pair.replace('ZUSD', '/USD');
+              return p.pair === normalizedPair || p.pair === `${pair.replace('ZUSD', '').replace('USD', '')}/USD`;
+            });
+
+            if (index !== -1) {
+              const currentPrice = priceData.last || priceData.c?.[0] || updated[index].currentPrice;
+              const depegPercentage = ((currentPrice - 1.0) / 1.0) * 100;
+              updated[index] = {
+                ...updated[index],
+                currentPrice,
+                depegPercentage,
+                depegAmount: currentPrice - 1.0,
+                bid: priceData.b?.[0] || updated[index].bid,
+                ask: priceData.a?.[0] || updated[index].ask,
+                spread: priceData.a?.[0] && priceData.b?.[0] ? priceData.a[0] - priceData.b[0] : updated[index].spread,
+                volume24h: priceData.v?.[1] || updated[index].volume24h,
+                lastUpdate: new Date().toISOString(),
+              };
+            }
           }
-          return updated;
         });
+
+        return updated;
       });
     });
 
     return () => {
-      unsubscribes.forEach(unsub => unsub());
+      unsubscribe();
     };
   }, []);
 
@@ -922,7 +930,7 @@ export default function DalyDEPEG() {
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-3">
                     <div className="h-8 w-8 rounded-lg bg-primary-500/20 flex items-center justify-center">
-                      <TrendingDownUp className="h-4 w-4 text-primary-400" />
+                      <ArrowUpDown className="h-4 w-4 text-primary-400" />
                     </div>
                     <div>
                       <label className="block text-sm font-semibold text-white">
@@ -1481,7 +1489,7 @@ export default function DalyDEPEG() {
         </h3>
         <div className="space-y-3 text-sm text-gray-400">
           <div className="flex items-start gap-3">
-            <TrendingDownUp className="h-5 w-5 text-green-500 mt-0.5 flex-shrink-0" />
+            <ArrowUpDown className="h-5 w-5 text-green-500 mt-0.5 flex-shrink-0" />
             <div>
               <strong className="text-white">Mean Reversion Strategy:</strong> Automatically buys stablecoins when they
               trade below $1.00 and sells when above $1.00, profiting from the inevitable return to peg.
