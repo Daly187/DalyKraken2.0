@@ -192,6 +192,33 @@ export class TradesSyncService {
             continue;
           }
 
+          // Skip trades that occurred before the bot's last exit
+          // This prevents re-adding old trades from previous cycles after a bot reset
+          if (currentBot.lastExitTime) {
+            const tradeTime = new Date(trade.time * 1000);
+            const lastExitTime = new Date(currentBot.lastExitTime);
+
+            if (tradeTime <= lastExitTime) {
+              console.log(`[TradesSync] Skipping trade ${txid} for bot ${bot.id} - occurred before last exit (trade: ${tradeTime.toISOString()}, exit: ${lastExitTime.toISOString()})`);
+              skipped++;
+              continue;
+            }
+          }
+
+          // Also skip if bot was recently reset (currentEntryCount is 0 and totalInvested is 0)
+          // but the trade is older than the last update time
+          if (currentBot.currentEntryCount === 0 && currentBot.totalInvested === 0 && currentBot.updatedAt) {
+            const tradeTime = new Date(trade.time * 1000);
+            const botUpdatedTime = new Date(currentBot.updatedAt);
+
+            // If trade is older than when bot was last updated (likely a reset), skip it
+            if (tradeTime < botUpdatedTime) {
+              console.log(`[TradesSync] Skipping trade ${txid} for bot ${bot.id} - bot was reset after this trade (trade: ${tradeTime.toISOString()}, bot updated: ${botUpdatedTime.toISOString()})`);
+              skipped++;
+              continue;
+            }
+          }
+
           const executedPrice = parseFloat(trade.price);
           const executedVolume = parseFloat(trade.vol);
           const orderCost = parseFloat(trade.cost);
