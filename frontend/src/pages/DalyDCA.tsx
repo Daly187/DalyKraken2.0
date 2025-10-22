@@ -630,13 +630,6 @@ export default function DalyDCA() {
       {/* Header */}
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold">DalyDCA Strategy</h1>
-        <button
-          onClick={() => setShowCreateForm(!showCreateForm)}
-          className="btn btn-primary btn-sm flex items-center"
-        >
-          <Plus className="mr-2 h-4 w-4" />
-          {showCreateForm ? 'Hide Form' : 'Create Bot'}
-        </button>
       </div>
 
       {/* Summary Cards */}
