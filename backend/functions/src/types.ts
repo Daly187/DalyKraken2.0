@@ -2,6 +2,21 @@
  * DalyKraken 2.0 - Backend Types
  */
 
+export interface TradeCycle {
+  cycleId: string;
+  cycleNumber: number;
+  cycleStartTime: string;
+  cycleEndTime: string;
+  entryCount: number;
+  totalInvested: number;
+  totalVolume: number;
+  averageEntryPrice: number;
+  exitPrice: number;
+  exitTime: string;
+  profit: number;
+  profitPercent: number;
+}
+
 export interface DCABotConfig {
   id: string;
   userId: string;
@@ -18,6 +33,11 @@ export interface DCABotConfig {
   status: 'active' | 'paused' | 'completed' | 'stopped' | 'exiting';
   createdAt: string;
   updatedAt: string;
+  // Cycle tracking fields
+  cycleId?: string;
+  cycleStartTime?: string;
+  cycleNumber?: number;
+  previousCycles?: TradeCycle[];
 }
 
 export interface LiveDCABot extends DCABotConfig {
@@ -51,6 +71,10 @@ export interface DCABotEntry {
   orderId?: string;
   status: 'pending' | 'filled' | 'failed';
   txid?: string;
+  // Cycle tracking fields
+  cycleId?: string;
+  cycleNumber?: number;
+  source?: string;
 }
 
 export interface MarketData {

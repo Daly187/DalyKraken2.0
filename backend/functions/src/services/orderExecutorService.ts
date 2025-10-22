@@ -576,6 +576,14 @@ export class OrderExecutorService {
         // For sell orders, reset the bot to restart the cycle
         console.log(`[OrderExecutor] Processing SELL order completion for bot ${order.botId}`);
 
+        // Get current bot data to save cycle history
+        const botDoc = await db.collection('dcaBots').doc(order.botId).get();
+        const currentBot = botDoc.data();
+
+        if (!currentBot) {
+          throw new Error(`Bot ${order.botId} not found`);
+        }
+
         // First, delete all entries to ensure clean restart
         const entriesSnapshot = await db
           .collection('dcaBots')
@@ -593,6 +601,41 @@ export class OrderExecutorService {
 
         console.log(`[OrderExecutor] Successfully deleted ${entriesSnapshot.size} entries for bot ${order.botId}`);
 
+        // Calculate cycle profit
+        const exitPrice = result.executedPrice ? parseFloat(result.executedPrice) : parseFloat(order.price || '0');
+        const totalInvested = currentBot.totalInvested || 0;
+        const totalVolume = currentBot.totalVolume || 0;
+        const exitValue = exitPrice * totalVolume;
+        const profit = exitValue - totalInvested;
+        const profitPercent = totalInvested > 0 ? (profit / totalInvested) * 100 : 0;
+
+        // Create cycle history record
+        const completedCycle = {
+          cycleId: currentBot.cycleId || `cycle_${Date.now()}`,
+          cycleNumber: currentBot.cycleNumber || 1,
+          cycleStartTime: currentBot.cycleStartTime || currentBot.createdAt,
+          cycleEndTime: new Date().toISOString(),
+          entryCount: currentBot.currentEntryCount || 0,
+          totalInvested,
+          totalVolume,
+          averageEntryPrice: currentBot.averageEntryPrice || 0,
+          exitPrice,
+          exitTime: new Date().toISOString(),
+          profit,
+          profitPercent,
+        };
+
+        // Add to previousCycles array
+        const previousCycles = currentBot.previousCycles || [];
+        previousCycles.push(completedCycle);
+
+        console.log(`[OrderExecutor] Cycle ${completedCycle.cycleNumber} completed: Profit ${profit.toFixed(2)} (${profitPercent.toFixed(2)}%)`);
+
+        // Generate new cycle ID for next cycle
+        const newCycleId = `cycle_${Date.now()}`;
+        const newCycleNumber = (currentBot.cycleNumber || 1) + 1;
+        const now = new Date().toISOString();
+
         // Reset bot to active status to restart the cycle
         const resetData = {
           status: 'active', // Keep bot active to restart the cycle
@@ -601,16 +644,21 @@ export class OrderExecutorService {
           averagePurchasePrice: 0,
           totalVolume: 0,
           totalInvested: 0,
-          lastExitPrice: result.executedPrice ? parseFloat(result.executedPrice) : parseFloat(order.price || '0'),
-          lastExitTime: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
+          lastExitPrice: exitPrice,
+          lastExitTime: now,
+          updatedAt: now,
+          // Start new cycle
+          cycleId: newCycleId,
+          cycleStartTime: now,
+          cycleNumber: newCycleNumber,
+          previousCycles,
         };
 
-        console.log(`[OrderExecutor] Resetting bot ${order.botId} with data:`, resetData);
+        console.log(`[OrderExecutor] Resetting bot ${order.botId} to start cycle ${newCycleNumber}`);
 
         await db.collection('dcaBots').doc(order.botId).update(resetData);
 
-        console.log(`[OrderExecutor] ✅ Bot ${order.botId} successfully reset to active with totalInvested=0, ready to restart cycle`);
+        console.log(`[OrderExecutor] ✅ Bot ${order.botId} successfully reset to active, starting cycle ${newCycleNumber} (${newCycleId})`);
       }
     } catch (error: any) {
       console.error(`[OrderExecutor] Error updating bot ${order.botId}:`, error.message);

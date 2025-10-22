@@ -1665,6 +1665,163 @@ app.post('/order-queue/reset-stuck', authenticateToken, async (req, res) => {
   }
 });
 
+// Admin: Fix bot cycles - initialize cycle tracking and clean up old entries
+app.post('/dca-bots/fix-cycles', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user!.userId;
+    console.log(`[API] Fixing bot cycles for user ${userId}`);
+
+    // Get all bots for this user
+    const botsSnapshot = await db.collection('dcaBots')
+      .where('userId', '==', userId)
+      .get();
+
+    console.log(`[API] Found ${botsSnapshot.size} bots to process`);
+
+    let processed = 0;
+    let fixed = 0;
+    let errors = 0;
+    const results: any[] = [];
+
+    for (const botDoc of botsSnapshot.docs) {
+      const botId = botDoc.id;
+      const botData = botDoc.data();
+
+      try {
+        processed++;
+        console.log(`[API] Processing bot ${botId} (${botData.symbol})...`);
+
+        // Initialize cycle tracking if missing
+        const needsCycleInit = !botData.cycleId || !botData.cycleStartTime || !botData.cycleNumber;
+
+        let cycleId = botData.cycleId;
+        let cycleStartTime = botData.cycleStartTime;
+        let cycleNumber = botData.cycleNumber;
+        const previousCycles = botData.previousCycles || [];
+
+        if (needsCycleInit) {
+          // Determine cycle start time
+          if (botData.lastExitTime) {
+            // Bot has exited before, use lastExitTime as cycle start
+            cycleStartTime = botData.lastExitTime;
+            cycleNumber = (previousCycles.length || 0) + 1;
+          } else {
+            // Bot never exited, use creation time
+            cycleStartTime = botData.createdAt || new Date().toISOString();
+            cycleNumber = 1;
+          }
+
+          cycleId = `cycle_${new Date(cycleStartTime).getTime()}`;
+        }
+
+        // Get all entries for this bot
+        const entriesSnapshot = await db
+          .collection('dcaBots')
+          .doc(botId)
+          .collection('entries')
+          .get();
+
+        console.log(`[API] Found ${entriesSnapshot.size} entries`);
+
+        // Filter entries to only include those from current cycle
+        const cycleStartTimestamp = new Date(cycleStartTime).getTime();
+        let entriesToKeep = 0;
+        let entriesToDelete = 0;
+        let totalInvested = 0;
+        let totalVolume = 0;
+
+        const batch = db.batch();
+
+        for (const entryDoc of entriesSnapshot.docs) {
+          const entry = entryDoc.data();
+          const entryTimestamp = new Date(entry.timestamp).getTime();
+
+          if (entryTimestamp < cycleStartTimestamp) {
+            // Entry is from previous cycle, delete it
+            batch.delete(entryDoc.ref);
+            entriesToDelete++;
+          } else {
+            // Entry is from current cycle, update with cycle info
+            const updates: any = {
+              cycleId,
+              cycleNumber,
+            };
+
+            if (!entry.source) {
+              updates.source = entry.orderId?.startsWith('O') ? 'bot_execution' : 'kraken_sync';
+            }
+
+            batch.update(entryDoc.ref, updates);
+            entriesToKeep++;
+
+            if (entry.status === 'filled') {
+              totalInvested += entry.orderAmount || 0;
+              totalVolume += entry.quantity || 0;
+            }
+          }
+        }
+
+        await batch.commit();
+
+        // Calculate average entry price
+        const averageEntryPrice = totalVolume > 0 ? totalInvested / totalVolume : 0;
+
+        // Update bot with correct cycle info and recalculated totals
+        const botUpdates: any = {
+          cycleId,
+          cycleStartTime,
+          cycleNumber,
+          previousCycles,
+          currentEntryCount: entriesToKeep,
+          totalInvested,
+          totalVolume,
+          averageEntryPrice,
+          averagePurchasePrice: averageEntryPrice,
+          updatedAt: new Date().toISOString(),
+        };
+
+        await db.collection('dcaBots').doc(botId).update(botUpdates);
+
+        results.push({
+          botId,
+          symbol: botData.symbol,
+          cycleNumber,
+          entriesKept: entriesToKeep,
+          entriesDeleted: entriesToDelete,
+          totalInvested: totalInvested.toFixed(2),
+        });
+
+        console.log(`[API] ✅ Bot ${botId} fixed: cycle=${cycleNumber}, entries=${entriesToKeep}, invested=$${totalInvested.toFixed(2)}`);
+        fixed++;
+
+      } catch (error: any) {
+        console.error(`[API] Error processing bot ${botId}:`, error.message);
+        errors++;
+        results.push({
+          botId,
+          symbol: botData.symbol,
+          error: error.message,
+        });
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Fixed ${fixed} bots`,
+      processed,
+      fixed,
+      errors,
+      results,
+    });
+  } catch (error: any) {
+    console.error('[API] Error fixing bot cycles:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
 // Admin: Clean up stale entries from exited bots
 app.post('/dca-bots/cleanup-stale-entries', authenticateToken, async (req, res) => {
   try {

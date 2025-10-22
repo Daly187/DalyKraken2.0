@@ -377,6 +377,10 @@ export class DCABotService {
         orderId: pendingOrder.id, // Store pending order ID
         status: 'pending', // Mark as pending
         // txid will be set when order is executed
+        // Cycle tracking
+        cycleId: bot.cycleId,
+        cycleNumber: bot.cycleNumber,
+        source: 'bot_execution',
       };
 
       // Save entry to Firestore (remove undefined fields)

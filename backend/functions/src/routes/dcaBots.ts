@@ -108,6 +108,9 @@ export function createDCABotsRouter(db: Firestore): Router {
     try {
       const userId = req.user!.userId;
 
+      const now = new Date().toISOString();
+      const cycleId = `cycle_${Date.now()}`;
+
       const botData: Omit<DCABotConfig, 'id'> = {
         userId,
         symbol: req.body.symbol,
@@ -121,8 +124,13 @@ export function createDCABotsRouter(db: Firestore): Router {
         reEntryDelay: req.body.reEntryDelay || 888,
         trendAlignmentEnabled: req.body.trendAlignmentEnabled ?? true,
         status: 'active',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        createdAt: now,
+        updatedAt: now,
+        // Initialize first cycle
+        cycleId,
+        cycleStartTime: now,
+        cycleNumber: 1,
+        previousCycles: [],
       };
 
       // Validate required fields

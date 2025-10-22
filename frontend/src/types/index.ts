@@ -166,6 +166,22 @@ export interface DCADeployment {
   orderId?: string;
 }
 
+// Trade Cycle History
+export interface TradeCycle {
+  cycleId: string;
+  cycleNumber: number;
+  cycleStartTime: string;
+  cycleEndTime: string;
+  entryCount: number;
+  totalInvested: number;
+  totalVolume: number;
+  averageEntryPrice: number;
+  exitPrice: number;
+  exitTime: string;
+  profit: number;
+  profitPercent: number;
+}
+
 // DCA Bot Configuration
 export interface DCABotConfig {
   id: string;
@@ -182,6 +198,11 @@ export interface DCABotConfig {
   status: 'active' | 'paused' | 'completed' | 'stopped' | 'exiting';
   createdAt: string;
   updatedAt: string;
+  // Cycle tracking fields
+  cycleId?: string;
+  cycleStartTime?: string;
+  cycleNumber?: number;
+  previousCycles?: TradeCycle[];
 }
 
 // Live DCA Bot (active bot with execution data)
@@ -216,6 +237,10 @@ export interface DCABotEntry {
   timestamp: string;
   orderId?: string; // Kraken order ID
   status: 'pending' | 'filled' | 'failed';
+  // Cycle tracking fields
+  cycleId?: string;
+  cycleNumber?: number;
+  source?: string;
 }
 
 export interface ApiKey {

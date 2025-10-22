@@ -192,9 +192,23 @@ export class TradesSyncService {
             continue;
           }
 
-          // Skip trades that occurred before the bot's last exit
+          // Skip trades that don't belong to the current cycle
           // This prevents re-adding old trades from previous cycles after a bot reset
-          if (currentBot.lastExitTime) {
+
+          // Check 1: Skip trades that occurred before the current cycle started
+          if (currentBot.cycleStartTime) {
+            const tradeTime = new Date(trade.time * 1000);
+            const cycleStartTime = new Date(currentBot.cycleStartTime);
+
+            if (tradeTime < cycleStartTime) {
+              console.log(`[TradesSync] Skipping trade ${txid} for bot ${bot.id} - occurred before current cycle started (trade: ${tradeTime.toISOString()}, cycle start: ${cycleStartTime.toISOString()})`);
+              skipped++;
+              continue;
+            }
+          }
+
+          // Check 2: Skip trades that occurred before the bot's last exit (legacy check for bots without cycleStartTime)
+          if (!currentBot.cycleStartTime && currentBot.lastExitTime) {
             const tradeTime = new Date(trade.time * 1000);
             const lastExitTime = new Date(currentBot.lastExitTime);
 
@@ -205,13 +219,11 @@ export class TradesSyncService {
             }
           }
 
-          // Also skip if bot was recently reset (currentEntryCount is 0 and totalInvested is 0)
-          // but the trade is older than the last update time
+          // Check 3: Skip if bot was recently reset but trade is older than the reset
           if (currentBot.currentEntryCount === 0 && currentBot.totalInvested === 0 && currentBot.updatedAt) {
             const tradeTime = new Date(trade.time * 1000);
             const botUpdatedTime = new Date(currentBot.updatedAt);
 
-            // If trade is older than when bot was last updated (likely a reset), skip it
             if (tradeTime < botUpdatedTime) {
               console.log(`[TradesSync] Skipping trade ${txid} for bot ${bot.id} - bot was reset after this trade (trade: ${tradeTime.toISOString()}, bot updated: ${botUpdatedTime.toISOString()})`);
               skipped++;
@@ -232,7 +244,7 @@ export class TradesSyncService {
             : executedPrice;
           const newTotalInvested = (currentBot.totalInvested || 0) + orderCost;
 
-          // Create entry
+          // Create entry with cycle tracking
           const entryData = {
             botId: bot.id,
             entryNumber: newEntryCount,
@@ -244,6 +256,8 @@ export class TradesSyncService {
             timestamp: new Date(trade.time * 1000).toISOString(),
             orderId: txid,
             source: 'kraken_sync',
+            cycleId: currentBot.cycleId || `cycle_${Date.now()}`,
+            cycleNumber: currentBot.cycleNumber || 1,
           };
 
           await db
