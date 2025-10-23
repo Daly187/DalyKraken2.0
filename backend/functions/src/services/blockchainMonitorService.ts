@@ -46,7 +46,7 @@ export class BlockchainMonitorService {
   constructor() {
     // Get API keys from environment variables
     this.heliusApiKey = process.env.HELIUS_API_KEY || '9361f429-22ad-43fa-8da3-d85f330ebc5d';
-    this.etherscanApiKey = process.env.ETHERSCAN_API_KEY;
+    this.etherscanApiKey = process.env.ETHERSCAN_API_KEY || '1MFXPR5C3JMA6AUW4G7NIRH4IPBJHD537M';
   }
 
   /**

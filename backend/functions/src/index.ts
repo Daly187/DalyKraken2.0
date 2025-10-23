@@ -2089,10 +2089,10 @@ export const monitorDepegOpportunities = functions.pubsub
 
 /**
  * Scheduled function to monitor tracked wallets for trading signals
- * Runs every 10 minutes
+ * Runs every 30 minutes (stays within free API tier limits)
  */
 export const monitorTrackedWallets = functions.pubsub
-  .schedule('*/10 * * * *') // Every 10 minutes
+  .schedule('*/30 * * * *') // Every 30 minutes
   .onRun(async (context) => {
     console.log('[WalletMonitor] Running scheduled wallet monitoring...');
 
