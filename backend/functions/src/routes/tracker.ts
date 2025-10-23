@@ -132,7 +132,15 @@ export function createTrackerRouter() {
    */
   router.get('/wallets', async (req: Request, res: Response) => {
     try {
-      const userId = (req as any).userId;
+      const userId = (req as any).user?.userId;
+
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          error: 'User ID not found in request. Please log in again.'
+        });
+        return;
+      }
       const wallets = await walletTrackerService.getTrackedWallets(userId);
 
       res.json({
@@ -155,7 +163,15 @@ export function createTrackerRouter() {
    */
   router.get('/wallets/:walletId', async (req: Request, res: Response) => {
     try {
-      const userId = (req as any).userId;
+      const userId = (req as any).user?.userId;
+
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          error: 'User ID not found in request. Please log in again.'
+        });
+        return;
+      }
       const { walletId } = req.params;
 
       const wallet = await walletTrackerService.getWalletDetails(userId, walletId);
@@ -186,7 +202,15 @@ export function createTrackerRouter() {
    */
   router.post('/wallets', async (req: Request, res: Response) => {
     try {
-      const userId = (req as any).userId;
+      const userId = (req as any).user?.userId;
+
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          error: 'User ID not found in request. Please log in again.'
+        });
+        return;
+      }
       const { address, chain, nickname } = req.body;
 
       if (!address || !chain) {
@@ -223,7 +247,15 @@ export function createTrackerRouter() {
    */
   router.delete('/wallets/:walletId', async (req: Request, res: Response) => {
     try {
-      const userId = (req as any).userId;
+      const userId = (req as any).user?.userId;
+
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          error: 'User ID not found in request. Please log in again.'
+        });
+        return;
+      }
       const { walletId } = req.params;
 
       await walletTrackerService.removeWallet(userId, walletId);
@@ -247,7 +279,15 @@ export function createTrackerRouter() {
    */
   router.get('/signals', async (req: Request, res: Response) => {
     try {
-      const userId = (req as any).userId;
+      const userId = (req as any).user?.userId;
+
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          error: 'User ID not found in request. Please log in again.'
+        });
+        return;
+      }
       const limit = parseInt(req.query.limit as string) || 50;
 
       const signals = await walletTrackerService.getRecentSignals(userId, limit);
@@ -272,7 +312,15 @@ export function createTrackerRouter() {
    */
   router.post('/signals', async (req: Request, res: Response) => {
     try {
-      const userId = (req as any).userId;
+      const userId = (req as any).user?.userId;
+
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          error: 'User ID not found in request. Please log in again.'
+        });
+        return;
+      }
       const {
         walletId,
         walletAddress,
@@ -353,7 +401,15 @@ export function createTrackerRouter() {
    */
   router.post('/signals/:signalId/process', async (req: Request, res: Response) => {
     try {
-      const userId = (req as any).userId;
+      const userId = (req as any).user?.userId;
+
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          error: 'User ID not found in request. Please log in again.'
+        });
+        return;
+      }
       const { signalId } = req.params;
 
       // Fetch the signal
@@ -396,7 +452,15 @@ export function createTrackerRouter() {
    */
   router.get('/positions', async (req: Request, res: Response) => {
     try {
-      const userId = (req as any).userId;
+      const userId = (req as any).user?.userId;
+
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          error: 'User ID not found in request. Please log in again.'
+        });
+        return;
+      }
 
       const positions = await copyTradingService.getOpenPositions(userId);
 
@@ -431,7 +495,15 @@ export function createTrackerRouter() {
    */
   router.post('/positions/:positionId/close', async (req: Request, res: Response) => {
     try {
-      const userId = (req as any).userId;
+      const userId = (req as any).user?.userId;
+
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          error: 'User ID not found in request. Please log in again.'
+        });
+        return;
+      }
       const { positionId } = req.params;
 
       const apiKey = req.headers['x-kraken-api-key'] as string;
@@ -470,7 +542,15 @@ export function createTrackerRouter() {
    */
   router.get('/history', async (req: Request, res: Response) => {
     try {
-      const userId = (req as any).userId;
+      const userId = (req as any).user?.userId;
+
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          error: 'User ID not found in request. Please log in again.'
+        });
+        return;
+      }
       const limit = parseInt(req.query.limit as string) || 50;
 
       const history = await copyTradingService.getTradeHistory(userId, limit);
@@ -506,7 +586,15 @@ export function createTrackerRouter() {
    */
   router.get('/config', async (req: Request, res: Response) => {
     try {
-      const userId = (req as any).userId;
+      const userId = (req as any).user?.userId;
+
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          error: 'User ID not found in request. Please log in again.'
+        });
+        return;
+      }
 
       const config = await walletTrackerService.getConfig(userId);
 
@@ -529,7 +617,15 @@ export function createTrackerRouter() {
    */
   router.post('/config', async (req: Request, res: Response) => {
     try {
-      const userId = (req as any).userId;
+      const userId = (req as any).user?.userId;
+
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          error: 'User ID not found in request. Please log in again.'
+        });
+        return;
+      }
       const config = req.body;
 
       await walletTrackerService.updateConfig(userId, config);
@@ -553,7 +649,15 @@ export function createTrackerRouter() {
    */
   router.post('/monitor', async (req: Request, res: Response) => {
     try {
-      const userId = (req as any).userId;
+      const userId = (req as any).user?.userId;
+
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          error: 'User ID not found in request. Please log in again.'
+        });
+        return;
+      }
 
       // This would typically be called by a scheduled function
       // For now, just return success
