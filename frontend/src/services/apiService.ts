@@ -578,6 +578,57 @@ class ApiService {
   async triggerDepegMonitor() {
     return this.post('/depeg/monitor', {}, { headers: this.getKrakenHeaders() });
   }
+
+  // ============================================
+  // STRATEGY STATUS API METHODS
+  // ============================================
+
+  /**
+   * Get status summary for all strategies
+   */
+  async getStrategiesStatus() {
+    try {
+      const [dcaBots, depegConfig] = await Promise.all([
+        this.getDCABots(),
+        this.getDepegConfig(),
+      ]);
+
+      // Count active DCA bots
+      const activeDCABots = Array.isArray(dcaBots?.bots)
+        ? dcaBots.bots.filter((bot: any) => bot.status === 'active').length
+        : 0;
+      const totalDCABots = Array.isArray(dcaBots?.bots) ? dcaBots.bots.length : 0;
+
+      // Check DEPEG status
+      const depegEnabled = depegConfig?.config?.enabled || false;
+      const depegAutoExecute = depegConfig?.config?.autoExecute || false;
+
+      return {
+        success: true,
+        strategies: {
+          dca: {
+            active: activeDCABots > 0,
+            activeBots: activeDCABots,
+            totalBots: totalDCABots,
+          },
+          depeg: {
+            active: depegEnabled && depegAutoExecute,
+            enabled: depegEnabled,
+            autoExecute: depegAutoExecute,
+          },
+        },
+      };
+    } catch (error) {
+      console.error('[ApiService] Error fetching strategies status:', error);
+      return {
+        success: false,
+        strategies: {
+          dca: { active: false, activeBots: 0, totalBots: 0 },
+          depeg: { active: false, enabled: false, autoExecute: false },
+        },
+      };
+    }
+  }
 }
 
 export const apiService = new ApiService();

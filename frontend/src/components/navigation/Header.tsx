@@ -1,7 +1,8 @@
 import { useStore } from '@/store/useStore';
 import { krakenApiService } from '@/services/krakenApiService';
 import { livePriceService } from '@/services/livePriceService';
-import { Bell, User, LogOut, DollarSign, TrendingUp, TrendingDown, RefreshCw } from 'lucide-react';
+import { apiService } from '@/services/apiService';
+import { Bell, User, LogOut, DollarSign, TrendingUp, TrendingDown, RefreshCw, Activity } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import type { LivePrice } from '@/types';
 
@@ -23,6 +24,15 @@ export default function Header() {
   const [balances, setBalances] = useState<Balance[]>([]);
   const [livePrices, setLivePrices] = useState<Map<string, LivePrice>>(new Map());
 
+  // Strategy status state
+  const [strategyStatus, setStrategyStatus] = useState<{
+    dca: { active: boolean; activeBots: number; totalBots: number };
+    depeg: { active: boolean; enabled: boolean; autoExecute: boolean };
+  }>({
+    dca: { active: false, activeBots: 0, totalBots: 0 },
+    depeg: { active: false, enabled: false, autoExecute: false },
+  });
+
   const unreadCount = notifications.filter((n) => !n.read).length;
 
   useEffect(() => {
@@ -31,12 +41,14 @@ export default function Header() {
       setLivePrices(prices);
     });
 
-    // Fetch initial balances
+    // Fetch initial balances and strategy status
     fetchBalances();
+    fetchStrategyStatus();
 
     // Refresh every 60 seconds (increased from 30 to reduce API calls)
     const refreshInterval = setInterval(() => {
       fetchBalances();
+      fetchStrategyStatus();
     }, 60000);
 
     return () => {
@@ -56,6 +68,18 @@ export default function Header() {
       if (!err.message?.includes('Temporary lockout') && !err.message?.includes('rate limit')) {
         console.warn('[Header] Error fetching balances:', err.message);
       }
+    }
+  };
+
+  const fetchStrategyStatus = async () => {
+    try {
+      const response = await apiService.getStrategiesStatus();
+      if (response.success) {
+        setStrategyStatus(response.strategies);
+      }
+    } catch (err: any) {
+      // Silently fail
+      console.warn('[Header] Error fetching strategy status:', err.message);
     }
   };
 
@@ -150,6 +174,31 @@ export default function Header() {
             </div>
           </div>
         )}
+
+        {/* Strategy Status Indicators */}
+        <div className="flex items-center gap-3 pl-4 border-l border-slate-700">
+          {/* DalyDCA Status */}
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900/50 border border-slate-700">
+            <Activity className={`h-4 w-4 ${strategyStatus.dca.active ? 'text-green-500' : 'text-gray-500'}`} />
+            <div className="flex flex-col">
+              <p className="text-xs text-gray-400">DalyDCA</p>
+              <p className={`text-xs font-semibold ${strategyStatus.dca.active ? 'text-green-500' : 'text-gray-500'}`}>
+                {strategyStatus.dca.active ? `Active (${strategyStatus.dca.activeBots})` : 'Inactive'}
+              </p>
+            </div>
+          </div>
+
+          {/* DalyDEPEG Status */}
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900/50 border border-slate-700">
+            <Activity className={`h-4 w-4 ${strategyStatus.depeg.active ? 'text-green-500' : 'text-gray-500'}`} />
+            <div className="flex flex-col">
+              <p className="text-xs text-gray-400">DalyDEPEG</p>
+              <p className={`text-xs font-semibold ${strategyStatus.depeg.active ? 'text-green-500' : 'text-gray-500'}`}>
+                {strategyStatus.depeg.active ? 'Active' : strategyStatus.depeg.enabled ? 'Enabled' : 'Inactive'}
+              </p>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div className="flex items-center space-x-4">
