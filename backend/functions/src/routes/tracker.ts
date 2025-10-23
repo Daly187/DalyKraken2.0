@@ -7,9 +7,124 @@ import express, { Request, Response } from 'express';
 import { Timestamp } from 'firebase-admin/firestore';
 import { walletTrackerService, WalletSignal } from '../services/walletTrackerService.js';
 import { copyTradingService } from '../services/copyTradingService.js';
+import { walletDiscoveryService } from '../services/walletDiscoveryService.js';
 
 export function createTrackerRouter() {
   const router = express.Router();
+
+  /**
+   * GET /tracker/discover/search
+   * Search for top wallets with filters
+   */
+  router.get('/discover/search', async (req: Request, res: Response) => {
+    try {
+      const { chain, minPnL, minWinRate, minTrades, minActiveForDays, labels } = req.query;
+
+      const filters: any = {};
+
+      if (chain) {
+        filters.chain = Array.isArray(chain) ? chain : [chain];
+      }
+
+      if (minPnL) filters.minPnL = parseFloat(minPnL as string);
+      if (minWinRate) filters.minWinRate = parseFloat(minWinRate as string);
+      if (minTrades) filters.minTrades = parseInt(minTrades as string);
+      if (minActiveForDays) filters.minActiveForDays = parseInt(minActiveForDays as string);
+
+      if (labels) {
+        filters.labels = Array.isArray(labels) ? labels : [labels];
+      }
+
+      const wallets = await walletDiscoveryService.searchWallets(filters);
+
+      res.json({
+        success: true,
+        wallets,
+        count: wallets.length
+      });
+    } catch (error: any) {
+      console.error('[Tracker API] Error searching wallets:', error);
+      res.status(500).json({
+        success: false,
+        error: error.message
+      });
+    }
+  });
+
+  /**
+   * GET /tracker/discover/recommended
+   * Get top recommended wallets
+   */
+  router.get('/discover/recommended', async (req: Request, res: Response) => {
+    try {
+      const limit = parseInt(req.query.limit as string) || 10;
+
+      const wallets = await walletDiscoveryService.getRecommendedWallets(limit);
+
+      res.json({
+        success: true,
+        wallets,
+        count: wallets.length
+      });
+    } catch (error: any) {
+      console.error('[Tracker API] Error fetching recommended wallets:', error);
+      res.status(500).json({
+        success: false,
+        error: error.message
+      });
+    }
+  });
+
+  /**
+   * GET /tracker/discover/preview/:address
+   * Get wallet preview before tracking
+   */
+  router.get('/discover/preview/:address', async (req: Request, res: Response) => {
+    try {
+      const { address } = req.params;
+
+      const wallet = await walletDiscoveryService.getWalletPreview(address);
+
+      if (!wallet) {
+        return res.status(404).json({
+          success: false,
+          error: 'Wallet not found'
+        });
+      }
+
+      res.json({
+        success: true,
+        wallet
+      });
+    } catch (error: any) {
+      console.error('[Tracker API] Error fetching wallet preview:', error);
+      res.status(500).json({
+        success: false,
+        error: error.message
+      });
+    }
+  });
+
+  /**
+   * GET /tracker/discover/filters
+   * Get available filter options
+   */
+  router.get('/discover/filters', async (req: Request, res: Response) => {
+    try {
+      const options = walletDiscoveryService.getFilterOptions();
+
+      res.json({
+        success: true,
+        options
+      });
+    } catch (error: any) {
+      console.error('[Tracker API] Error fetching filter options:', error);
+      res.status(500).json({
+        success: false,
+        error: error.message
+      });
+    }
+  });
 
   /**
    * GET /tracker/wallets

@@ -674,6 +674,50 @@ class ApiService {
     return this.post('/tracker/monitor', {}, { headers: this.getKrakenHeaders() });
   }
 
+  /**
+   * Search for top wallets with filters
+   */
+  async searchWallets(filters?: {
+    chain?: string[];
+    minPnL?: number;
+    minWinRate?: number;
+    minTrades?: number;
+    minActiveForDays?: number;
+    labels?: string[];
+  }) {
+    const params = new URLSearchParams();
+    if (filters) {
+      if (filters.chain) filters.chain.forEach(c => params.append('chain', c));
+      if (filters.minPnL) params.append('minPnL', filters.minPnL.toString());
+      if (filters.minWinRate) params.append('minWinRate', filters.minWinRate.toString());
+      if (filters.minTrades) params.append('minTrades', filters.minTrades.toString());
+      if (filters.minActiveForDays) params.append('minActiveForDays', filters.minActiveForDays.toString());
+      if (filters.labels) filters.labels.forEach(l => params.append('labels', l));
+    }
+    return this.get(`/tracker/discover/search?${params.toString()}`, { headers: this.getKrakenHeaders() });
+  }
+
+  /**
+   * Get recommended wallets
+   */
+  async getRecommendedWallets(limit: number = 10) {
+    return this.get(`/tracker/discover/recommended?limit=${limit}`, { headers: this.getKrakenHeaders() });
+  }
+
+  /**
+   * Get wallet preview before tracking
+   */
+  async getWalletPreview(address: string) {
+    return this.get(`/tracker/discover/preview/${address}`, { headers: this.getKrakenHeaders() });
+  }
+
+  /**
+   * Get available filter options for wallet discovery
+   */
+  async getWalletFilterOptions() {
+    return this.get('/tracker/discover/filters', { headers: this.getKrakenHeaders() });
+  }
+
   // ============================================
   // STRATEGY STATUS API METHODS
   // ============================================

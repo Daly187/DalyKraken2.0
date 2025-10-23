@@ -27,9 +27,28 @@ import {
   Pause,
   Trash2,
   ExternalLink,
+  Search,
+  Filter,
 } from 'lucide-react';
 
 // Types
+interface DiscoveredWallet {
+  address: string;
+  chain: 'ethereum' | 'solana' | 'arbitrum' | 'optimism' | 'base';
+  source: string;
+  label?: string;
+  ens?: string;
+  nickname?: string;
+  totalPnL: number;
+  totalPnLPercent: number;
+  winRate: number;
+  totalTrades: number;
+  avgTradeSize: number;
+  activeForDays: number;
+  preliminaryScore: number;
+  confidence: 'high' | 'medium' | 'low';
+}
+
 interface TrackedWallet {
   id: string;
   address: string;
@@ -122,6 +141,7 @@ export default function DalyTracker() {
   // UI State
   const [loading, setLoading] = useState(false);
   const [showAddWallet, setShowAddWallet] = useState(false);
+  const [showDiscoverWallets, setShowDiscoverWallets] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
   const [expandedWalletId, setExpandedWalletId] = useState<string | null>(null);
 
@@ -129,6 +149,15 @@ export default function DalyTracker() {
   const [isWalletsExpanded, setIsWalletsExpanded] = useState(true);
   const [isSignalsExpanded, setIsSignalsExpanded] = useState(true);
   const [isPositionsExpanded, setIsPositionsExpanded] = useState(true);
+
+  // Wallet discovery
+  const [discoveredWallets, setDiscoveredWallets] = useState<DiscoveredWallet[]>([]);
+  const [searchFilters, setSearchFilters] = useState({
+    chain: [] as string[],
+    minPnL: undefined as number | undefined,
+    minWinRate: undefined as number | undefined,
+    minTrades: undefined as number | undefined,
+  });
 
   // Add wallet form
   const [newWallet, setNewWallet] = useState({
@@ -247,6 +276,43 @@ export default function DalyTracker() {
       alert('Configuration saved successfully');
     } catch (error: any) {
       console.error('Error saving config:', error);
+      alert(`Error: ${error.message}`);
+    }
+  };
+
+  const handleDiscoverWallets = async () => {
+    setShowDiscoverWallets(true);
+    try {
+      const response = await apiService.getRecommendedWallets(20);
+      setDiscoveredWallets(response.wallets || []);
+    } catch (error: any) {
+      console.error('Error discovering wallets:', error);
+      alert(`Error: ${error.message}`);
+    }
+  };
+
+  const handleSearchWallets = async () => {
+    try {
+      const response = await apiService.searchWallets(searchFilters);
+      setDiscoveredWallets(response.wallets || []);
+    } catch (error: any) {
+      console.error('Error searching wallets:', error);
+      alert(`Error: ${error.message}`);
+    }
+  };
+
+  const handleTrackDiscoveredWallet = async (wallet: DiscoveredWallet) => {
+    try {
+      await apiService.addTrackedWallet(
+        wallet.address,
+        wallet.chain,
+        wallet.nickname || wallet.label
+      );
+      alert(`Now tracking wallet: ${wallet.label || wallet.address}`);
+      setShowDiscoverWallets(false);
+      await loadWallets();
+    } catch (error: any) {
+      console.error('Error tracking wallet:', error);
       alert(`Error: ${error.message}`);
     }
   };
@@ -388,6 +454,16 @@ export default function DalyTracker() {
             Tracked Wallets ({wallets.length})
           </h2>
           <div className="flex items-center gap-2">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                handleDiscoverWallets();
+              }}
+              className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm transition-colors"
+            >
+              <Search className="h-4 w-4" />
+              Discover Wallets
+            </button>
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -721,6 +797,168 @@ export default function DalyTracker() {
                   Add Wallet
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Discover Wallets Modal */}
+      {showDiscoverWallets && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-y-auto">
+          <div className="bg-slate-800 rounded-lg p-6 w-full max-w-6xl border border-slate-700 my-8 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                <Search className="h-6 w-6" />
+                Discover Top Wallets
+              </h3>
+              <button
+                onClick={() => setShowDiscoverWallets(false)}
+                className="text-gray-400 hover:text-white"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Search Filters */}
+            <div className="bg-slate-900 rounded-lg p-4 mb-4">
+              <div className="flex items-center gap-2 mb-3">
+                <Filter className="h-4 w-4 text-gray-400" />
+                <span className="text-sm font-semibold text-gray-300">Filters</span>
+              </div>
+              <div className="grid grid-cols-4 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Min P&L</label>
+                  <input
+                    type="number"
+                    value={searchFilters.minPnL || ''}
+                    onChange={(e) => setSearchFilters({ ...searchFilters, minPnL: e.target.value ? parseFloat(e.target.value) : undefined })}
+                    placeholder="e.g. 1000000"
+                    className="w-full px-2 py-1 bg-slate-800 border border-slate-700 rounded text-sm text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Min Win Rate %</label>
+                  <input
+                    type="number"
+                    value={searchFilters.minWinRate || ''}
+                    onChange={(e) => setSearchFilters({ ...searchFilters, minWinRate: e.target.value ? parseFloat(e.target.value) : undefined })}
+                    placeholder="e.g. 65"
+                    className="w-full px-2 py-1 bg-slate-800 border border-slate-700 rounded text-sm text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Min Trades</label>
+                  <input
+                    type="number"
+                    value={searchFilters.minTrades || ''}
+                    onChange={(e) => setSearchFilters({ ...searchFilters, minTrades: e.target.value ? parseInt(e.target.value) : undefined })}
+                    placeholder="e.g. 100"
+                    className="w-full px-2 py-1 bg-slate-800 border border-slate-700 rounded text-sm text-white"
+                  />
+                </div>
+                <div className="flex items-end">
+                  <button
+                    onClick={handleSearchWallets}
+                    className="w-full px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm transition-colors"
+                  >
+                    Search
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Discovered Wallets List */}
+            <div className="space-y-3">
+              {discoveredWallets.length === 0 ? (
+                <div className="text-center py-12 text-gray-400">
+                  <Search className="h-16 w-16 mx-auto mb-4 opacity-50" />
+                  <p>Click "Search" or adjust filters to discover top wallets</p>
+                </div>
+              ) : (
+                discoveredWallets.map((wallet, index) => (
+                  <div
+                    key={wallet.address}
+                    className="bg-slate-900 rounded-lg p-4 border border-slate-700 hover:border-slate-600 transition-colors"
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-3 mb-2">
+                          <div className="text-2xl font-bold text-green-400">
+                            #{index + 1}
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2 mb-1">
+                              {wallet.label && (
+                                <span className="text-primary-400 font-semibold">
+                                  {wallet.label}
+                                </span>
+                              )}
+                              {wallet.ens && (
+                                <span className="text-xs px-2 py-0.5 bg-blue-900 text-blue-300 rounded">
+                                  {wallet.ens}
+                                </span>
+                              )}
+                              <span className="text-xs px-2 py-0.5 bg-slate-700 text-gray-400 rounded">
+                                {wallet.chain}
+                              </span>
+                              <span className={`text-xs px-2 py-0.5 rounded font-semibold ${
+                                wallet.confidence === 'high' ? 'bg-green-900 text-green-300' :
+                                wallet.confidence === 'medium' ? 'bg-yellow-900 text-yellow-300' :
+                                'bg-gray-700 text-gray-400'
+                              }`}>
+                                {wallet.confidence} confidence
+                              </span>
+                            </div>
+                            <div className="font-mono text-xs text-gray-500">
+                              {formatAddress(wallet.address)}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-6 gap-4 text-sm">
+                          <div>
+                            <div className="text-gray-500">Score</div>
+                            <div className={`font-bold ${getScoreColor(wallet.preliminaryScore)}`}>
+                              {wallet.preliminaryScore}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-gray-500">Total P&L</div>
+                            <div className="text-green-400 font-semibold">
+                              ${(wallet.totalPnL / 1000000).toFixed(1)}M
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-gray-500">Return</div>
+                            <div className="text-green-400">
+                              +{wallet.totalPnLPercent.toFixed(0)}%
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-gray-500">Win Rate</div>
+                            <div className="text-white">{wallet.winRate.toFixed(0)}%</div>
+                          </div>
+                          <div>
+                            <div className="text-gray-500">Trades</div>
+                            <div className="text-white">{wallet.totalTrades}</div>
+                          </div>
+                          <div>
+                            <div className="text-gray-500">Active</div>
+                            <div className="text-white">{wallet.activeForDays}d</div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => handleTrackDiscoveredWallet(wallet)}
+                        className="ml-4 px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded text-sm transition-colors whitespace-nowrap"
+                      >
+                        Track This Wallet
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>
