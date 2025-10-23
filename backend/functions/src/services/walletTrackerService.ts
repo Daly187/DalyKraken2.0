@@ -513,7 +513,6 @@ export class WalletTrackerService {
       dailyLossCapPercent: 2,
       maxConcurrentPositions: 10,
       stopLossPercent: 5,
-      takeProfitPercent: undefined,
 
       minWalletScore: 60,
       maxPriceMovementBps: 50,
