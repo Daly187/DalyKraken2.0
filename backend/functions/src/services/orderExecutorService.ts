@@ -538,26 +538,53 @@ export class OrderExecutorService {
         // Calculate total invested amount
         const newTotalInvested = (bot.totalInvested || 0) + newOrderCost;
 
-        // Create entry in the entries subcollection
-        const entryData = {
-          botId: order.botId,
-          entryNumber: newEntryCount,
-          id: `${order.botId}_entry_${newEntryCount}`,
-          orderAmount: newOrderCost,
-          quantity: executedVolume,
-          price: executedPrice,
-          status: 'filled',
-          timestamp: new Date().toISOString(),
-          orderId: result.orderId || order.id,
-        };
-
-        await db
+        // Find and update the existing pending entry (created by dcaBotService.executeEntry)
+        // The pending entry has orderId matching this order.id
+        const entriesSnapshot = await db
           .collection('dcaBots')
           .doc(order.botId)
           .collection('entries')
-          .add(entryData);
+          .where('orderId', '==', order.id)
+          .where('status', '==', 'pending')
+          .limit(1)
+          .get();
 
-        console.log(`[OrderExecutor] Created entry ${newEntryCount} for bot ${order.botId}`);
+        if (!entriesSnapshot.empty) {
+          // Update existing pending entry
+          const entryDoc = entriesSnapshot.docs[0];
+          await entryDoc.ref.update({
+            orderAmount: newOrderCost,
+            quantity: executedVolume,
+            price: executedPrice,
+            status: 'filled',
+            txid: result.orderId, // Kraken transaction ID
+            updatedAt: new Date().toISOString(),
+          });
+          console.log(`[OrderExecutor] Updated pending entry ${entryDoc.id} to filled for bot ${order.botId}`);
+        } else {
+          // Fallback: create new entry if no pending entry found (shouldn't happen but safe fallback)
+          const entryData = {
+            botId: order.botId,
+            entryNumber: newEntryCount,
+            id: `${order.botId}_entry_${newEntryCount}`,
+            orderAmount: newOrderCost,
+            quantity: executedVolume,
+            price: executedPrice,
+            status: 'filled',
+            timestamp: new Date().toISOString(),
+            orderId: order.id,
+            txid: result.orderId,
+          };
+
+          await db
+            .collection('dcaBots')
+            .doc(order.botId)
+            .collection('entries')
+            .doc(entryData.id)
+            .set(entryData);
+
+          console.log(`[OrderExecutor] Created new entry ${newEntryCount} for bot ${order.botId} (no pending entry found)`);
+        }
 
         // Update bot fields
         await db.collection('dcaBots').doc(order.botId).update({

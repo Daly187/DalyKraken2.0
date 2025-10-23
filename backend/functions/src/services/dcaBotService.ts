@@ -60,12 +60,13 @@ export class DCABotService {
 
     // Calculate live metrics using actual Kraken trade data
     const filledEntries = entries.filter((e) => e.status === 'filled');
+    const pendingEntries = entries.filter((e) => e.status === 'pending');
 
     let totalInvested = 0;
     let totalQuantity = 0;
     let averagePurchasePrice = 0;
 
-    console.log(`[DCABotService] Bot ${botId}: ${filledEntries.length} filled entries, krakenService=${!!krakenService}`);
+    console.log(`[DCABotService] Bot ${botId}: ${filledEntries.length} filled entries, ${pendingEntries.length} pending entries, ${entries.length} total entries, krakenService=${!!krakenService}`);
 
     // Try to get actual trade data from Kraken if krakenService is provided
     if (krakenService && filledEntries.length > 0) {
@@ -340,12 +341,17 @@ export class DCABotService {
       const ticker = await krakenService.getTicker(bot.symbol);
       const currentPrice = ticker.price;
 
-      // Calculate order amount
+      // Calculate order amount for the NEXT entry
+      // currentEntryCount = number of filled entries (0, 1, 2, ...)
+      // For calculateNextOrderAmount, we need the 0-indexed entry number for the NEXT entry
+      // which equals currentEntryCount (0 for first, 1 for second, etc.)
       const orderAmount = this.calculateNextOrderAmount(
         bot.currentEntryCount,
         bot.initialOrderAmount,
         bot.tradeMultiplier
       );
+
+      console.log(`[DCABotService] Bot ${bot.id} entry calculation: currentEntryCount=${bot.currentEntryCount}, initialAmount=${bot.initialOrderAmount}, multiplier=${bot.tradeMultiplier}, calculatedAmount=$${orderAmount}`);
 
       // Calculate quantity to buy
       const quantity = orderAmount / currentPrice;
