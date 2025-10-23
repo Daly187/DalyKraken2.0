@@ -17,6 +17,7 @@ import {
   BarChart3,
   DollarSign,
   AlertTriangle,
+  Users,
 } from 'lucide-react';
 
 const mainNavigation = [
@@ -32,6 +33,7 @@ const marketNavigation = [
 const strategiesNavigation = [
   { name: 'DalyDCA', href: '/daly-dca', icon: Bot },
   { name: 'DalyDEPEG', href: '/daly-depeg', icon: AlertTriangle },
+  { name: 'DalyTracker', href: '/daly-tracker', icon: Users },
   { name: 'DalyFunding', href: '/daly-funding', icon: DollarSign },
   { name: 'Manual Trade', href: '/manual-trade', icon: ArrowDownUp },
 ];

@@ -580,6 +580,101 @@ class ApiService {
   }
 
   // ============================================
+  // WALLET TRACKER / COPY TRADING API METHODS
+  // ============================================
+
+  /**
+   * Get all tracked wallets with scores
+   */
+  async getTrackedWallets() {
+    return this.get('/tracker/wallets', { headers: this.getKrakenHeaders() });
+  }
+
+  /**
+   * Get detailed info for a specific wallet
+   */
+  async getWalletDetails(walletId: string) {
+    return this.get(`/tracker/wallets/${walletId}`, { headers: this.getKrakenHeaders() });
+  }
+
+  /**
+   * Add a new wallet to track
+   */
+  async addTrackedWallet(address: string, chain: string, nickname?: string) {
+    return this.post('/tracker/wallets', { address, chain, nickname }, { headers: this.getKrakenHeaders() });
+  }
+
+  /**
+   * Remove (deactivate) a tracked wallet
+   */
+  async removeTrackedWallet(walletId: string) {
+    return this.delete(`/tracker/wallets/${walletId}`, { headers: this.getKrakenHeaders() });
+  }
+
+  /**
+   * Get recent signals from tracked wallets
+   */
+  async getWalletSignals(limit: number = 50) {
+    return this.get(`/tracker/signals?limit=${limit}`, { headers: this.getKrakenHeaders() });
+  }
+
+  /**
+   * Manually record a signal (for testing)
+   */
+  async recordWalletSignal(signal: any) {
+    return this.post('/tracker/signals', signal, { headers: this.getKrakenHeaders() });
+  }
+
+  /**
+   * Process a signal and potentially copy the trade
+   */
+  async processSignal(signalId: string) {
+    return this.post(`/tracker/signals/${signalId}/process`, {}, { headers: this.getKrakenHeaders() });
+  }
+
+  /**
+   * Get all open copy trade positions
+   */
+  async getCopyPositions() {
+    return this.get('/tracker/positions', { headers: this.getKrakenHeaders() });
+  }
+
+  /**
+   * Close a copy trade position
+   */
+  async closeCopyPosition(positionId: string) {
+    return this.post(`/tracker/positions/${positionId}/close`, {}, { headers: this.getKrakenHeaders() });
+  }
+
+  /**
+   * Get copy trade history
+   */
+  async getCopyTradeHistory(limit: number = 50) {
+    return this.get(`/tracker/history?limit=${limit}`, { headers: this.getKrakenHeaders() });
+  }
+
+  /**
+   * Get tracker configuration
+   */
+  async getTrackerConfig() {
+    return this.get('/tracker/config', { headers: this.getKrakenHeaders() });
+  }
+
+  /**
+   * Update tracker configuration
+   */
+  async updateTrackerConfig(config: any) {
+    return this.post('/tracker/config', config, { headers: this.getKrakenHeaders() });
+  }
+
+  /**
+   * Manually trigger monitoring
+   */
+  async triggerTrackerMonitor() {
+    return this.post('/tracker/monitor', {}, { headers: this.getKrakenHeaders() });
+  }
+
+  // ============================================
   // STRATEGY STATUS API METHODS
   // ============================================
 

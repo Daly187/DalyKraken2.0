@@ -16,6 +16,7 @@ import CryptoTrends from '@/pages/CryptoTrends';
 import Portfolio from '@/pages/Portfolio';
 import DalyDCA from '@/pages/DalyDCA';
 import DalyDEPEG from '@/pages/DalyDEPEG';
+import DalyTracker from '@/pages/DalyTracker';
 import DalyFunding from '@/pages/DalyFunding';
 import ManualTrade from '@/pages/ManualTrade';
 import AuditLog from '@/pages/AuditLog';
@@ -48,6 +49,7 @@ function App() {
           <Route path="/portfolio" element={<Portfolio />} />
           <Route path="/daly-dca" element={<DalyDCA />} />
           <Route path="/daly-depeg" element={<DalyDEPEG />} />
+          <Route path="/daly-tracker" element={<DalyTracker />} />
           <Route path="/daly-funding" element={<DalyFunding />} />
           <Route path="/manual-trade" element={<ManualTrade />} />
           <Route path="/audit-log" element={<AuditLog />} />

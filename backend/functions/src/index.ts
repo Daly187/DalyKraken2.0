@@ -12,6 +12,7 @@ import { createDCABotsRouter } from './routes/dcaBots.js';
 import { createDepegRouter } from './routes/depeg.js';
 import { createMigrateRouter } from './routes/migrate.js';
 import { createTradingRouter } from './routes/trading.js';
+import { createTrackerRouter } from './routes/tracker.js';
 import { authenticateToken } from './middleware/auth.js';
 import { DCABotService } from './services/dcaBotService.js';
 import { KrakenService } from './services/krakenService.js';
@@ -93,6 +94,9 @@ app.use('/depeg', authenticateToken, createDepegRouter(db));
 
 // Mount Trading routes (protected)
 app.use('/trading', authenticateToken, createTradingRouter());
+
+// Mount Tracker routes (protected)
+app.use('/tracker', authenticateToken, createTrackerRouter());
 
 // ============================================
 // ACCOUNT ROUTES (Protected)
