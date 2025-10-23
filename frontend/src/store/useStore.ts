@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { socketClient } from '@/services/socketClient';
+// import { socketClient } from '@/services/socketClient'; // Disabled - not using backend WebSocket
 import { apiService } from '@/services/apiService';
 import { livePriceService } from '@/services/livePriceService';
 import { globalPriceManager } from '@/services/globalPriceManager';
@@ -360,67 +360,27 @@ export const useStore = create<AppState>((set, get) => ({
     }
   },
 
-  // WebSocket actions
+  // WebSocket actions (DISABLED - using direct Kraken WebSocket instead)
   connectWebSocket: async () => {
-    await socketClient.connect();
-
-    // Set up event listeners
-    socketClient.on('system:connected', () => {
-      set((state) => ({
-        systemStatus: { ...state.systemStatus, wsConnected: true },
-      }));
-    });
-
-    socketClient.on('system:disconnected', () => {
-      set((state) => ({
-        systemStatus: { ...state.systemStatus, wsConnected: false },
-      }));
-    });
-
-    socketClient.on('market_update', (data) => {
-      // Update market data
-      set({ marketData: data.markets || [] });
-    });
-
-    socketClient.on('portfolio_update', (data) => {
-      if (data.portfolio) {
-        set({ portfolio: data.portfolio });
-        // Cache to localStorage
-        localStorage.setItem(CACHE_KEYS.PORTFOLIO, JSON.stringify(data.portfolio));
-      }
-    });
-
-    socketClient.on('trade_update', (data) => {
-      get().addNotification({
-        type: 'info',
-        title: 'Trade Update',
-        message: data.message || 'Trade executed',
-      });
-    });
-
-    socketClient.on('system_alert', (data) => {
-      get().addNotification({
-        type: data.severity || 'warning',
-        title: 'System Alert',
-        message: data.message,
-      });
-    });
+    // Disabled - backend WebSocket not needed
+    // We connect directly to Kraken's WebSocket via livePriceService
+    console.log('[useStore] Backend WebSocket disabled - using direct Kraken connection');
   },
 
   disconnectWebSocket: () => {
-    socketClient.disconnect();
+    // Disabled
   },
 
   subscribePortfolioStream: () => {
-    socketClient.joinRoom('portfolio');
+    // Disabled
   },
 
   subscribeMarketStream: () => {
-    socketClient.joinRoom('market');
+    // Disabled
   },
 
   subscribeTrendStream: () => {
-    socketClient.joinRoom('trends');
+    // Disabled
   },
 
   // Account actions
