@@ -2086,3 +2086,33 @@ export const monitorDepegOpportunities = functions.pubsub
       return null;
     }
   });
+
+/**
+ * Scheduled function to monitor tracked wallets for trading signals
+ * Runs every 10 minutes
+ */
+export const monitorTrackedWallets = functions.pubsub
+  .schedule('*/10 * * * *') // Every 10 minutes
+  .onRun(async (context) => {
+    console.log('[WalletMonitor] Running scheduled wallet monitoring...');
+
+    try {
+      const { blockchainMonitorService } = await import('./services/blockchainMonitorService.js');
+
+      // Monitor all active wallets across all users
+      await blockchainMonitorService.monitorAllWallets();
+
+      console.log('[WalletMonitor] Scheduled wallet monitoring completed successfully');
+
+      return {
+        success: true,
+        timestamp: new Date().toISOString(),
+      };
+    } catch (error: any) {
+      console.error('[WalletMonitor] Error in monitorTrackedWallets:', error.message);
+      return {
+        success: false,
+        error: error.message,
+      };
+    }
+  });
