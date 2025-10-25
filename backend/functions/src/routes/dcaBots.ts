@@ -428,6 +428,115 @@ export function createDCABotsRouter(db: Firestore): Router {
   });
 
   /**
+   * POST /dca-bots/:id/exit
+   * Manually exit a DCA bot position (sell all holdings back to USD)
+   */
+  router.post('/:id/exit', async (req, res) => {
+    try {
+      const botId = req.params.id;
+      const userId = req.user!.userId;
+
+      console.log(`[DCABots API] Manual exit requested for bot ${botId} by user ${userId}`);
+
+      // Get bot and verify ownership
+      const botDoc = await db.collection('dcaBots').doc(botId).get();
+
+      if (!botDoc.exists) {
+        return res.status(404).json({
+          success: false,
+          error: 'Bot not found',
+        });
+      }
+
+      const botData = botDoc.data() as DCABotConfig;
+      if (botData.userId !== userId) {
+        return res.status(403).json({
+          success: false,
+          error: 'Access denied',
+        });
+      }
+
+      // Get Kraken credentials from headers
+      const krakenApiKey = req.headers['x-kraken-api-key'] as string;
+      const krakenApiSecret = req.headers['x-kraken-api-secret'] as string;
+
+      if (!krakenApiKey || !krakenApiSecret) {
+        return res.status(401).json({
+          success: false,
+          error: 'Kraken API credentials required in headers',
+        });
+      }
+
+      // Create KrakenService
+      const krakenService = new KrakenService(krakenApiKey, krakenApiSecret);
+
+      // Get bot with live data
+      const bot = await dcaBotService.getBotById(botId, krakenService);
+
+      if (!bot) {
+        return res.status(404).json({
+          success: false,
+          error: 'Bot not found',
+        });
+      }
+
+      // Check if bot has positions to exit
+      if (bot.currentEntryCount === 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Bot has no open positions to exit',
+        });
+      }
+
+      // Check if bot is already exiting
+      if (bot.status === 'exiting') {
+        return res.status(400).json({
+          success: false,
+          error: 'Bot is already in exiting status',
+        });
+      }
+
+      console.log(`[DCABots API] Executing manual exit for bot ${botId} (${bot.symbol})`);
+      console.log(`[DCABots API] Current positions: ${bot.currentEntryCount} entries, Total invested: $${bot.totalInvested}, Unrealized P&L: ${bot.unrealizedPnLPercent.toFixed(2)}%`);
+
+      // Execute exit
+      const result = await dcaBotService.executeExit(bot, krakenService);
+
+      if (result.success) {
+        console.log(`[DCABots API] Manual exit successful for bot ${botId}`);
+
+        // Get updated bot data
+        const updatedBot = await dcaBotService.getBotById(botId, krakenService);
+
+        res.json({
+          success: true,
+          message: 'Exit order created successfully',
+          bot: updatedBot,
+          exitDetails: {
+            entriesExited: bot.currentEntryCount,
+            totalInvested: bot.totalInvested,
+            unrealizedPnL: bot.unrealizedPnL,
+            unrealizedPnLPercent: bot.unrealizedPnLPercent,
+          },
+        });
+      } else {
+        console.error(`[DCABots API] Manual exit failed for bot ${botId}:`, result.error);
+
+        res.status(500).json({
+          success: false,
+          error: result.error || 'Failed to create exit order',
+        });
+      }
+    } catch (error: any) {
+      console.error('[DCABots API] Error executing manual exit:', error);
+      res.status(500).json({
+        success: false,
+        error: error.message,
+      });
+    }
+  });
+
+  /**
    * POST /dca-bots/trigger
    * Manually trigger bot processing for all user's active bots
    */
