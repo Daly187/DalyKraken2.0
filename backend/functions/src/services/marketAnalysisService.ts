@@ -309,6 +309,8 @@ export class MarketAnalysisService {
 
   /**
    * Check if conditions are met for exit
+   * IMPORTANT: Only exit when price is at/above TP AND trend turns bearish
+   * This allows positions to ride during bullish trends instead of exiting prematurely
    */
   async shouldExit(
     symbol: string,
@@ -319,37 +321,44 @@ export class MarketAnalysisService {
   ): Promise<{ shouldExit: boolean; reason: string; analysis: TrendAnalysis }> {
     const analysis = await this.analyzeTrend(symbol);
 
-    // Check if price is above minimum TP
+    console.log(`[MarketAnalysis] ${symbol} shouldExit - currentPrice=${currentPrice.toFixed(2)}, minTpPrice=${minTpPrice.toFixed(2)}, techScore=${analysis.techScore.toFixed(0)}, trendScore=${analysis.trendScore.toFixed(0)}`);
+
+    // Only consider exiting if price is at or above minimum TP
     if (currentPrice >= minTpPrice) {
-      // Price is above min TP, check if trend is turning bearish
-      if (analysis.techScore < 40 && analysis.trendScore < 40) {
+      console.log(`[MarketAnalysis] ${symbol} - Price above TP threshold, checking trend conditions`);
+
+      // CRITICAL FIX: Only exit if trend is turning bearish
+      // Exit when EITHER techScore OR trendScore drops below 50 (neutral)
+      // This allows the bot to hold during bullish trends and ride the momentum
+      if (analysis.techScore < 50 || analysis.trendScore < 50) {
+        const profitPercent = ((currentPrice - averagePrice) / averagePrice) * 100;
+        console.log(`[MarketAnalysis] ${symbol} - EXIT TRIGGERED: Trend turning bearish at +${profitPercent.toFixed(2)}% profit`);
+
         return {
           shouldExit: true,
-          reason: 'Price above TP and trend turning bearish',
+          reason: `TP reached and trend turning bearish (Tech: ${analysis.techScore.toFixed(0)}, Trend: ${analysis.trendScore.toFixed(0)})`,
           analysis,
         };
       }
 
-      // Price dropped back to min TP
-      if (currentPrice <= minTpPrice * 1.005) {
-        // Within 0.5% of min TP
-        return {
-          shouldExit: true,
-          reason: 'Price dropped back to minimum TP',
-          analysis,
-        };
-      }
+      // Price is above TP but trend is still bullish - HOLD and let it ride
+      const profitPercent = ((currentPrice - averagePrice) / averagePrice) * 100;
+      console.log(`[MarketAnalysis] ${symbol} - HOLDING: Price at +${profitPercent.toFixed(2)}% profit but trend still bullish (Tech: ${analysis.techScore.toFixed(0)}, Trend: ${analysis.trendScore.toFixed(0)})`);
 
       return {
         shouldExit: false,
-        reason: 'Price above TP but trend still bullish',
+        reason: `Above TP (+${profitPercent.toFixed(1)}%) but trend still bullish - holding to ride momentum (Tech: ${analysis.techScore.toFixed(0)}, Trend: ${analysis.trendScore.toFixed(0)})`,
         analysis,
       };
     }
 
+    // Price below minimum TP - continue holding
+    const profitPercent = ((currentPrice - averagePrice) / averagePrice) * 100;
+    console.log(`[MarketAnalysis] ${symbol} - Price below TP (${profitPercent.toFixed(2)}% profit), continuing to hold`);
+
     return {
       shouldExit: false,
-      reason: 'Price below minimum TP target',
+      reason: `Below TP target (${profitPercent.toFixed(1)}% profit, target: ${tpTarget}%)`,
       analysis,
     };
   }

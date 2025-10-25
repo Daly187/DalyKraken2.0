@@ -105,7 +105,21 @@ export class OrderExecutorService {
             failed++;
           }
         } catch (error: any) {
-          console.error(`[OrderExecutor] [${execId}] Error executing order ${order.id}:`, error.message);
+          console.error(`[OrderExecutor] [${execId}] CRITICAL: Unhandled error executing order ${order.id}:`, error.message);
+
+          // CRITICAL FIX: Mark order as failed if uncaught exception occurs
+          // This prevents infinite PROCESSING -> RETRY loops
+          try {
+            await orderQueueService.markAsFailed(
+              order.id,
+              `Unhandled exception: ${error.message}`,
+              undefined,
+              true // Allow retry
+            );
+          } catch (markFailedError: any) {
+            console.error(`[OrderExecutor] [${execId}] Failed to mark order as failed:`, markFailedError.message);
+          }
+
           failed++;
         } finally {
           this.executingOrders.delete(order.id);
@@ -131,6 +145,26 @@ export class OrderExecutorService {
     directApiSecret?: string
   ): Promise<OrderExecutionResult> {
     console.log(`[OrderExecutor] Executing order ${order.id}: ${order.side} ${order.volume} ${order.pair}`);
+
+    // CRITICAL FIX: Check for excessive retries (infinite loop protection)
+    // If order has more than 50 error entries, it's stuck in an infinite loop
+    if (order.errors && order.errors.length > 50) {
+      const errorMsg = `Order abandoned after ${order.errors.length} failed attempts. Likely stuck in infinite retry loop.`;
+      console.error(`[OrderExecutor] ${errorMsg} Order: ${order.id}`);
+
+      await orderQueueService.markAsFailed(order.id, errorMsg, undefined, false); // Don't retry
+
+      // If this is an exit order, reset the bot back to active
+      if (order.side === 'sell') {
+        await this.handleFailedExitOrder(order, errorMsg);
+      }
+
+      return {
+        success: false,
+        error: errorMsg,
+        shouldRetry: false,
+      };
+    }
 
     // Mark as processing
     await orderQueueService.markAsProcessing(order.id);
@@ -503,6 +537,58 @@ export class OrderExecutorService {
   }
 
   /**
+   * Handle failed exit order - reset bot to active to prevent permanent "exiting" state
+   */
+  private async handleFailedExitOrder(order: PendingOrder, error: string): Promise<void> {
+    try {
+      console.log(`[OrderExecutor] Handling failed exit order for bot ${order.botId}`);
+
+      const botDoc = await db.collection('dcaBots').doc(order.botId).get();
+      if (!botDoc.exists) {
+        console.warn(`[OrderExecutor] Bot ${order.botId} not found, cannot reset from exiting state`);
+        return;
+      }
+
+      const bot = botDoc.data();
+      if (!bot) return;
+
+      // Only reset if bot is stuck in 'exiting' status
+      if (bot.status === 'exiting') {
+        console.log(`[OrderExecutor] Bot ${order.botId} is stuck in 'exiting' status. Resetting to 'active' to allow manual intervention.`);
+
+        // Reset bot to active status so user can manually retry or modify
+        await db.collection('dcaBots').doc(order.botId).update({
+          status: 'active',
+          updatedAt: new Date().toISOString(),
+          lastFailedExitReason: error,
+          lastFailedExitTime: new Date().toISOString(),
+        });
+
+        console.log(`[OrderExecutor] ✅ Bot ${order.botId} reset to 'active' after failed exit. User can now manually intervene.`);
+
+        // Log the failed exit in bot executions
+        await db.collection('botExecutions').add({
+          id: `${order.botId}_failed_exit_${Date.now()}`,
+          botId: order.botId,
+          action: 'exit_failed',
+          symbol: order.pair,
+          price: parseFloat(order.price || '0'),
+          quantity: parseFloat(order.volume),
+          amount: order.amount || 0,
+          reason: `Exit order failed and bot was reset to active: ${error}`,
+          timestamp: new Date().toISOString(),
+          success: false,
+          error,
+          orderId: order.id,
+        });
+      }
+    } catch (error: any) {
+      console.error(`[OrderExecutor] Error handling failed exit order for bot ${order.botId}:`, error.message);
+      // Don't throw - we don't want to fail the order marking because of bot update issues
+    }
+  }
+
+  /**
    * Update bot after order completion
    */
   private async updateBotAfterOrderCompletion(
@@ -608,7 +694,29 @@ export class OrderExecutorService {
         const currentBot = botDoc.data();
 
         if (!currentBot) {
-          throw new Error(`Bot ${order.botId} not found`);
+          const errorMsg = `Bot ${order.botId} not found during exit processing`;
+          console.error(`[OrderExecutor] CRITICAL: ${errorMsg}`);
+
+          // Log the error but don't fail the order completion
+          // The order was executed successfully on Kraken, so we can't rollback
+          await db.collection('botExecutions').add({
+            id: `${order.botId}_exit_error_${Date.now()}`,
+            botId: order.botId,
+            action: 'exit',
+            symbol: order.pair,
+            price: parseFloat(order.price || '0'),
+            quantity: parseFloat(order.volume),
+            amount: order.amount || 0,
+            reason: errorMsg,
+            timestamp: new Date().toISOString(),
+            success: false,
+            error: errorMsg,
+            orderId: order.id,
+          });
+
+          // Don't throw - order was placed successfully, just bot update failed
+          console.warn(`[OrderExecutor] Sell order ${order.id} completed on Kraken but bot ${order.botId} update failed. Manual intervention required.`);
+          return;
         }
 
         // First, delete all entries to ensure clean restart
@@ -688,8 +796,42 @@ export class OrderExecutorService {
         console.log(`[OrderExecutor] ✅ Bot ${order.botId} successfully reset to active, starting cycle ${newCycleNumber} (${newCycleId})`);
       }
     } catch (error: any) {
-      console.error(`[OrderExecutor] Error updating bot ${order.botId}:`, error.message);
-      throw error;
+      console.error(`[OrderExecutor] CRITICAL: Error updating bot ${order.botId} after order completion:`, error.message);
+      console.error(`[OrderExecutor] Stack trace:`, error.stack);
+
+      // Log the error to botExecutions for visibility
+      try {
+        await db.collection('botExecutions').add({
+          id: `${order.botId}_update_error_${Date.now()}`,
+          botId: order.botId,
+          action: order.side === 'buy' ? 'entry' : 'exit',
+          symbol: order.pair,
+          price: parseFloat(order.price || '0'),
+          quantity: parseFloat(order.volume),
+          amount: order.amount || 0,
+          reason: `Bot update failed after successful ${order.side} order: ${error.message}`,
+          timestamp: new Date().toISOString(),
+          success: false,
+          error: error.message,
+          orderId: order.id,
+        });
+      } catch (logError: any) {
+        console.error(`[OrderExecutor] Failed to log bot update error:`, logError.message);
+      }
+
+      // If this is a sell order and the error occurred, reset bot from 'exiting' to 'active'
+      // This prevents the bot from being stuck in 'exiting' status forever
+      if (order.side === 'sell') {
+        try {
+          await this.handleFailedExitOrder(order, `Bot update failed: ${error.message}`);
+        } catch (resetError: any) {
+          console.error(`[OrderExecutor] Failed to reset bot after exit failure:`, resetError.message);
+        }
+      }
+
+      // Don't throw - order was executed successfully on Kraken
+      // Throwing here would cause the order to be marked as failed even though it succeeded
+      console.warn(`[OrderExecutor] Order ${order.id} completed on Kraken but bot update failed. Bot may require manual intervention.`);
     }
   }
 
