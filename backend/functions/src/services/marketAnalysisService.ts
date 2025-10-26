@@ -259,6 +259,8 @@ export class MarketAnalysisService {
 
   /**
    * Check if conditions are met for entry
+   * NEW LOGIC: Entry requires trend to be BULLISH (matching crypto trends page)
+   * Trend is bullish when recommendation is 'bullish' (avgScore >= 60)
    */
   async shouldEnter(
     symbol: string,
@@ -270,47 +272,34 @@ export class MarketAnalysisService {
   ): Promise<{ shouldEnter: boolean; reason: string; analysis: TrendAnalysis }> {
     const analysis = await this.analyzeTrend(symbol);
 
-    console.log(`[MarketAnalysis] ${symbol} shouldEnter - trendAlignmentEnabled=${trendAlignmentEnabled}, currentEntryCount=${currentEntryCount}, techScore=${analysis.techScore.toFixed(0)}, trendScore=${analysis.trendScore.toFixed(0)}`);
+    console.log(`[MarketAnalysis] ${symbol} shouldEnter - currentEntryCount=${currentEntryCount}, recommendation=${analysis.recommendation}, techScore=${analysis.techScore.toFixed(0)}, trendScore=${analysis.trendScore.toFixed(0)}`);
 
-    // Check trend alignment if enabled (applies to BOTH first entry and re-entries)
-    if (trendAlignmentEnabled) {
-      if (analysis.techScore < 50 || analysis.trendScore < 50) {
-        console.log(`[MarketAnalysis] ${symbol} BLOCKED - Trend alignment not bullish`);
-        return {
-          shouldEnter: false,
-          reason: `Trend alignment not bullish (Tech: ${analysis.techScore.toFixed(0)}, Trend: ${analysis.trendScore.toFixed(0)})`,
-          analysis,
-        };
-      }
+    // NEW LOGIC: Entry requires BULLISH trend (matching crypto trends page logic)
+    // This replaces the old trendAlignmentEnabled check
+    if (analysis.recommendation !== 'bullish') {
+      console.log(`[MarketAnalysis] ${symbol} BLOCKED - Trend is not bullish (${analysis.recommendation})`);
+      return {
+        shouldEnter: false,
+        reason: `Waiting for bullish trend (current: ${analysis.recommendation}, Tech: ${analysis.techScore.toFixed(0)}, Trend: ${analysis.trendScore.toFixed(0)})`,
+        analysis,
+      };
     }
 
-    // RE-ENTRIES ONLY: Check support/resistance if enabled
-    if (currentEntryCount > 0 && supportResistanceEnabled && analysis.support) {
-      if (lastSupport === null) {
-        // Re-entry - need to cross support first
-        if (currentPrice > analysis.support) {
-          return {
-            shouldEnter: false,
-            reason: 'Waiting for support cross',
-            analysis,
-          };
-        }
-      }
-    }
+    // All other checks have been removed - only bullish trend is required for entry
 
     return {
       shouldEnter: true,
       reason: currentEntryCount === 0
-        ? `First entry - trend conditions met (Tech: ${analysis.techScore.toFixed(0)}, Trend: ${analysis.trendScore.toFixed(0)})`
-        : 'All entry conditions met',
+        ? `Bullish trend detected - first entry (Tech: ${analysis.techScore.toFixed(0)}, Trend: ${analysis.trendScore.toFixed(0)})`
+        : `Bullish trend detected - re-entry ${currentEntryCount + 1} (Tech: ${analysis.techScore.toFixed(0)}, Trend: ${analysis.trendScore.toFixed(0)})`,
       analysis,
     };
   }
 
   /**
    * Check if conditions are met for exit
-   * IMPORTANT: Only exit when price is at/above TP AND trend turns bearish
-   * This allows positions to ride during bullish trends instead of exiting prematurely
+   * NEW LOGIC: Exit when price is above min TP AND trend turns BEARISH
+   * This matches the crypto trends page logic where bearish = recommendation is 'bearish'
    */
   async shouldExit(
     symbol: string,
@@ -321,33 +310,32 @@ export class MarketAnalysisService {
   ): Promise<{ shouldExit: boolean; reason: string; analysis: TrendAnalysis }> {
     const analysis = await this.analyzeTrend(symbol);
 
-    console.log(`[MarketAnalysis] ${symbol} shouldExit - currentPrice=${currentPrice.toFixed(2)}, minTpPrice=${minTpPrice.toFixed(2)}, techScore=${analysis.techScore.toFixed(0)}, trendScore=${analysis.trendScore.toFixed(0)}`);
+    console.log(`[MarketAnalysis] ${symbol} shouldExit - currentPrice=${currentPrice.toFixed(2)}, minTpPrice=${minTpPrice.toFixed(2)}, recommendation=${analysis.recommendation}, techScore=${analysis.techScore.toFixed(0)}, trendScore=${analysis.trendScore.toFixed(0)}`);
 
-    // Only consider exiting if price is at or above minimum TP
+    // NEW LOGIC: Exit when price is above min TP AND trend turns BEARISH
+    // This allows positions to ride during bullish and neutral trends
     if (currentPrice >= minTpPrice) {
       console.log(`[MarketAnalysis] ${symbol} - Price above TP threshold, checking trend conditions`);
 
-      // CRITICAL FIX: Only exit if trend is turning bearish
-      // Exit when EITHER techScore OR trendScore drops below 50 (neutral)
-      // This allows the bot to hold during bullish trends and ride the momentum
-      if (analysis.techScore < 50 || analysis.trendScore < 50) {
+      // Exit when trend turns BEARISH (matching crypto trends page logic)
+      if (analysis.recommendation === 'bearish') {
         const profitPercent = ((currentPrice - averagePrice) / averagePrice) * 100;
-        console.log(`[MarketAnalysis] ${symbol} - EXIT TRIGGERED: Trend turning bearish at +${profitPercent.toFixed(2)}% profit`);
+        console.log(`[MarketAnalysis] ${symbol} - EXIT TRIGGERED: Trend turned bearish at +${profitPercent.toFixed(2)}% profit`);
 
         return {
           shouldExit: true,
-          reason: `TP reached and trend turning bearish (Tech: ${analysis.techScore.toFixed(0)}, Trend: ${analysis.trendScore.toFixed(0)})`,
+          reason: `TP reached and trend turned bearish (Tech: ${analysis.techScore.toFixed(0)}, Trend: ${analysis.trendScore.toFixed(0)})`,
           analysis,
         };
       }
 
-      // Price is above TP but trend is still bullish - HOLD and let it ride
+      // Price is above TP but trend is not bearish - HOLD and let it ride
       const profitPercent = ((currentPrice - averagePrice) / averagePrice) * 100;
-      console.log(`[MarketAnalysis] ${symbol} - HOLDING: Price at +${profitPercent.toFixed(2)}% profit but trend still bullish (Tech: ${analysis.techScore.toFixed(0)}, Trend: ${analysis.trendScore.toFixed(0)})`);
+      console.log(`[MarketAnalysis] ${symbol} - HOLDING: Price at +${profitPercent.toFixed(2)}% profit but trend is ${analysis.recommendation} (Tech: ${analysis.techScore.toFixed(0)}, Trend: ${analysis.trendScore.toFixed(0)})`);
 
       return {
         shouldExit: false,
-        reason: `Above TP (+${profitPercent.toFixed(1)}%) but trend still bullish - holding to ride momentum (Tech: ${analysis.techScore.toFixed(0)}, Trend: ${analysis.trendScore.toFixed(0)})`,
+        reason: `Above TP (+${profitPercent.toFixed(1)}%) but trend is ${analysis.recommendation} - holding (Tech: ${analysis.techScore.toFixed(0)}, Trend: ${analysis.trendScore.toFixed(0)})`,
         analysis,
       };
     }

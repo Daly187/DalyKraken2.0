@@ -238,6 +238,7 @@ export class DCABotService {
       entries,
       techScore: trendAnalysis.techScore,
       trendScore: trendAnalysis.trendScore,
+      recommendation: trendAnalysis.recommendation,
       support: trendAnalysis.support,
       resistance: trendAnalysis.resistance,
       currentSupport,

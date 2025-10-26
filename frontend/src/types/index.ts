@@ -219,6 +219,7 @@ export interface LiveDCABot extends DCABotConfig {
   entries: DCABotEntry[]; // All entries made by this bot
   techScore: number; // Technical score (bullish/bearish)
   trendScore: number; // Trend score (bullish/bearish)
+  recommendation?: 'bullish' | 'bearish' | 'neutral'; // Overall market recommendation
   support: number | null; // Support level (legacy)
   resistance: number | null; // Resistance level (legacy)
   currentSupport?: number; // Current support level

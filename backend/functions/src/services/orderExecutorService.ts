@@ -135,6 +135,100 @@ export class OrderExecutorService {
   }
 
   /**
+   * Validate that order requirements are still met before retry
+   * For buy orders: Check if bullish trend still exists
+   * For sell orders: Check if price is still above min TP and bearish trend exists
+   */
+  private async validateOrderRequirements(
+    order: PendingOrder,
+    directApiKey?: string,
+    directApiSecret?: string
+  ): Promise<{ valid: boolean; reason: string }> {
+    try {
+      // Get bot data
+      const botDoc = await db.collection('dcaBots').doc(order.botId).get();
+
+      if (!botDoc.exists) {
+        return { valid: false, reason: 'Bot not found' };
+      }
+
+      const bot = botDoc.data();
+
+      if (!bot) {
+        return { valid: false, reason: 'Bot data unavailable' };
+      }
+
+      // Get API keys for market data
+      const apiKey = directApiKey || undefined;
+      const apiSecret = directApiSecret || undefined;
+
+      // Import services (avoid circular dependency)
+      const { DCABotService } = await import('./dcaBotService.js');
+      const { KrakenService } = await import('./krakenService.js');
+      const { MarketAnalysisService } = await import('./marketAnalysisService.js');
+
+      // Create services
+      const krakenService = new KrakenService(apiKey, apiSecret);
+      const marketAnalysis = new MarketAnalysisService();
+
+      // Get current price
+      const ticker = await krakenService.getTicker(order.pair);
+      const currentPrice = ticker.price;
+
+      console.log(`[OrderExecutor] Validating ${order.side} order for ${order.pair} at current price $${currentPrice.toFixed(2)}`);
+
+      if (order.side === 'buy') {
+        // ENTRY VALIDATION: Check if bullish trend still exists
+        const analysis = await marketAnalysis.analyzeTrend(order.pair);
+
+        console.log(`[OrderExecutor] Entry validation - trend: ${analysis.recommendation}, tech: ${analysis.techScore.toFixed(0)}, trend: ${analysis.trendScore.toFixed(0)}`);
+
+        if (analysis.recommendation !== 'bullish') {
+          return {
+            valid: false,
+            reason: `Trend no longer bullish (${analysis.recommendation}), canceling entry order`,
+          };
+        }
+
+        return { valid: true, reason: 'Bullish trend confirmed, entry still valid' };
+      } else {
+        // EXIT VALIDATION: Check if price is still above min TP and bearish trend exists
+        const averagePrice = bot.averageEntryPrice || bot.averagePurchasePrice || 0;
+        const tpTarget = bot.tpTarget || 3;
+        const minTpPrice = averagePrice * (1 + tpTarget / 100);
+
+        console.log(`[OrderExecutor] Exit validation - current: $${currentPrice.toFixed(2)}, minTP: $${minTpPrice.toFixed(2)}, avg: $${averagePrice.toFixed(2)}`);
+
+        // Check if price is still above min TP
+        if (currentPrice < minTpPrice) {
+          return {
+            valid: false,
+            reason: `Price dropped below min TP ($${currentPrice.toFixed(2)} < $${minTpPrice.toFixed(2)}), canceling exit order`,
+          };
+        }
+
+        // Check if trend is still bearish
+        const analysis = await marketAnalysis.analyzeTrend(order.pair);
+
+        console.log(`[OrderExecutor] Exit validation - trend: ${analysis.recommendation}, tech: ${analysis.techScore.toFixed(0)}, trend: ${analysis.trendScore.toFixed(0)}`);
+
+        if (analysis.recommendation !== 'bearish') {
+          return {
+            valid: false,
+            reason: `Trend no longer bearish (${analysis.recommendation}), canceling exit order to let position ride`,
+          };
+        }
+
+        return { valid: true, reason: 'Bearish trend confirmed and price above TP, exit still valid' };
+      }
+    } catch (error: any) {
+      console.error(`[OrderExecutor] Error validating order requirements:`, error.message);
+      // On validation error, allow the order to proceed (fail safe)
+      return { valid: true, reason: 'Validation error, proceeding with order' };
+    }
+  }
+
+  /**
    * Execute a single order with API key failover
    * @param directApiKey - Optional API key from HTTP headers (same as manual trades)
    * @param directApiSecret - Optional API secret from HTTP headers (same as manual trades)
@@ -164,6 +258,38 @@ export class OrderExecutorService {
         error: errorMsg,
         shouldRetry: false,
       };
+    }
+
+    // NEW: Re-validate entry/exit requirements before executing retry attempts
+    // This ensures conditions are still met before placing the order
+    if (order.attempts > 0) {
+      console.log(`[OrderExecutor] This is retry attempt ${order.attempts + 1}, validating requirements...`);
+
+      const validationResult = await this.validateOrderRequirements(order, directApiKey, directApiSecret);
+
+      if (!validationResult.valid) {
+        console.log(`[OrderExecutor] Order ${order.id} requirements no longer met: ${validationResult.reason}`);
+
+        await orderQueueService.markAsFailed(
+          order.id,
+          `Requirements no longer met: ${validationResult.reason}`,
+          undefined,
+          false // Don't retry - conditions changed
+        );
+
+        // If this is an exit order, reset the bot back to active
+        if (order.side === 'sell') {
+          await this.handleFailedExitOrder(order, validationResult.reason);
+        }
+
+        return {
+          success: false,
+          error: validationResult.reason,
+          shouldRetry: false,
+        };
+      }
+
+      console.log(`[OrderExecutor] Requirements still met, proceeding with retry`);
     }
 
     // Mark as processing

@@ -665,6 +665,36 @@ export default function DalyDCA() {
     }
   };
 
+  const getTrendDisplay = (recommendation?: 'bullish' | 'bearish' | 'neutral') => {
+    switch (recommendation) {
+      case 'bullish':
+        return {
+          label: 'BULLISH',
+          icon: TrendingUp,
+          color: 'text-green-400',
+          bgColor: 'bg-green-500/20',
+          borderColor: 'border-green-500/50',
+        };
+      case 'bearish':
+        return {
+          label: 'BEARISH',
+          icon: TrendingDown,
+          color: 'text-red-400',
+          bgColor: 'bg-red-500/20',
+          borderColor: 'border-red-500/50',
+        };
+      case 'neutral':
+      default:
+        return {
+          label: 'NEUTRAL',
+          icon: Activity,
+          color: 'text-gray-400',
+          bgColor: 'bg-gray-500/20',
+          borderColor: 'border-gray-500/50',
+        };
+    }
+  };
+
   const activeBots = dcaBots.filter((bot) => bot.status === 'active');
   const pausedBots = dcaBots.filter((bot) => bot.status === 'paused');
   const completedBots = dcaBots.filter((bot) => bot.status === 'completed');
@@ -1320,16 +1350,19 @@ export default function DalyDCA() {
                           </p>
                         </div>
                         <div>
-                          <p className="text-xs text-gray-500">Tech/Trend</p>
-                          <p className="font-semibold">
-                            <span className={(bot.techScore || 0) > 50 ? 'text-green-400' : 'text-red-400'}>
-                              {bot.techScore || 0}
-                            </span>
-                            <span className="text-gray-500">/</span>
-                            <span className={(bot.trendScore || 0) > 50 ? 'text-green-400' : 'text-red-400'}>
-                              {bot.trendScore || 0}
-                            </span>
-                          </p>
+                          <p className="text-xs text-gray-500">Market Trend</p>
+                          {(() => {
+                            const trend = getTrendDisplay(bot.recommendation);
+                            const TrendIcon = trend.icon;
+                            return (
+                              <div className={`flex items-center gap-1 px-2 py-1 rounded ${trend.bgColor} border ${trend.borderColor}`}>
+                                <TrendIcon className={`h-3 w-3 ${trend.color}`} />
+                                <span className={`text-xs font-bold ${trend.color}`}>
+                                  {trend.label}
+                                </span>
+                              </div>
+                            );
+                          })()}
                         </div>
                         <div>
                           <p className="text-xs text-gray-500">P&L</p>
@@ -1390,32 +1423,33 @@ export default function DalyDCA() {
                         </h4>
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                           <div>
-                            <p className="text-xs text-gray-400">Tech Score</p>
-                            <div className="flex items-center gap-2">
-                              <p className={`text-lg font-bold ${(bot.techScore || 0) > 50 ? 'text-green-400' : 'text-red-400'}`}>
-                                {bot.techScore || 0}
-                              </p>
-                              <div className="flex-1 h-2 bg-slate-700 rounded-full overflow-hidden">
-                                <div
-                                  className={`h-full ${(bot.techScore || 0) > 50 ? 'bg-green-500' : 'bg-red-500'}`}
-                                  style={{ width: `${bot.techScore || 0}%` }}
-                                />
-                              </div>
+                            <p className="text-xs text-gray-400 mb-2">Market Trend</p>
+                            {(() => {
+                              const trend = getTrendDisplay(bot.recommendation);
+                              const TrendIcon = trend.icon;
+                              return (
+                                <div className={`flex items-center gap-2 px-3 py-2 rounded-lg ${trend.bgColor} border ${trend.borderColor}`}>
+                                  <TrendIcon className={`h-5 w-5 ${trend.color}`} />
+                                  <span className={`text-sm font-bold ${trend.color}`}>
+                                    {trend.label}
+                                  </span>
+                                </div>
+                              );
+                            })()}
+                            <div className="mt-2 flex gap-2 text-xs text-gray-500">
+                              <span>Tech: <span className={(bot.techScore || 0) > 50 ? 'text-green-400' : 'text-red-400'}>{bot.techScore || 0}</span></span>
+                              <span>•</span>
+                              <span>Trend: <span className={(bot.trendScore || 0) > 50 ? 'text-green-400' : 'text-red-400'}>{bot.trendScore || 0}</span></span>
                             </div>
                           </div>
                           <div>
-                            <p className="text-xs text-gray-400">Trend Score</p>
-                            <div className="flex items-center gap-2">
-                              <p className={`text-lg font-bold ${(bot.trendScore || 0) > 50 ? 'text-green-400' : 'text-red-400'}`}>
-                                {bot.trendScore || 0}
-                              </p>
-                              <div className="flex-1 h-2 bg-slate-700 rounded-full overflow-hidden">
-                                <div
-                                  className={`h-full ${(bot.trendScore || 0) > 50 ? 'bg-green-500' : 'bg-red-500'}`}
-                                  style={{ width: `${bot.trendScore || 0}%` }}
-                                />
-                              </div>
-                            </div>
+                            <p className="text-xs text-gray-400">Current Price</p>
+                            <p className="text-lg font-bold text-white">
+                              {formatCurrency(bot.currentPrice || 0)}
+                            </p>
+                            <p className="text-xs text-gray-500">
+                              {bot.currentPrice > bot.averagePurchasePrice ? '↑' : '↓'} from avg
+                            </p>
                           </div>
                           <div>
                             <p className="text-xs text-gray-400">Next Entry Price</p>

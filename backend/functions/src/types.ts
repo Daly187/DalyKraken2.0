@@ -53,6 +53,7 @@ export interface LiveDCABot extends DCABotConfig {
   entries: DCABotEntry[];
   techScore: number;
   trendScore: number;
+  recommendation?: 'bullish' | 'bearish' | 'neutral';
   support: number | null;
   resistance: number | null;
   currentSupport?: number;
