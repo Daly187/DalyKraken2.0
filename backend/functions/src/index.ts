@@ -2116,3 +2116,6 @@ export const monitorTrackedWallets = functions.pubsub
       };
     }
   });
+
+// Export funding strategy functions from the separate module
+export { monitorFundingPositions, recordFundingRates } from './funding-strategy-monitor.js';
