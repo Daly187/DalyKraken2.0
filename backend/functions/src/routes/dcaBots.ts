@@ -488,12 +488,26 @@ export function createDCABotsRouter(db: Firestore): Router {
         });
       }
 
-      // Check if bot is already exiting
+      // Check if bot is already exiting AND has a pending sell order
       if (bot.status === 'exiting') {
-        return res.status(400).json({
-          success: false,
-          error: 'Bot is already in exiting status',
-        });
+        // Check if there's already a pending sell order
+        const pendingSellOrders = await db
+          .collection('pendingOrders')
+          .where('botId', '==', botId)
+          .where('side', '==', 'sell')
+          .where('status', 'in', ['pending', 'processing', 'retry'])
+          .get();
+
+        if (!pendingSellOrders.empty) {
+          return res.status(400).json({
+            success: false,
+            error: 'Bot already has a pending exit order',
+          });
+        }
+
+        // If bot is in "exiting" status but has no pending sell orders, it's stuck
+        // Allow the manual exit to proceed to fix the stuck state
+        console.log(`[DCABots API] Bot ${botId} is stuck in 'exiting' status with no pending sell orders. Allowing manual exit to fix.`);
       }
 
       console.log(`[DCABots API] Executing manual exit for bot ${botId} (${bot.symbol})`);

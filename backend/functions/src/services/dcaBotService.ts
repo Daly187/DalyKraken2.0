@@ -476,7 +476,8 @@ export class DCABotService {
       // Calculate total amount (USD value)
       const totalAmount = totalQuantity * currentPrice;
 
-      // Create pending order in queue instead of executing directly
+      // IMPORTANT: Create the order FIRST, then update bot status
+      // This prevents the bot from getting stuck in 'exiting' status if order creation fails
       const pendingOrder = await orderQueueService.createOrder({
         userId: bot.userId,
         botId: bot.id,
@@ -491,7 +492,8 @@ export class DCABotService {
 
       console.log(`[DCABotService] Created pending exit order ${pendingOrder.id} for bot ${bot.id} - ${totalQuantity.toFixed(8)} ${bot.symbol} at $${currentPrice}`);
 
-      // Update bot status to 'exiting' (will be set to 'completed' after order executes)
+      // Update bot status to 'exiting' ONLY AFTER order is successfully created
+      // (will be set to 'active' or 'completed' after order executes/fails)
       await this.db.collection('dcaBots').doc(bot.id).update({
         status: 'exiting',
         updatedAt: new Date().toISOString(),
