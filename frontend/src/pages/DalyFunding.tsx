@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   TrendingUp,
   DollarSign,
@@ -9,16 +9,94 @@ import {
   Target,
   BarChart3,
   Zap,
+  Activity,
+  TrendingDown,
+  CheckCircle,
+  AlertCircle,
+  Signal,
+  Layers,
+  RefreshCw,
 } from 'lucide-react';
+import { multiExchangeService, FundingRate, FundingPosition } from '@/services/multiExchangeService';
+import { useStore } from '@/store/useStore';
 
 export default function DalyFunding() {
-  const [selectedPair, setSelectedPair] = useState('BTC/USD');
+  const addNotification = useStore((state) => state.addNotification);
 
-  // Available trading pairs
+  const [selectedPair, setSelectedPair] = useState('BTCUSDT');
+  const [selectedExchange, setSelectedExchange] = useState<'all' | 'aster' | 'hyperliquid' | 'liquid'>('all');
+  const [fundingRates, setFundingRates] = useState<FundingRate[]>([]);
+  const [positions, setPositions] = useState<FundingPosition[]>([]);
+  const [isConnected, setIsConnected] = useState(false);
+
+  // Strategy Configuration
+  const [positionSize, setPositionSize] = useState(100);
+  const [fundingThreshold, setFundingThreshold] = useState(0.01);
+  const [minVolume24h, setMinVolume24h] = useState(1000000);
+  const [maxSpread, setMaxSpread] = useState(0.1);
+  const [autoExecute, setAutoExecute] = useState(false);
+
+  // Available trading pairs (normalized format)
   const availablePairs = [
-    'BTC/USD', 'ETH/USD', 'SOL/USD', 'XRP/USD', 'ADA/USD',
-    'DOGE/USD', 'DOT/USD', 'LINK/USD', 'UNI/USD', 'AVAX/USD',
+    'BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT', 'ADAUSDT',
+    'DOGEUSDT', 'DOTUSDT', 'LINKUSDT', 'UNIUSDT', 'AVAXUSDT',
   ];
+
+  // Connect to WebSocket feeds on mount
+  useEffect(() => {
+    console.log('[DalyFunding] Connecting to multi-exchange feeds...');
+
+    multiExchangeService.connectAll(availablePairs);
+    setIsConnected(true);
+
+    // Subscribe to funding rate updates
+    const unsubscribe = multiExchangeService.onFundingRateUpdate((fundingRate) => {
+      setFundingRates(prev => {
+        const updated = [...prev];
+        const index = updated.findIndex(
+          f => f.exchange === fundingRate.exchange && f.symbol === fundingRate.symbol
+        );
+
+        if (index >= 0) {
+          updated[index] = fundingRate;
+        } else {
+          updated.push(fundingRate);
+        }
+
+        return updated;
+      });
+
+      // Check if funding rate exceeds threshold
+      if (autoExecute && Math.abs(fundingRate.rate) >= fundingThreshold) {
+        addNotification({
+          type: 'info',
+          title: 'Funding Rate Alert',
+          message: `${fundingRate.exchange} ${fundingRate.symbol}: ${fundingRate.rate.toFixed(3)}%`,
+        });
+      }
+    });
+
+    return () => {
+      unsubscribe();
+      multiExchangeService.disconnectAll();
+      setIsConnected(false);
+    };
+  }, [autoExecute, fundingThreshold]);
+
+  // Filter funding rates by selected exchange
+  const filteredRates = selectedExchange === 'all'
+    ? fundingRates
+    : fundingRates.filter(f => f.exchange === selectedExchange);
+
+  // Calculate statistics
+  const totalPositions = positions.filter(p => p.status === 'open').length;
+  const totalInvested = positions
+    .filter(p => p.status === 'open')
+    .reduce((sum, p) => sum + (p.size * p.entryPrice), 0);
+  const totalFundingEarned = positions.reduce((sum, p) => sum + p.fundingEarned, 0);
+  const totalPnL = positions
+    .filter(p => p.status === 'open')
+    .reduce((sum, p) => sum + p.pnl, 0);
 
   return (
     <div className="space-y-6">
@@ -27,8 +105,19 @@ export default function DalyFunding() {
         <div>
           <h1 className="text-3xl font-bold">DalyFunding Strategy</h1>
           <p className="text-sm text-gray-400 mt-1">
-            Earn funding rates by holding perpetual positions
+            Multi-Exchange Funding Rate Arbitrage (Aster, Hyperliquid, Liquid)
           </p>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <div className={`w-3 h-3 rounded-full ${isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
+            <span className="text-sm text-gray-400">
+              {isConnected ? 'Live Data' : 'Disconnected'}
+            </span>
+          </div>
+          <div className="text-sm text-gray-400">
+            {fundingRates.length} rates tracking
+          </div>
         </div>
       </div>
 
@@ -38,8 +127,10 @@ export default function DalyFunding() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-400">Active Positions</p>
-              <p className="text-2xl font-bold text-white">0</p>
-              <p className="text-xs text-gray-500 mt-1">No positions yet</p>
+              <p className="text-2xl font-bold text-white">{totalPositions}</p>
+              <p className="text-xs text-gray-500 mt-1">
+                {totalPositions === 0 ? 'No positions yet' : 'Across all exchanges'}
+              </p>
             </div>
             <div className="h-14 w-14 rounded-xl bg-green-500/20 flex items-center justify-center">
               <Wallet className="h-7 w-7 text-green-400" />
@@ -51,8 +142,10 @@ export default function DalyFunding() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-400">Total Invested</p>
-              <p className="text-2xl font-bold text-white">$0.00</p>
-              <p className="text-xs text-gray-500 mt-1">Start trading to see stats</p>
+              <p className="text-2xl font-bold text-white">${totalInvested.toFixed(2)}</p>
+              <p className="text-xs text-gray-500 mt-1">
+                {totalPositions > 0 ? 'Current exposure' : 'Start trading to see stats'}
+              </p>
             </div>
             <div className="h-14 w-14 rounded-xl bg-blue-500/20 flex items-center justify-center">
               <DollarSign className="h-7 w-7 text-blue-400" />
@@ -64,7 +157,7 @@ export default function DalyFunding() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-400">Funding Earned</p>
-              <p className="text-2xl font-bold text-white">$0.00</p>
+              <p className="text-2xl font-bold text-white">${totalFundingEarned.toFixed(2)}</p>
               <p className="text-xs text-gray-500 mt-1">Lifetime earnings</p>
             </div>
             <div className="h-14 w-14 rounded-xl bg-purple-500/20 flex items-center justify-center">
@@ -73,18 +166,142 @@ export default function DalyFunding() {
           </div>
         </div>
 
-        <div className="card bg-gradient-to-br from-green-500/10 to-green-600/5 border-green-500/20">
+        <div className={`card bg-gradient-to-br ${totalPnL >= 0 ? 'from-green-500/10 to-green-600/5 border-green-500/20' : 'from-red-500/10 to-red-600/5 border-red-500/20'}`}>
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-400">Total P&L</p>
-              <p className="text-2xl font-bold text-green-400">$0.00</p>
-              <p className="text-xs text-green-500 mt-1">+0.00% return</p>
+              <p className={`text-2xl font-bold ${totalPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                ${totalPnL.toFixed(2)}
+              </p>
+              <p className={`text-xs mt-1 ${totalPnL >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                {totalPnL >= 0 ? '+' : ''}{totalInvested > 0 ? ((totalPnL / totalInvested) * 100).toFixed(2) : '0.00'}% return
+              </p>
             </div>
-            <div className="h-14 w-14 rounded-xl bg-green-500/20 flex items-center justify-center">
-              <BarChart3 className="h-7 w-7 text-green-400" />
+            <div className={`h-14 w-14 rounded-xl ${totalPnL >= 0 ? 'bg-green-500/20' : 'bg-red-500/20'} flex items-center justify-center`}>
+              <BarChart3 className={`h-7 w-7 ${totalPnL >= 0 ? 'text-green-400' : 'text-red-400'}`} />
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Live Funding Rates Monitor */}
+      <div className="card">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h2 className="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-purple-400 bg-clip-text text-transparent">
+              Live Funding Rates
+            </h2>
+            <p className="text-sm text-gray-400 mt-1">Real-time monitoring across Aster, Hyperliquid, and Liquid</p>
+          </div>
+          <div className="flex items-center gap-2">
+            {/* Exchange Filter */}
+            <div className="flex gap-2">
+              <button
+                onClick={() => setSelectedExchange('all')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                  selectedExchange === 'all'
+                    ? 'bg-primary-500 text-white'
+                    : 'bg-slate-700/50 text-gray-400 hover:bg-slate-600/50'
+                }`}
+              >
+                All
+              </button>
+              <button
+                onClick={() => setSelectedExchange('aster')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                  selectedExchange === 'aster'
+                    ? 'bg-cyan-500 text-white'
+                    : 'bg-slate-700/50 text-gray-400 hover:bg-slate-600/50'
+                }`}
+              >
+                Aster
+              </button>
+              <button
+                onClick={() => setSelectedExchange('hyperliquid')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                  selectedExchange === 'hyperliquid'
+                    ? 'bg-purple-500 text-white'
+                    : 'bg-slate-700/50 text-gray-400 hover:bg-slate-600/50'
+                }`}
+              >
+                Hyperliquid
+              </button>
+              <button
+                onClick={() => setSelectedExchange('liquid')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                  selectedExchange === 'liquid'
+                    ? 'bg-blue-500 text-white'
+                    : 'bg-slate-700/50 text-gray-400 hover:bg-slate-600/50'
+                }`}
+              >
+                Liquid
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {filteredRates.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {filteredRates.map((rate) => (
+              <div
+                key={`${rate.exchange}-${rate.symbol}`}
+                className="p-4 rounded-lg bg-slate-700/30 border border-slate-600/30 hover:border-primary-500/30 transition-all"
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <Activity className={`h-4 w-4 ${
+                      rate.exchange === 'aster' ? 'text-cyan-400' :
+                      rate.exchange === 'hyperliquid' ? 'text-purple-400' :
+                      'text-blue-400'
+                    }`} />
+                    <span className="font-bold">{rate.symbol}</span>
+                  </div>
+                  <span className={`text-xs px-2 py-1 rounded ${
+                    rate.exchange === 'aster' ? 'bg-cyan-500/20 text-cyan-400' :
+                    rate.exchange === 'hyperliquid' ? 'bg-purple-500/20 text-purple-400' :
+                    'bg-blue-500/20 text-blue-400'
+                  }`}>
+                    {rate.exchange}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs text-gray-400">Funding Rate</p>
+                    <p className={`text-2xl font-bold ${
+                      rate.rate > 0 ? 'text-green-400' :
+                      rate.rate < 0 ? 'text-red-400' :
+                      'text-gray-400'
+                    }`}>
+                      {rate.rate > 0 ? '+' : ''}{rate.rate.toFixed(4)}%
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs text-gray-400">Mark Price</p>
+                    <p className="text-sm font-mono">${rate.markPrice.toFixed(2)}</p>
+                  </div>
+                </div>
+                <div className="mt-3 pt-3 border-t border-slate-600/30">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-gray-500">Next Funding</span>
+                    <span className="text-gray-400">
+                      {rate.nextFundingTime > 0
+                        ? new Date(rate.nextFundingTime).toLocaleTimeString()
+                        : 'N/A'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="text-center py-12">
+            <Signal className="h-12 w-12 text-gray-600 mx-auto mb-3 animate-pulse" />
+            <p className="text-gray-400">Waiting for funding rate data...</p>
+            <p className="text-xs text-gray-500 mt-1">
+              Make sure API keys are configured in Settings
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Strategy Configuration */}
@@ -94,7 +311,7 @@ export default function DalyFunding() {
             <h2 className="text-2xl font-bold bg-gradient-to-r from-primary-400 to-purple-400 bg-clip-text text-transparent">
               Configure Funding Strategy
             </h2>
-            <p className="text-sm text-gray-400 mt-1">Set up automated funding rate collection</p>
+            <p className="text-sm text-gray-400 mt-1">Set up automated funding rate collection with liquidity checks</p>
           </div>
           <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-primary-500 to-purple-500 flex items-center justify-center">
             <Zap className="h-6 w-6 text-white" />
@@ -127,7 +344,7 @@ export default function DalyFunding() {
                       : 'bg-slate-700/50 text-gray-400 hover:bg-slate-600/50 hover:text-gray-300'
                   }`}
                 >
-                  {pair.replace('/USD', '')}
+                  {pair.replace('USDT', '')}
                 </button>
               ))}
             </div>
@@ -147,7 +364,8 @@ export default function DalyFunding() {
                   type="number"
                   step="0.01"
                   min="1"
-                  defaultValue={100}
+                  value={positionSize}
+                  onChange={(e) => setPositionSize(Number(e.target.value))}
                   className="w-full bg-slate-800/50 border border-slate-600/50 focus:border-primary-500/50 text-white pl-8 pr-4 py-3 rounded-xl transition-all focus:ring-2 focus:ring-primary-500/20"
                   placeholder="100.00"
                 />
@@ -163,15 +381,88 @@ export default function DalyFunding() {
               <div className="relative">
                 <input
                   type="number"
-                  step="0.01"
+                  step="0.001"
                   min="0"
-                  defaultValue={0.01}
+                  value={fundingThreshold}
+                  onChange={(e) => setFundingThreshold(Number(e.target.value))}
                   className="w-full bg-slate-800/50 border border-slate-600/50 focus:border-primary-500/50 text-white px-4 pr-8 py-3 rounded-xl transition-all focus:ring-2 focus:ring-primary-500/20"
                   placeholder="0.01"
                 />
                 <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm">%</span>
               </div>
               <p className="text-xs text-gray-500 mt-2">Minimum funding rate to enter</p>
+            </div>
+
+            <div>
+              <label className="flex items-center gap-2 text-sm font-medium text-gray-300 mb-3">
+                <Activity className="h-4 w-4 text-blue-400" />
+                Minimum 24h Volume
+              </label>
+              <div className="relative">
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                <input
+                  type="number"
+                  step="100000"
+                  min="0"
+                  value={minVolume24h}
+                  onChange={(e) => setMinVolume24h(Number(e.target.value))}
+                  className="w-full bg-slate-800/50 border border-slate-600/50 focus:border-primary-500/50 text-white pl-8 pr-4 py-3 rounded-xl transition-all focus:ring-2 focus:ring-primary-500/20"
+                  placeholder="1000000"
+                />
+              </div>
+              <p className="text-xs text-gray-500 mt-2">Liquidity check - minimum daily volume</p>
+            </div>
+
+            <div>
+              <label className="flex items-center gap-2 text-sm font-medium text-gray-300 mb-3">
+                <Layers className="h-4 w-4 text-yellow-400" />
+                Max Spread %
+              </label>
+              <div className="relative">
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={maxSpread}
+                  onChange={(e) => setMaxSpread(Number(e.target.value))}
+                  className="w-full bg-slate-800/50 border border-slate-600/50 focus:border-primary-500/50 text-white px-4 pr-8 py-3 rounded-xl transition-all focus:ring-2 focus:ring-primary-500/20"
+                  placeholder="0.1"
+                />
+                <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm">%</span>
+              </div>
+              <p className="text-xs text-gray-500 mt-2">Maximum bid-ask spread allowed</p>
+            </div>
+          </div>
+
+          {/* Auto-Execute Toggle */}
+          <div className="p-4 rounded-lg bg-slate-700/30 border border-slate-600/30">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className={`h-10 w-10 rounded-lg ${autoExecute ? 'bg-green-500/20' : 'bg-gray-500/20'} flex items-center justify-center`}>
+                  {autoExecute ? (
+                    <CheckCircle className="h-5 w-5 text-green-400" />
+                  ) : (
+                    <AlertCircle className="h-5 w-5 text-gray-400" />
+                  )}
+                </div>
+                <div>
+                  <label className="font-semibold text-white cursor-pointer">
+                    Auto-Execute Strategy
+                  </label>
+                  <p className="text-xs text-gray-400">
+                    Automatically enter positions when funding rate exceeds threshold
+                  </p>
+                </div>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={autoExecute}
+                  onChange={(e) => setAutoExecute(e.target.checked)}
+                  className="sr-only peer"
+                />
+                <div className="w-14 h-7 bg-gray-600 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-500/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[4px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-primary-500"></div>
+              </label>
             </div>
           </div>
 
@@ -236,37 +527,89 @@ export default function DalyFunding() {
 
       {/* Strategy Info */}
       <div className="card">
-        <h3 className="text-lg font-bold mb-3">DalyFunding Strategy Info</h3>
-        <div className="space-y-3 text-sm text-gray-400">
+        <h3 className="text-lg font-bold mb-3">Multi-Exchange Funding Strategy Overview</h3>
+        <div className="space-y-4 text-sm text-gray-400">
           <div className="flex items-start gap-3">
-            <Info className="h-5 w-5 text-primary-500 mt-0.5" />
+            <Info className="h-5 w-5 text-primary-500 mt-0.5 flex-shrink-0" />
             <div>
               <strong className="text-white">What is Funding?</strong> Funding rates are periodic payments
               exchanged between long and short positions in perpetual futures markets. When funding is positive,
-              longs pay shorts. When negative, shorts pay longs.
+              longs pay shorts. When negative, shorts pay longs. This strategy captures these payments across
+              multiple exchanges simultaneously.
             </div>
           </div>
+
           <div className="flex items-start gap-3">
-            <TrendingUp className="h-5 w-5 text-green-500 mt-0.5" />
+            <Layers className="h-5 w-5 text-cyan-500 mt-0.5 flex-shrink-0" />
             <div>
-              <strong className="text-white">Automated Collection:</strong> This strategy automatically monitors
-              funding rates across different pairs and opens positions when rates exceed your threshold,
-              maximizing your funding rate earnings.
+              <strong className="text-white">Multi-Exchange Coverage:</strong> By monitoring funding rates across
+              Aster DEX, Hyperliquid, and Liquid simultaneously, this strategy identifies the best opportunities
+              regardless of which platform offers the highest rates. Each exchange has unique characteristics:
+              <ul className="mt-2 ml-4 space-y-1 list-disc">
+                <li><strong className="text-cyan-400">Aster:</strong> Decentralized perpetuals with up to 125x leverage</li>
+                <li><strong className="text-purple-400">Hyperliquid:</strong> On-chain L1 DEX with CEX-like performance</li>
+                <li><strong className="text-blue-400">Liquid:</strong> Centralized exchange with fiat pairs and deep liquidity</li>
+              </ul>
             </div>
           </div>
+
           <div className="flex items-start gap-3">
-            <Clock className="h-5 w-5 text-blue-500 mt-0.5" />
+            <Activity className="h-5 w-5 text-green-500 mt-0.5 flex-shrink-0" />
             <div>
-              <strong className="text-white">Payment Schedule:</strong> Funding payments typically occur every
-              8 hours. The strategy will hold positions through funding periods and can automatically close
-              positions when rates become unfavorable.
+              <strong className="text-white">Liquidity & Volume Checks:</strong> Before executing any trade, the system
+              verifies that the market has sufficient liquidity by checking:
+              <ul className="mt-2 ml-4 space-y-1 list-disc">
+                <li>24-hour trading volume exceeds your minimum threshold</li>
+                <li>Order book depth can absorb your position size</li>
+                <li>Bid-ask spread is within acceptable limits</li>
+              </ul>
+              This prevents slippage and ensures you can enter/exit positions efficiently.
             </div>
           </div>
+
           <div className="flex items-start gap-3">
-            <DollarSign className="h-5 w-5 text-yellow-500 mt-0.5" />
+            <Clock className="h-5 w-5 text-blue-500 mt-0.5 flex-shrink-0" />
             <div>
-              <strong className="text-white">Risk Management:</strong> The strategy includes position sizing
-              controls and automatic exit conditions to protect your capital while maximizing funding earnings.
+              <strong className="text-white">WebSocket Real-Time Monitoring:</strong> The strategy uses WebSocket
+              connections to each exchange for instant funding rate updates. Aster provides mark price streams,
+              Hyperliquid broadcasts asset context with funding data, and Liquid streams order book depth. All data
+              is processed in real-time to identify opportunities the moment they arise.
+            </div>
+          </div>
+
+          <div className="flex items-start gap-3">
+            <TrendingUp className="h-5 w-5 text-purple-500 mt-0.5 flex-shrink-0" />
+            <div>
+              <strong className="text-white">Automated Entry & Exit:</strong> When auto-execute is enabled and a
+              funding rate exceeds your threshold (while passing liquidity checks), the system automatically opens
+              a position. Positions are monitored continuously and can be automatically closed when:
+              <ul className="mt-2 ml-4 space-y-1 list-disc">
+                <li>Funding rate mean-reverts below threshold</li>
+                <li>Market conditions change (liquidity drops, spread widens)</li>
+                <li>Target profit is achieved</li>
+              </ul>
+            </div>
+          </div>
+
+          <div className="flex items-start gap-3">
+            <DollarSign className="h-5 w-5 text-yellow-500 mt-0.5 flex-shrink-0" />
+            <div>
+              <strong className="text-white">Risk Management:</strong> The strategy includes multiple safety features:
+              position sizing controls, spread limits, volume requirements, and automatic circuit breakers to protect
+              your capital. Never trade on illiquid markets, and always maintain control over your exposure across
+              all three exchanges.
+            </div>
+          </div>
+
+          <div className="p-4 mt-4 rounded-lg bg-blue-500/10 border border-blue-500/20">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="h-5 w-5 text-blue-400 mt-0.5 flex-shrink-0" />
+              <div className="text-xs">
+                <strong className="text-blue-300">Setup Required:</strong> To use this strategy, configure your
+                API keys for Aster, Hyperliquid, and/or Liquid in the Settings page. At minimum, one exchange must
+                be configured. The strategy will automatically connect to all configured exchanges and begin monitoring
+                funding rates.
+              </div>
             </div>
           </div>
         </div>

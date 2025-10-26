@@ -97,5 +97,33 @@ service cloud.firestore {
       allow read: if isAuthenticated();
       allow write: if false; // Only Cloud Functions can write
     }
+
+    // Funding Positions (Multi-Exchange Trading)
+    match /fundingPositions/{positionId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated()
+        && request.resource.data.userId == request.auth.uid;
+      allow update: if isAuthenticated()
+        && resource.data.userId == request.auth.uid;
+      allow delete: if isAuthenticated()
+        && resource.data.userId == request.auth.uid;
+    }
+
+    // Funding Rate History
+    match /fundingRateHistory/{historyId} {
+      allow read: if isAuthenticated();
+      allow write: if false; // Only Cloud Functions can write
+    }
+
+    // Exchange Configurations (Aster, Hyperliquid, Liquid)
+    match /exchangeConfigs/{userId} {
+      allow read, write: if isOwner(userId);
+    }
+
+    // Trade Monitoring Queue
+    match /tradeMonitoring/{tradeId} {
+      allow read: if isAuthenticated();
+      allow write: if false; // Only Cloud Functions can write
+    }
   }
 }

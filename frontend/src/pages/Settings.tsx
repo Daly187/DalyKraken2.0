@@ -49,11 +49,17 @@ export default function Settings() {
     quantify: boolean;
     coinmarketcap: boolean;
     telegram: boolean;
+    aster: boolean;
+    hyperliquid: boolean;
+    liquid: boolean;
   }>({
     kraken: true,
     quantify: false,
     coinmarketcap: false,
     telegram: false,
+    aster: false,
+    hyperliquid: false,
+    liquid: false,
   });
 
   const toggleSection = (section: keyof typeof expandedSections) => {
@@ -103,6 +109,14 @@ export default function Settings() {
   const [telegramBotToken, setTelegramBotToken] = useState('');
   const [telegramChatId, setTelegramChatId] = useState('');
 
+  // Multi-Exchange API Keys (Aster, Hyperliquid, Liquid)
+  const [asterApiKey, setAsterApiKey] = useState('');
+  const [asterApiSecret, setAsterApiSecret] = useState('');
+  const [hyperliquidPrivateKey, setHyperliquidPrivateKey] = useState('');
+  const [hyperliquidWalletAddress, setHyperliquidWalletAddress] = useState('');
+  const [liquidApiToken, setLiquidApiToken] = useState('');
+  const [liquidApiSecret, setLiquidApiSecret] = useState('');
+
   // Visibility toggles
   const [showSecrets, setShowSecrets] = useState<{ [key: string]: boolean }>({});
   const [saving, setSaving] = useState(false);
@@ -134,6 +148,25 @@ export default function Settings() {
 
     const savedTelegramChat = localStorage.getItem('telegram_chat_id');
     if (savedTelegramChat) setTelegramChatId(savedTelegramChat);
+
+    // Load multi-exchange API keys
+    const savedAsterKey = localStorage.getItem('aster_api_key');
+    if (savedAsterKey) setAsterApiKey(savedAsterKey);
+
+    const savedAsterSecret = localStorage.getItem('aster_api_secret');
+    if (savedAsterSecret) setAsterApiSecret(savedAsterSecret);
+
+    const savedHyperliquidKey = localStorage.getItem('hyperliquid_private_key');
+    if (savedHyperliquidKey) setHyperliquidPrivateKey(savedHyperliquidKey);
+
+    const savedHyperliquidAddress = localStorage.getItem('hyperliquid_wallet_address');
+    if (savedHyperliquidAddress) setHyperliquidWalletAddress(savedHyperliquidAddress);
+
+    const savedLiquidToken = localStorage.getItem('liquid_api_token');
+    if (savedLiquidToken) setLiquidApiToken(savedLiquidToken);
+
+    const savedLiquidSecret = localStorage.getItem('liquid_api_secret');
+    if (savedLiquidSecret) setLiquidApiSecret(savedLiquidSecret);
   };
 
   const toggleSecretVisibility = (keyId: string) => {
@@ -237,6 +270,14 @@ export default function Settings() {
       localStorage.setItem('coinmarketcap_key', coinMarketCapKey);
       localStorage.setItem('telegram_bot_token', telegramBotToken);
       localStorage.setItem('telegram_chat_id', telegramChatId);
+
+      // Save multi-exchange API keys
+      localStorage.setItem('aster_api_key', asterApiKey);
+      localStorage.setItem('aster_api_secret', asterApiSecret);
+      localStorage.setItem('hyperliquid_private_key', hyperliquidPrivateKey);
+      localStorage.setItem('hyperliquid_wallet_address', hyperliquidWalletAddress);
+      localStorage.setItem('liquid_api_token', liquidApiToken);
+      localStorage.setItem('liquid_api_secret', liquidApiSecret);
 
       // Save Telegram config to backend (Firestore)
       if (telegramBotToken && telegramChatId) {
@@ -388,6 +429,18 @@ export default function Settings() {
 
   const isTelegramActive = () => {
     return telegramBotToken.length > 0 && telegramChatId.length > 0;
+  };
+
+  const isAsterActive = () => {
+    return asterApiKey.length > 0 && asterApiSecret.length > 0;
+  };
+
+  const isHyperliquidActive = () => {
+    return hyperliquidPrivateKey.length > 0 && hyperliquidWalletAddress.length > 0;
+  };
+
+  const isLiquidActive = () => {
+    return liquidApiToken.length > 0 && liquidApiSecret.length > 0;
   };
 
   return (
@@ -878,6 +931,214 @@ export default function Settings() {
                   >
                     <Send className="h-4 w-4" />
                     Send Test Message
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Aster DEX API */}
+          <div className="card">
+            {/* Collapsible Header */}
+            <button
+              onClick={() => toggleSection('aster')}
+              className="w-full flex items-center justify-between mb-4 hover:opacity-80 transition-opacity"
+            >
+              <div className="flex items-center gap-3">
+                <Zap className="h-6 w-6 text-cyan-500" />
+                <h2 className="text-xl font-bold">Aster DEX API</h2>
+                <div className="flex items-center gap-2">
+                  {isAsterActive() ? (
+                    <>
+                      <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                      <span className="text-sm text-green-500 font-semibold">Active</span>
+                    </>
+                  ) : (
+                    <>
+                      <div className="w-2 h-2 rounded-full bg-gray-500" />
+                      <span className="text-sm text-gray-500 font-semibold">Inactive</span>
+                    </>
+                  )}
+                </div>
+              </div>
+              {expandedSections.aster ? (
+                <ChevronDown className="h-5 w-5 text-gray-400" />
+              ) : (
+                <ChevronRight className="h-5 w-5 text-gray-400" />
+              )}
+            </button>
+
+            {/* Collapsible Content */}
+            {expandedSections.aster && (
+              <>
+                <p className="text-sm text-gray-400 mb-4">
+                  Aster is a decentralized perpetuals exchange. API keys are used for real-time funding rate monitoring and automated position management.
+                </p>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-2">API Key</label>
+                    <input
+                      type={showSecrets['aster-key'] ? 'text' : 'password'}
+                      value={asterApiKey}
+                      onChange={(e) => setAsterApiKey(e.target.value)}
+                      placeholder="Enter your Aster API key"
+                      className="w-full bg-slate-700 text-white px-4 py-2 rounded-lg font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-2">API Secret</label>
+                    <input
+                      type="password"
+                      value={asterApiSecret}
+                      onChange={(e) => setAsterApiSecret(e.target.value)}
+                      placeholder="Enter your Aster API secret"
+                      className="w-full bg-slate-700 text-white px-4 py-2 rounded-lg font-mono"
+                    />
+                  </div>
+                  <button
+                    onClick={() => toggleSecretVisibility('aster-key')}
+                    className="btn btn-secondary btn-sm"
+                  >
+                    {showSecrets['aster-key'] ? 'Hide' : 'Show'} Key
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Hyperliquid API */}
+          <div className="card">
+            {/* Collapsible Header */}
+            <button
+              onClick={() => toggleSection('hyperliquid')}
+              className="w-full flex items-center justify-between mb-4 hover:opacity-80 transition-opacity"
+            >
+              <div className="flex items-center gap-3">
+                <Zap className="h-6 w-6 text-purple-500" />
+                <h2 className="text-xl font-bold">Hyperliquid API</h2>
+                <div className="flex items-center gap-2">
+                  {isHyperliquidActive() ? (
+                    <>
+                      <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                      <span className="text-sm text-green-500 font-semibold">Active</span>
+                    </>
+                  ) : (
+                    <>
+                      <div className="w-2 h-2 rounded-full bg-gray-500" />
+                      <span className="text-sm text-gray-500 font-semibold">Inactive</span>
+                    </>
+                  )}
+                </div>
+              </div>
+              {expandedSections.hyperliquid ? (
+                <ChevronDown className="h-5 w-5 text-gray-400" />
+              ) : (
+                <ChevronRight className="h-5 w-5 text-gray-400" />
+              )}
+            </button>
+
+            {/* Collapsible Content */}
+            {expandedSections.hyperliquid && (
+              <>
+                <p className="text-sm text-gray-400 mb-4">
+                  Hyperliquid is a performant Layer-1 DEX for perpetual swaps. Uses wallet-based authentication via private key signing.
+                </p>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-2">Wallet Address</label>
+                    <input
+                      type="text"
+                      value={hyperliquidWalletAddress}
+                      onChange={(e) => setHyperliquidWalletAddress(e.target.value)}
+                      placeholder="0x..."
+                      className="w-full bg-slate-700 text-white px-4 py-2 rounded-lg font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-2">Private Key (Agent Wallet)</label>
+                    <input
+                      type="password"
+                      value={hyperliquidPrivateKey}
+                      onChange={(e) => setHyperliquidPrivateKey(e.target.value)}
+                      placeholder="Enter your Hyperliquid agent wallet private key"
+                      className="w-full bg-slate-700 text-white px-4 py-2 rounded-lg font-mono"
+                    />
+                    <p className="text-xs text-yellow-500 mt-2">⚠️ Use a dedicated agent wallet, not your main wallet</p>
+                  </div>
+                  <button
+                    onClick={() => toggleSecretVisibility('hyperliquid-key')}
+                    className="btn btn-secondary btn-sm"
+                  >
+                    {showSecrets['hyperliquid-key'] ? 'Hide' : 'Show'} Key
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Liquid Exchange API */}
+          <div className="card">
+            {/* Collapsible Header */}
+            <button
+              onClick={() => toggleSection('liquid')}
+              className="w-full flex items-center justify-between mb-4 hover:opacity-80 transition-opacity"
+            >
+              <div className="flex items-center gap-3">
+                <Zap className="h-6 w-6 text-blue-400" />
+                <h2 className="text-xl font-bold">Liquid Exchange API</h2>
+                <div className="flex items-center gap-2">
+                  {isLiquidActive() ? (
+                    <>
+                      <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                      <span className="text-sm text-green-500 font-semibold">Active</span>
+                    </>
+                  ) : (
+                    <>
+                      <div className="w-2 h-2 rounded-full bg-gray-500" />
+                      <span className="text-sm text-gray-500 font-semibold">Inactive</span>
+                    </>
+                  )}
+                </div>
+              </div>
+              {expandedSections.liquid ? (
+                <ChevronDown className="h-5 w-5 text-gray-400" />
+              ) : (
+                <ChevronRight className="h-5 w-5 text-gray-400" />
+              )}
+            </button>
+
+            {/* Collapsible Content */}
+            {expandedSections.liquid && (
+              <>
+                <p className="text-sm text-gray-400 mb-4">
+                  Liquid is a centralized crypto-fiat exchange with spot and margin trading. Uses JWT-based authentication.
+                </p>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-2">API Token ID</label>
+                    <input
+                      type={showSecrets['liquid-token'] ? 'text' : 'password'}
+                      value={liquidApiToken}
+                      onChange={(e) => setLiquidApiToken(e.target.value)}
+                      placeholder="Enter your Liquid API token ID"
+                      className="w-full bg-slate-700 text-white px-4 py-2 rounded-lg font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-2">API Secret</label>
+                    <input
+                      type="password"
+                      value={liquidApiSecret}
+                      onChange={(e) => setLiquidApiSecret(e.target.value)}
+                      placeholder="Enter your Liquid API secret"
+                      className="w-full bg-slate-700 text-white px-4 py-2 rounded-lg font-mono"
+                    />
+                  </div>
+                  <button
+                    onClick={() => toggleSecretVisibility('liquid-token')}
+                    className="btn btn-secondary btn-sm"
+                  >
+                    {showSecrets['liquid-token'] ? 'Hide' : 'Show'} Token
                   </button>
                 </div>
               </>
