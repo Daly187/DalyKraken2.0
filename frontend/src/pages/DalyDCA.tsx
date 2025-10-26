@@ -407,13 +407,52 @@ export default function DalyDCA() {
     if (window.confirm(`Are you sure you want to manually exit ${symbol}? This will sell all current holdings back to USD.`)) {
       try {
         setExecuting(true);
+
+        // Get auth token
+        const token = localStorage.getItem('auth_token');
+        if (!token) {
+          alert('Please log in again - session expired');
+          setExecuting(false);
+          return;
+        }
+
+        // Get Kraken API keys using the same logic as manual trades
+        const getApiKeys = (): { apiKey: string; apiSecret: string } | null => {
+          try {
+            const keysJson = localStorage.getItem('kraken_api_keys');
+            if (!keysJson) return null;
+
+            const keys = JSON.parse(keysJson);
+            if (!Array.isArray(keys)) return null;
+
+            // Try primary, fallback1, fallback2 in order
+            for (const keyType of ['primary', 'fallback1', 'fallback2']) {
+              const key = keys.find((k) => k.type === keyType);
+              if (key?.apiKey && key?.apiSecret && key.isActive) {
+                return { apiKey: key.apiKey, apiSecret: key.apiSecret };
+              }
+            }
+            return null;
+          } catch (error) {
+            console.error('[ManualExit] Error reading API keys:', error);
+            return null;
+          }
+        };
+
+        const credentials = getApiKeys();
+        if (!credentials) {
+          alert('Please set your Kraken API credentials in settings');
+          setExecuting(false);
+          return;
+        }
+
         const response = await fetch(`${config.api.mainUrl}/dca-bots/${botId}/exit`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${localStorage.getItem('firebaseToken')}`,
-            'x-kraken-api-key': localStorage.getItem('krakenApiKey') || '',
-            'x-kraken-api-secret': localStorage.getItem('krakenApiSecret') || '',
+            'Authorization': `Bearer ${token}`,
+            'x-kraken-api-key': credentials.apiKey,
+            'x-kraken-api-secret': credentials.apiSecret,
           },
         });
 
