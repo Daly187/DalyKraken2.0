@@ -304,6 +304,102 @@ export default function Settings() {
     }
   };
 
+  const saveAsterConfig = async () => {
+    if (!asterApiKey || !asterApiSecret) {
+      addNotification({
+        type: 'error',
+        title: 'Missing Credentials',
+        message: 'Please enter both Aster API key and secret',
+      });
+      return;
+    }
+
+    setSaving(true);
+
+    try {
+      localStorage.setItem('aster_api_key', asterApiKey);
+      localStorage.setItem('aster_api_secret', asterApiSecret);
+
+      addNotification({
+        type: 'success',
+        title: 'Aster Config Saved',
+        message: 'Aster API credentials have been saved securely',
+      });
+    } catch (error: any) {
+      addNotification({
+        type: 'error',
+        title: 'Save Failed',
+        message: error.message || 'Failed to save Aster configuration',
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveHyperliquidConfig = async () => {
+    if (!hyperliquidPrivateKey || !hyperliquidWalletAddress) {
+      addNotification({
+        type: 'error',
+        title: 'Missing Credentials',
+        message: 'Please enter both wallet address and private key',
+      });
+      return;
+    }
+
+    setSaving(true);
+
+    try {
+      localStorage.setItem('hyperliquid_private_key', hyperliquidPrivateKey);
+      localStorage.setItem('hyperliquid_wallet_address', hyperliquidWalletAddress);
+
+      addNotification({
+        type: 'success',
+        title: 'Hyperliquid Config Saved',
+        message: 'Hyperliquid API credentials have been saved securely',
+      });
+    } catch (error: any) {
+      addNotification({
+        type: 'error',
+        title: 'Save Failed',
+        message: error.message || 'Failed to save Hyperliquid configuration',
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveLiquidConfig = async () => {
+    if (!liquidApiToken || !liquidApiSecret) {
+      addNotification({
+        type: 'error',
+        title: 'Missing Credentials',
+        message: 'Please enter both API token and secret',
+      });
+      return;
+    }
+
+    setSaving(true);
+
+    try {
+      localStorage.setItem('liquid_api_token', liquidApiToken);
+      localStorage.setItem('liquid_api_secret', liquidApiSecret);
+
+      addNotification({
+        type: 'success',
+        title: 'Liquid Config Saved',
+        message: 'Liquid API credentials have been saved securely',
+      });
+    } catch (error: any) {
+      addNotification({
+        type: 'error',
+        title: 'Save Failed',
+        message: error.message || 'Failed to save Liquid configuration',
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const saveTelegramConfig = async () => {
     if (!telegramBotToken || !telegramChatId) {
       addNotification({
@@ -995,12 +1091,26 @@ export default function Settings() {
                       className="w-full bg-slate-700 text-white px-4 py-2 rounded-lg font-mono"
                     />
                   </div>
-                  <button
-                    onClick={() => toggleSecretVisibility('aster-key')}
-                    className="btn btn-secondary btn-sm"
-                  >
-                    {showSecrets['aster-key'] ? 'Hide' : 'Show'} Key
-                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => toggleSecretVisibility('aster-key')}
+                      className="btn btn-secondary btn-sm"
+                    >
+                      {showSecrets['aster-key'] ? 'Hide' : 'Show'} Key
+                    </button>
+                    <button
+                      onClick={saveAsterConfig}
+                      disabled={saving || !asterApiKey || !asterApiSecret}
+                      className="btn btn-primary btn-sm flex items-center gap-2"
+                    >
+                      {saving ? (
+                        <RefreshCw className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Save className="h-3 w-3" />
+                      )}
+                      Save Aster Config
+                    </button>
+                  </div>
                 </div>
               </>
             )}
@@ -1065,12 +1175,26 @@ export default function Settings() {
                     />
                     <p className="text-xs text-yellow-500 mt-2">⚠️ Use a dedicated agent wallet, not your main wallet</p>
                   </div>
-                  <button
-                    onClick={() => toggleSecretVisibility('hyperliquid-key')}
-                    className="btn btn-secondary btn-sm"
-                  >
-                    {showSecrets['hyperliquid-key'] ? 'Hide' : 'Show'} Key
-                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => toggleSecretVisibility('hyperliquid-key')}
+                      className="btn btn-secondary btn-sm"
+                    >
+                      {showSecrets['hyperliquid-key'] ? 'Hide' : 'Show'} Key
+                    </button>
+                    <button
+                      onClick={saveHyperliquidConfig}
+                      disabled={saving || !hyperliquidPrivateKey || !hyperliquidWalletAddress}
+                      className="btn btn-primary btn-sm flex items-center gap-2"
+                    >
+                      {saving ? (
+                        <RefreshCw className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Save className="h-3 w-3" />
+                      )}
+                      Save Hyperliquid Config
+                    </button>
+                  </div>
                 </div>
               </>
             )}
@@ -1134,12 +1258,26 @@ export default function Settings() {
                       className="w-full bg-slate-700 text-white px-4 py-2 rounded-lg font-mono"
                     />
                   </div>
-                  <button
-                    onClick={() => toggleSecretVisibility('liquid-token')}
-                    className="btn btn-secondary btn-sm"
-                  >
-                    {showSecrets['liquid-token'] ? 'Hide' : 'Show'} Token
-                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => toggleSecretVisibility('liquid-token')}
+                      className="btn btn-secondary btn-sm"
+                    >
+                      {showSecrets['liquid-token'] ? 'Hide' : 'Show'} Token
+                    </button>
+                    <button
+                      onClick={saveLiquidConfig}
+                      disabled={saving || !liquidApiToken || !liquidApiSecret}
+                      className="btn btn-primary btn-sm flex items-center gap-2"
+                    >
+                      {saving ? (
+                        <RefreshCw className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Save className="h-3 w-3" />
+                      )}
+                      Save Liquid Config
+                    </button>
+                  </div>
                 </div>
               </>
             )}
