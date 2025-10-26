@@ -24,6 +24,7 @@ import {
   Zap,
   Layers,
   RefreshCw,
+  LogOut,
 } from 'lucide-react';
 import type { DCABotConfig } from '@/types';
 
@@ -398,6 +399,40 @@ export default function DalyDCA() {
         setEditingBotId(null);
       } catch (error) {
         console.error('Failed to delete bot:', error);
+      }
+    }
+  };
+
+  const handleManualExit = async (botId: string, symbol: string) => {
+    if (window.confirm(`Are you sure you want to manually exit ${symbol}? This will sell all current holdings back to USD.`)) {
+      try {
+        setExecuting(true);
+        const response = await fetch(`${config.apiUrl}/api/dca-bots/${botId}/exit`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('firebaseToken')}`,
+            'x-kraken-api-key': localStorage.getItem('krakenApiKey') || '',
+            'x-kraken-api-secret': localStorage.getItem('krakenApiSecret') || '',
+          },
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+          console.log('Manual exit successful:', data);
+          alert(`Exit order created successfully for ${symbol}!\n\nEntries exited: ${data.exitDetails?.entriesExited}\nP&L: $${data.exitDetails?.unrealizedPnL?.toFixed(2)} (${data.exitDetails?.unrealizedPnLPercent?.toFixed(2)}%)`);
+          // Refresh bots to show updated status
+          await fetchDCABots();
+        } else {
+          console.error('Manual exit failed:', data.error);
+          alert(`Failed to exit ${symbol}: ${data.error}`);
+        }
+      } catch (error: any) {
+        console.error('Failed to manually exit bot:', error);
+        alert(`Failed to exit ${symbol}: ${error.message}`);
+      } finally {
+        setExecuting(false);
       }
     }
   };
@@ -1632,6 +1667,17 @@ export default function DalyDCA() {
                           >
                             <Edit className="h-3 w-3" />
                             Edit Bot
+                          </button>
+                        )}
+                        {!isEditing && bot.currentEntryCount > 0 && (
+                          <button
+                            onClick={() => handleManualExit(bot.id, bot.symbol)}
+                            disabled={executing}
+                            className="btn btn-warning btn-sm flex items-center gap-2"
+                            title="Manually exit all positions"
+                          >
+                            <LogOut className="h-3 w-3" />
+                            {executing ? 'Exiting...' : 'Exit Position'}
                           </button>
                         )}
                         <button
