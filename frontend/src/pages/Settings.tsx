@@ -18,6 +18,8 @@ import {
   Sun,
   Moon,
   Palette,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
 
 interface KrakenApiKey {
@@ -31,10 +33,35 @@ interface KrakenApiKey {
   status: 'untested' | 'testing' | 'success' | 'failed';
 }
 
+type SettingsTab = 'apis' | 'themes';
+
 export default function Settings() {
   const systemStatus = useStore((state) => state.systemStatus);
   const addNotification = useStore((state) => state.addNotification);
   const { theme, setTheme } = useTheme();
+
+  // Tab state
+  const [activeTab, setActiveTab] = useState<SettingsTab>('apis');
+
+  // Collapsible state for each API section
+  const [expandedSections, setExpandedSections] = useState<{
+    kraken: boolean;
+    quantify: boolean;
+    coinmarketcap: boolean;
+    telegram: boolean;
+  }>({
+    kraken: true,
+    quantify: false,
+    coinmarketcap: false,
+    telegram: false,
+  });
+
+  const toggleSection = (section: keyof typeof expandedSections) => {
+    setExpandedSections((prev) => ({
+      ...prev,
+      [section]: !prev[section],
+    }));
+  };
 
   // Kraken API Keys (3 total: 1 primary + 2 fallbacks)
   const [krakenKeys, setKrakenKeys] = useState<KrakenApiKey[]>([
@@ -346,6 +373,23 @@ export default function Settings() {
     }
   };
 
+  // Helper functions to determine if APIs are active/configured
+  const isKrakenActive = () => {
+    return krakenKeys.some(key => key.isActive && key.apiKey && key.apiSecret);
+  };
+
+  const isQuantifyActive = () => {
+    return quantifyCryptoKey.length > 0;
+  };
+
+  const isCoinMarketCapActive = () => {
+    return coinMarketCapKey.length > 0;
+  };
+
+  const isTelegramActive = () => {
+    return telegramBotToken.length > 0 && telegramChatId.length > 0;
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -363,89 +407,149 @@ export default function Settings() {
         </div>
       </div>
 
-      {/* Theme Selection */}
+      {/* Tab Navigation */}
       <div className="card">
-        <div className="flex items-center gap-2 mb-4">
-          <Palette className="h-6 w-6 text-primary-500" />
-          <h2 className="text-xl font-bold">Appearance</h2>
-        </div>
-        <p className="text-sm text-gray-400 mb-4">
-          Customize the look and feel of your dashboard
-        </p>
-
-        <div className="space-y-3">
-          <label className="block text-sm font-medium text-gray-300 mb-2">
-            Theme
-          </label>
-          <div className="grid grid-cols-2 gap-4">
-            {/* Light Theme Option */}
-            <button
-              onClick={() => setTheme('light')}
-              className={`relative flex flex-col items-center gap-3 p-4 rounded-lg border-2 transition-all ${
-                theme === 'light'
-                  ? 'border-primary-500 bg-primary-500/10'
-                  : 'border-slate-600 bg-slate-700/50 hover:border-slate-500'
-              }`}
-            >
-              <div className="flex items-center justify-center w-12 h-12 rounded-full bg-gradient-to-br from-blue-100 to-gray-100">
-                <Sun className="h-6 w-6 text-yellow-600" />
-              </div>
-              <div className="text-center">
-                <p className="font-semibold">Light Mode</p>
-                <p className="text-xs text-gray-400 mt-1">Clean and bright interface</p>
-              </div>
-              {theme === 'light' && (
-                <div className="absolute top-2 right-2">
-                  <CheckCircle className="h-5 w-5 text-primary-500" />
-                </div>
-              )}
-            </button>
-
-            {/* Dark Theme Option */}
-            <button
-              onClick={() => setTheme('dark')}
-              className={`relative flex flex-col items-center gap-3 p-4 rounded-lg border-2 transition-all ${
-                theme === 'dark'
-                  ? 'border-primary-500 bg-primary-500/10'
-                  : 'border-slate-600 bg-slate-700/50 hover:border-slate-500'
-              }`}
-            >
-              <div className="flex items-center justify-center w-12 h-12 rounded-full bg-gradient-to-br from-slate-700 to-slate-900">
-                <Moon className="h-6 w-6 text-blue-400" />
-              </div>
-              <div className="text-center">
-                <p className="font-semibold">Dark Mode</p>
-                <p className="text-xs text-gray-400 mt-1">Easy on the eyes</p>
-              </div>
-              {theme === 'dark' && (
-                <div className="absolute top-2 right-2">
-                  <CheckCircle className="h-5 w-5 text-primary-500" />
-                </div>
-              )}
-            </button>
-          </div>
+        <div className="flex gap-2 border-b border-slate-600 pb-4">
+          <button
+            onClick={() => setActiveTab('apis')}
+            className={`flex items-center gap-2 px-6 py-3 rounded-lg font-semibold transition-all ${
+              activeTab === 'apis'
+                ? 'bg-primary-500 text-white'
+                : 'bg-slate-700/50 text-gray-400 hover:bg-slate-700 hover:text-white'
+            }`}
+          >
+            <Key className="h-5 w-5" />
+            API Keys
+          </button>
+          <button
+            onClick={() => setActiveTab('themes')}
+            className={`flex items-center gap-2 px-6 py-3 rounded-lg font-semibold transition-all ${
+              activeTab === 'themes'
+                ? 'bg-primary-500 text-white'
+                : 'bg-slate-700/50 text-gray-400 hover:bg-slate-700 hover:text-white'
+            }`}
+          >
+            <Palette className="h-5 w-5" />
+            Themes
+          </button>
         </div>
       </div>
 
-      {/* Kraken API Keys Section */}
-      <div className="card">
-        <div className="flex items-center gap-2 mb-6">
-          <Key className="h-6 w-6 text-primary-500" />
-          <h2 className="text-2xl font-bold">Kraken API Keys</h2>
-        </div>
+      {/* Themes Tab Content */}
+      {activeTab === 'themes' && (
+        <div className="card">
+          <div className="flex items-center gap-2 mb-4">
+            <Palette className="h-6 w-6 text-primary-500" />
+            <h2 className="text-xl font-bold">Appearance</h2>
+          </div>
+          <p className="text-sm text-gray-400 mb-4">
+            Customize the look and feel of your dashboard
+          </p>
 
-        <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4 mb-6">
-          <div className="flex items-start gap-3">
-            <AlertTriangle className="h-5 w-5 text-blue-500 mt-0.5" />
-            <div className="text-sm text-gray-300">
-              <p className="font-semibold mb-2">Fallback Configuration</p>
-              <p>
-                Configure up to 3 Kraken API keys for redundancy. If the primary key
-                fails, the system will automatically try fallback keys in order.
-              </p>
+          <div className="space-y-3">
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              Theme
+            </label>
+            <div className="grid grid-cols-2 gap-4">
+              {/* Light Theme Option */}
+              <button
+                onClick={() => setTheme('light')}
+                className={`relative flex flex-col items-center gap-3 p-4 rounded-lg border-2 transition-all ${
+                  theme === 'light'
+                    ? 'border-primary-500 bg-primary-500/10'
+                    : 'border-slate-600 bg-slate-700/50 hover:border-slate-500'
+                }`}
+              >
+                <div className="flex items-center justify-center w-12 h-12 rounded-full bg-gradient-to-br from-blue-100 to-gray-100">
+                  <Sun className="h-6 w-6 text-yellow-600" />
+                </div>
+                <div className="text-center">
+                  <p className="font-semibold">Light Mode</p>
+                  <p className="text-xs text-gray-400 mt-1">Clean and bright interface</p>
+                </div>
+                {theme === 'light' && (
+                  <div className="absolute top-2 right-2">
+                    <CheckCircle className="h-5 w-5 text-primary-500" />
+                  </div>
+                )}
+              </button>
+
+              {/* Dark Theme Option */}
+              <button
+                onClick={() => setTheme('dark')}
+                className={`relative flex flex-col items-center gap-3 p-4 rounded-lg border-2 transition-all ${
+                  theme === 'dark'
+                    ? 'border-primary-500 bg-primary-500/10'
+                    : 'border-slate-600 bg-slate-700/50 hover:border-slate-500'
+                }`}
+              >
+                <div className="flex items-center justify-center w-12 h-12 rounded-full bg-gradient-to-br from-slate-700 to-slate-900">
+                  <Moon className="h-6 w-6 text-blue-400" />
+                </div>
+                <div className="text-center">
+                  <p className="font-semibold">Dark Mode</p>
+                  <p className="text-xs text-gray-400 mt-1">Easy on the eyes</p>
+                </div>
+                {theme === 'dark' && (
+                  <div className="absolute top-2 right-2">
+                    <CheckCircle className="h-5 w-5 text-primary-500" />
+                  </div>
+                )}
+              </button>
             </div>
           </div>
         </div>
+      )}
+
+      {/* APIs Tab Content */}
+      {activeTab === 'apis' && (
+        <>
+          {/* Kraken API Keys Section */}
+          <div className="card">
+            {/* Collapsible Header */}
+            <button
+              onClick={() => toggleSection('kraken')}
+              className="w-full flex items-center justify-between mb-4 hover:opacity-80 transition-opacity"
+            >
+              <div className="flex items-center gap-3">
+                <Key className="h-6 w-6 text-primary-500" />
+                <h2 className="text-2xl font-bold">Kraken API Keys</h2>
+                <div className="flex items-center gap-2">
+                  {isKrakenActive() ? (
+                    <>
+                      <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                      <span className="text-sm text-green-500 font-semibold">Active</span>
+                    </>
+                  ) : (
+                    <>
+                      <div className="w-2 h-2 rounded-full bg-gray-500" />
+                      <span className="text-sm text-gray-500 font-semibold">Inactive</span>
+                    </>
+                  )}
+                </div>
+              </div>
+              {expandedSections.kraken ? (
+                <ChevronDown className="h-5 w-5 text-gray-400" />
+              ) : (
+                <ChevronRight className="h-5 w-5 text-gray-400" />
+              )}
+            </button>
+
+            {/* Collapsible Content */}
+            {expandedSections.kraken && (
+              <>
+                <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4 mb-6">
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className="h-5 w-5 text-blue-500 mt-0.5" />
+                    <div className="text-sm text-gray-300">
+                      <p className="font-semibold mb-2">Fallback Configuration</p>
+                      <p>
+                        Configure up to 3 Kraken API keys for redundancy. If the primary key
+                        fails, the system will automatically try fallback keys in order.
+                      </p>
+                    </div>
+                  </div>
+                </div>
 
         <div className="space-y-4">
           {krakenKeys.map((key) => (
@@ -559,179 +663,273 @@ export default function Settings() {
           ))}
         </div>
 
-        <button
-          onClick={saveKrakenKeys}
-          disabled={saving}
-          className="btn btn-primary mt-6 w-full flex items-center justify-center"
-        >
-          {saving ? (
-            <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-          ) : (
-            <Save className="mr-2 h-4 w-4" />
-          )}
-          {saving ? 'Saving...' : 'Save Kraken API Keys'}
-        </button>
-      </div>
-
-      {/* Quantify Crypto API */}
-      <div className="card">
-        <div className="flex items-center gap-2 mb-4">
-          <Zap className="h-6 w-6 text-yellow-500" />
-          <h2 className="text-xl font-bold">Quantify Crypto API</h2>
-        </div>
-        <p className="text-sm text-gray-400 mb-4">
-          Used for enhanced market trends and technical analysis
-        </p>
-        <div>
-          <label className="block text-sm text-gray-400 mb-2">API Key</label>
-          <input
-            type={showSecrets['quantify'] ? 'text' : 'password'}
-            value={quantifyCryptoKey}
-            onChange={(e) => setQuantifyCryptoKey(e.target.value)}
-            placeholder="Enter your Quantify Crypto API key"
-            className="w-full bg-slate-700 text-white px-4 py-2 rounded-lg font-mono"
-          />
-          <button
-            onClick={() => toggleSecretVisibility('quantify')}
-            className="btn btn-secondary btn-sm mt-2"
-          >
-            {showSecrets['quantify'] ? 'Hide' : 'Show'} Key
-          </button>
-        </div>
-      </div>
-
-      {/* CoinMarketCap API */}
-      <div className="card">
-        <div className="flex items-center gap-2 mb-4">
-          <SettingsIcon className="h-6 w-6 text-green-500" />
-          <h2 className="text-xl font-bold">CoinMarketCap API</h2>
-        </div>
-        <p className="text-sm text-gray-400 mb-4">
-          Used for additional market data and coin information
-        </p>
-        <div>
-          <label className="block text-sm text-gray-400 mb-2">API Key</label>
-          <input
-            type={showSecrets['cmc'] ? 'text' : 'password'}
-            value={coinMarketCapKey}
-            onChange={(e) => setCoinMarketCapKey(e.target.value)}
-            placeholder="Enter your CoinMarketCap API key"
-            className="w-full bg-slate-700 text-white px-4 py-2 rounded-lg font-mono"
-          />
-          <button
-            onClick={() => toggleSecretVisibility('cmc')}
-            className="btn btn-secondary btn-sm mt-2"
-          >
-            {showSecrets['cmc'] ? 'Hide' : 'Show'} Key
-          </button>
-        </div>
-      </div>
-
-      {/* Telegram Integration */}
-      <div className="card">
-        <div className="flex items-center gap-2 mb-4">
-          <MessageSquare className="h-6 w-6 text-blue-500" />
-          <h2 className="text-xl font-bold">Telegram Notifications</h2>
-        </div>
-        <p className="text-sm text-gray-400 mb-4">
-          Receive trading alerts and system notifications via Telegram
-        </p>
-        <div className="grid md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm text-gray-400 mb-2">Bot Token</label>
-            <input
-              type={showSecrets['telegram'] ? 'text' : 'password'}
-              value={telegramBotToken}
-              onChange={(e) => setTelegramBotToken(e.target.value)}
-              placeholder="Enter your Telegram bot token"
-              className="w-full bg-slate-700 text-white px-4 py-2 rounded-lg font-mono"
-            />
+                <button
+                  onClick={saveKrakenKeys}
+                  disabled={saving}
+                  className="btn btn-primary mt-6 w-full flex items-center justify-center"
+                >
+                  {saving ? (
+                    <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Save className="mr-2 h-4 w-4" />
+                  )}
+                  {saving ? 'Saving...' : 'Save Kraken API Keys'}
+                </button>
+              </>
+            )}
           </div>
-          <div>
-            <label className="block text-sm text-gray-400 mb-2">Chat ID</label>
-            <input
-              type="text"
-              value={telegramChatId}
-              onChange={(e) => setTelegramChatId(e.target.value)}
-              placeholder="Enter your Telegram chat ID"
-              className="w-full bg-slate-700 text-white px-4 py-2 rounded-lg font-mono"
-            />
+
+          {/* Quantify Crypto API */}
+          <div className="card">
+            {/* Collapsible Header */}
+            <button
+              onClick={() => toggleSection('quantify')}
+              className="w-full flex items-center justify-between mb-4 hover:opacity-80 transition-opacity"
+            >
+              <div className="flex items-center gap-3">
+                <Zap className="h-6 w-6 text-yellow-500" />
+                <h2 className="text-xl font-bold">Quantify Crypto API</h2>
+                <div className="flex items-center gap-2">
+                  {isQuantifyActive() ? (
+                    <>
+                      <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                      <span className="text-sm text-green-500 font-semibold">Active</span>
+                    </>
+                  ) : (
+                    <>
+                      <div className="w-2 h-2 rounded-full bg-gray-500" />
+                      <span className="text-sm text-gray-500 font-semibold">Inactive</span>
+                    </>
+                  )}
+                </div>
+              </div>
+              {expandedSections.quantify ? (
+                <ChevronDown className="h-5 w-5 text-gray-400" />
+              ) : (
+                <ChevronRight className="h-5 w-5 text-gray-400" />
+              )}
+            </button>
+
+            {/* Collapsible Content */}
+            {expandedSections.quantify && (
+              <>
+                <p className="text-sm text-gray-400 mb-4">
+                  Used for enhanced market trends and technical analysis
+                </p>
+                <div>
+                  <label className="block text-sm text-gray-400 mb-2">API Key</label>
+                  <input
+                    type={showSecrets['quantify'] ? 'text' : 'password'}
+                    value={quantifyCryptoKey}
+                    onChange={(e) => setQuantifyCryptoKey(e.target.value)}
+                    placeholder="Enter your Quantify Crypto API key"
+                    className="w-full bg-slate-700 text-white px-4 py-2 rounded-lg font-mono"
+                  />
+                  <button
+                    onClick={() => toggleSecretVisibility('quantify')}
+                    className="btn btn-secondary btn-sm mt-2"
+                  >
+                    {showSecrets['quantify'] ? 'Hide' : 'Show'} Key
+                  </button>
+                </div>
+              </>
+            )}
           </div>
-        </div>
-        <div className="flex gap-2 mt-4">
+
+          {/* CoinMarketCap API */}
+          <div className="card">
+            {/* Collapsible Header */}
+            <button
+              onClick={() => toggleSection('coinmarketcap')}
+              className="w-full flex items-center justify-between mb-4 hover:opacity-80 transition-opacity"
+            >
+              <div className="flex items-center gap-3">
+                <SettingsIcon className="h-6 w-6 text-green-500" />
+                <h2 className="text-xl font-bold">CoinMarketCap API</h2>
+                <div className="flex items-center gap-2">
+                  {isCoinMarketCapActive() ? (
+                    <>
+                      <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                      <span className="text-sm text-green-500 font-semibold">Active</span>
+                    </>
+                  ) : (
+                    <>
+                      <div className="w-2 h-2 rounded-full bg-gray-500" />
+                      <span className="text-sm text-gray-500 font-semibold">Inactive</span>
+                    </>
+                  )}
+                </div>
+              </div>
+              {expandedSections.coinmarketcap ? (
+                <ChevronDown className="h-5 w-5 text-gray-400" />
+              ) : (
+                <ChevronRight className="h-5 w-5 text-gray-400" />
+              )}
+            </button>
+
+            {/* Collapsible Content */}
+            {expandedSections.coinmarketcap && (
+              <>
+                <p className="text-sm text-gray-400 mb-4">
+                  Used for additional market data and coin information
+                </p>
+                <div>
+                  <label className="block text-sm text-gray-400 mb-2">API Key</label>
+                  <input
+                    type={showSecrets['cmc'] ? 'text' : 'password'}
+                    value={coinMarketCapKey}
+                    onChange={(e) => setCoinMarketCapKey(e.target.value)}
+                    placeholder="Enter your CoinMarketCap API key"
+                    className="w-full bg-slate-700 text-white px-4 py-2 rounded-lg font-mono"
+                  />
+                  <button
+                    onClick={() => toggleSecretVisibility('cmc')}
+                    className="btn btn-secondary btn-sm mt-2"
+                  >
+                    {showSecrets['cmc'] ? 'Hide' : 'Show'} Key
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Telegram Integration */}
+          <div className="card">
+            {/* Collapsible Header */}
+            <button
+              onClick={() => toggleSection('telegram')}
+              className="w-full flex items-center justify-between mb-4 hover:opacity-80 transition-opacity"
+            >
+              <div className="flex items-center gap-3">
+                <MessageSquare className="h-6 w-6 text-blue-500" />
+                <h2 className="text-xl font-bold">Telegram Notifications</h2>
+                <div className="flex items-center gap-2">
+                  {isTelegramActive() ? (
+                    <>
+                      <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                      <span className="text-sm text-green-500 font-semibold">Active</span>
+                    </>
+                  ) : (
+                    <>
+                      <div className="w-2 h-2 rounded-full bg-gray-500" />
+                      <span className="text-sm text-gray-500 font-semibold">Inactive</span>
+                    </>
+                  )}
+                </div>
+              </div>
+              {expandedSections.telegram ? (
+                <ChevronDown className="h-5 w-5 text-gray-400" />
+              ) : (
+                <ChevronRight className="h-5 w-5 text-gray-400" />
+              )}
+            </button>
+
+            {/* Collapsible Content */}
+            {expandedSections.telegram && (
+              <>
+                <p className="text-sm text-gray-400 mb-4">
+                  Receive trading alerts and system notifications via Telegram
+                </p>
+                <div className="grid md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-2">Bot Token</label>
+                    <input
+                      type={showSecrets['telegram'] ? 'text' : 'password'}
+                      value={telegramBotToken}
+                      onChange={(e) => setTelegramBotToken(e.target.value)}
+                      placeholder="Enter your Telegram bot token"
+                      className="w-full bg-slate-700 text-white px-4 py-2 rounded-lg font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-2">Chat ID</label>
+                    <input
+                      type="text"
+                      value={telegramChatId}
+                      onChange={(e) => setTelegramChatId(e.target.value)}
+                      placeholder="Enter your Telegram chat ID"
+                      className="w-full bg-slate-700 text-white px-4 py-2 rounded-lg font-mono"
+                    />
+                  </div>
+                </div>
+                <div className="flex gap-2 mt-4">
+                  <button
+                    onClick={() => toggleSecretVisibility('telegram')}
+                    className="btn btn-secondary btn-sm"
+                  >
+                    {showSecrets['telegram'] ? 'Hide' : 'Show'} Token
+                  </button>
+                  <button
+                    onClick={saveTelegramConfig}
+                    disabled={saving || !telegramBotToken || !telegramChatId}
+                    className="btn btn-primary btn-sm flex items-center gap-2"
+                  >
+                    {saving ? (
+                      <RefreshCw className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Save className="h-4 w-4" />
+                    )}
+                    Save Telegram Config
+                  </button>
+                  <button
+                    onClick={testTelegramConnection}
+                    disabled={saving || !telegramBotToken || !telegramChatId}
+                    className="btn btn-secondary btn-sm flex items-center gap-2"
+                  >
+                    <Send className="h-4 w-4" />
+                    Send Test Message
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Save All Button */}
           <button
-            onClick={() => toggleSecretVisibility('telegram')}
-            className="btn btn-secondary btn-sm"
-          >
-            {showSecrets['telegram'] ? 'Hide' : 'Show'} Token
-          </button>
-          <button
-            onClick={saveTelegramConfig}
-            disabled={saving || !telegramBotToken || !telegramChatId}
-            className="btn btn-primary btn-sm flex items-center gap-2"
+            onClick={saveOtherApiKeys}
+            disabled={saving}
+            className="btn btn-primary w-full flex items-center justify-center"
           >
             {saving ? (
-              <RefreshCw className="h-4 w-4 animate-spin" />
+              <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
             ) : (
-              <Save className="h-4 w-4" />
+              <Save className="mr-2 h-4 w-4" />
             )}
-            Save Telegram Config
+            {saving ? 'Saving...' : 'Save All API Keys'}
           </button>
-          <button
-            onClick={testTelegramConnection}
-            disabled={saving || !telegramBotToken || !telegramChatId}
-            className="btn btn-secondary btn-sm flex items-center gap-2"
-          >
-            <Send className="h-4 w-4" />
-            Send Test Message
-          </button>
-        </div>
-      </div>
 
-      {/* Save All Button */}
-      <button
-        onClick={saveOtherApiKeys}
-        disabled={saving}
-        className="btn btn-primary w-full flex items-center justify-center"
-      >
-        {saving ? (
-          <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-        ) : (
-          <Save className="mr-2 h-4 w-4" />
-        )}
-        {saving ? 'Saving...' : 'Save All API Keys'}
-      </button>
-
-      {/* Security Notice */}
-      <div className="card bg-yellow-500/10 border border-yellow-500/20">
-        <div className="flex items-start gap-3">
-          <Shield className="h-6 w-6 text-yellow-500 mt-1" />
-          <div>
-            <p className="font-bold text-yellow-500 mb-2">Security Best Practices</p>
-            <ul className="text-sm text-gray-300 space-y-2">
-              <li>
-                • <strong>API keys are stored locally</strong> in your browser's
-                localStorage
-              </li>
-              <li>
-                • <strong>Use read-only permissions</strong> where possible for safety
-              </li>
-              <li>
-                • <strong>Never share your API keys</strong> with anyone
-              </li>
-              <li>
-                • <strong>Regularly rotate keys</strong> for enhanced security
-              </li>
-              <li>
-                • <strong>Enable IP whitelisting</strong> on your Kraken account
-              </li>
-              <li>
-                • <strong>Use 2FA</strong> on all exchange accounts
-              </li>
-            </ul>
+          {/* Security Notice */}
+          <div className="card bg-yellow-500/10 border border-yellow-500/20">
+            <div className="flex items-start gap-3">
+              <Shield className="h-6 w-6 text-yellow-500 mt-1" />
+              <div>
+                <p className="font-bold text-yellow-500 mb-2">Security Best Practices</p>
+                <ul className="text-sm text-gray-300 space-y-2">
+                  <li>
+                    • <strong>API keys are stored locally</strong> in your browser's
+                    localStorage
+                  </li>
+                  <li>
+                    • <strong>Use read-only permissions</strong> where possible for safety
+                  </li>
+                  <li>
+                    • <strong>Never share your API keys</strong> with anyone
+                  </li>
+                  <li>
+                    • <strong>Regularly rotate keys</strong> for enhanced security
+                  </li>
+                  <li>
+                    • <strong>Enable IP whitelisting</strong> on your Kraken account
+                  </li>
+                  <li>
+                    • <strong>Use 2FA</strong> on all exchange accounts
+                  </li>
+                </ul>
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
+        </>
+      )}
     </div>
   );
 }
