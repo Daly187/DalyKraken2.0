@@ -4,6 +4,7 @@ export default {
     "./index.html",
     "./src/**/*.{js,ts,jsx,tsx}",
   ],
+  darkMode: 'class', // Enable dark mode via class strategy
   theme: {
     extend: {
       colors: {
@@ -22,6 +23,26 @@ export default {
         success: '#10b981',
         warning: '#f59e0b',
         danger: '#ef4444',
+        // Light theme colors
+        light: {
+          bg: '#f5f7fa',
+          'bg-secondary': '#ffffff',
+          'bg-card': '#ffffff',
+          text: '#1a202c',
+          'text-secondary': '#4a5568',
+          border: '#e2e8f0',
+          'border-light': '#f1f5f9',
+        },
+        // Dark theme colors
+        dark: {
+          bg: '#0f172a',
+          'bg-secondary': '#1e293b',
+          'bg-card': '#1e293b',
+          text: '#ffffff',
+          'text-secondary': '#9ca3af',
+          border: '#334155',
+          'border-light': '#475569',
+        },
       },
     },
   },

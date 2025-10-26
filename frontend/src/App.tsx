@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useStore } from '@/store/useStore';
 import { useEffect } from 'react';
+import { ThemeProvider } from '@/contexts/ThemeContext';
 
 // Layout components
 import ProtectedLayout from '@/components/layouts/ProtectedLayout';
@@ -27,40 +28,42 @@ function App() {
   const isAuthenticated = useStore((state) => state.isAuthenticated);
 
   return (
-    <BrowserRouter>
-      <Routes>
-        {/* Public routes */}
-        <Route element={<PublicLayout />}>
-          <Route path="/" element={<Landing />} />
-          <Route
-            path="/login"
-            element={
-              isAuthenticated ? <Navigate to="/dashboard" replace /> : <Login />
-            }
-          />
-          <Route path="/totp-setup" element={<TOTPSetup />} />
-        </Route>
+    <ThemeProvider>
+      <BrowserRouter>
+        <Routes>
+          {/* Public routes */}
+          <Route element={<PublicLayout />}>
+            <Route path="/" element={<Landing />} />
+            <Route
+              path="/login"
+              element={
+                isAuthenticated ? <Navigate to="/dashboard" replace /> : <Login />
+              }
+            />
+            <Route path="/totp-setup" element={<TOTPSetup />} />
+          </Route>
 
-        {/* Protected routes */}
-        <Route element={<ProtectedLayout />}>
-          <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/crypto-market" element={<CryptoMarket />} />
-          <Route path="/crypto-trends" element={<CryptoTrends />} />
-          <Route path="/portfolio" element={<Portfolio />} />
-          <Route path="/daly-dca" element={<DalyDCA />} />
-          <Route path="/daly-depeg" element={<DalyDEPEG />} />
-          <Route path="/daly-tracker" element={<DalyTracker />} />
-          <Route path="/daly-funding" element={<DalyFunding />} />
-          <Route path="/manual-trade" element={<ManualTrade />} />
-          <Route path="/audit-log" element={<AuditLog />} />
-          <Route path="/stats" element={<Stats />} />
-          <Route path="/settings" element={<Settings />} />
-        </Route>
+          {/* Protected routes */}
+          <Route element={<ProtectedLayout />}>
+            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/crypto-market" element={<CryptoMarket />} />
+            <Route path="/crypto-trends" element={<CryptoTrends />} />
+            <Route path="/portfolio" element={<Portfolio />} />
+            <Route path="/daly-dca" element={<DalyDCA />} />
+            <Route path="/daly-depeg" element={<DalyDEPEG />} />
+            <Route path="/daly-tracker" element={<DalyTracker />} />
+            <Route path="/daly-funding" element={<DalyFunding />} />
+            <Route path="/manual-trade" element={<ManualTrade />} />
+            <Route path="/audit-log" element={<AuditLog />} />
+            <Route path="/stats" element={<Stats />} />
+            <Route path="/settings" element={<Settings />} />
+          </Route>
 
-        {/* Catch all */}
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </BrowserRouter>
+          {/* Catch all */}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </BrowserRouter>
+    </ThemeProvider>
   );
 }
 

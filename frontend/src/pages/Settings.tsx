@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useStore } from '@/store/useStore';
 import { apiService } from '@/services/apiService';
+import { useTheme } from '@/contexts/ThemeContext';
 import {
   Key,
   Save,
@@ -14,6 +15,9 @@ import {
   Zap,
   MessageSquare,
   Send,
+  Sun,
+  Moon,
+  Palette,
 } from 'lucide-react';
 
 interface KrakenApiKey {
@@ -30,6 +34,7 @@ interface KrakenApiKey {
 export default function Settings() {
   const systemStatus = useStore((state) => state.systemStatus);
   const addNotification = useStore((state) => state.addNotification);
+  const { theme, setTheme } = useTheme();
 
   // Kraken API Keys (3 total: 1 primary + 2 fallbacks)
   const [krakenKeys, setKrakenKeys] = useState<KrakenApiKey[]>([
@@ -355,6 +360,70 @@ export default function Settings() {
           <span className="text-sm text-gray-400">
             {systemStatus.wsConnected ? 'Connected' : 'Disconnected'}
           </span>
+        </div>
+      </div>
+
+      {/* Theme Selection */}
+      <div className="card">
+        <div className="flex items-center gap-2 mb-4">
+          <Palette className="h-6 w-6 text-primary-500" />
+          <h2 className="text-xl font-bold">Appearance</h2>
+        </div>
+        <p className="text-sm text-gray-400 mb-4">
+          Customize the look and feel of your dashboard
+        </p>
+
+        <div className="space-y-3">
+          <label className="block text-sm font-medium text-gray-300 mb-2">
+            Theme
+          </label>
+          <div className="grid grid-cols-2 gap-4">
+            {/* Light Theme Option */}
+            <button
+              onClick={() => setTheme('light')}
+              className={`relative flex flex-col items-center gap-3 p-4 rounded-lg border-2 transition-all ${
+                theme === 'light'
+                  ? 'border-primary-500 bg-primary-500/10'
+                  : 'border-slate-600 bg-slate-700/50 hover:border-slate-500'
+              }`}
+            >
+              <div className="flex items-center justify-center w-12 h-12 rounded-full bg-gradient-to-br from-blue-100 to-gray-100">
+                <Sun className="h-6 w-6 text-yellow-600" />
+              </div>
+              <div className="text-center">
+                <p className="font-semibold">Light Mode</p>
+                <p className="text-xs text-gray-400 mt-1">Clean and bright interface</p>
+              </div>
+              {theme === 'light' && (
+                <div className="absolute top-2 right-2">
+                  <CheckCircle className="h-5 w-5 text-primary-500" />
+                </div>
+              )}
+            </button>
+
+            {/* Dark Theme Option */}
+            <button
+              onClick={() => setTheme('dark')}
+              className={`relative flex flex-col items-center gap-3 p-4 rounded-lg border-2 transition-all ${
+                theme === 'dark'
+                  ? 'border-primary-500 bg-primary-500/10'
+                  : 'border-slate-600 bg-slate-700/50 hover:border-slate-500'
+              }`}
+            >
+              <div className="flex items-center justify-center w-12 h-12 rounded-full bg-gradient-to-br from-slate-700 to-slate-900">
+                <Moon className="h-6 w-6 text-blue-400" />
+              </div>
+              <div className="text-center">
+                <p className="font-semibold">Dark Mode</p>
+                <p className="text-xs text-gray-400 mt-1">Easy on the eyes</p>
+              </div>
+              {theme === 'dark' && (
+                <div className="absolute top-2 right-2">
+                  <CheckCircle className="h-5 w-5 text-primary-500" />
+                </div>
+              )}
+            </button>
+          </div>
         </div>
       </div>
 

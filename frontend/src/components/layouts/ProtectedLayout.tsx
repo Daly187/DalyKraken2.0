@@ -40,10 +40,10 @@ export default function ProtectedLayout() {
   // Show loading while checking auth
   if (authChecking) {
     return (
-      <div className="flex items-center justify-center h-screen bg-slate-900">
+      <div className="flex items-center justify-center h-screen bg-light-bg dark:bg-slate-900">
         <div className="text-center">
           <div className="spinner mx-auto mb-4"></div>
-          <p className="text-gray-400">Verifying authentication...</p>
+          <p className="text-gray-600 dark:text-gray-400">Verifying authentication...</p>
         </div>
       </div>
     );
@@ -54,18 +54,18 @@ export default function ProtectedLayout() {
   }
 
   return (
-    <div className="flex h-screen bg-slate-900 text-white">
+    <div className="flex h-screen bg-light-bg dark:bg-slate-900 text-gray-900 dark:text-white transition-colors duration-200">
       <Sidebar />
       <div className="flex-1 flex flex-col overflow-hidden">
         <Header />
-        <main className="flex-1 overflow-x-hidden overflow-y-auto bg-slate-900 p-6">
+        <main className="flex-1 overflow-x-hidden overflow-y-auto bg-light-bg dark:bg-slate-900 p-6">
           {initialized ? (
             <Outlet />
           ) : (
             <div className="flex items-center justify-center h-full">
               <div className="text-center">
                 <div className="spinner mx-auto mb-4"></div>
-                <p className="text-gray-400">Initializing DalyKraken...</p>
+                <p className="text-gray-600 dark:text-gray-400">Initializing DalyKraken...</p>
               </div>
             </div>
           )}
