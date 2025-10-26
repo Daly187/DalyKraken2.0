@@ -407,7 +407,7 @@ export default function DalyDCA() {
     if (window.confirm(`Are you sure you want to manually exit ${symbol}? This will sell all current holdings back to USD.`)) {
       try {
         setExecuting(true);
-        const response = await fetch(`${config.apiUrl}/api/dca-bots/${botId}/exit`, {
+        const response = await fetch(`${config.api.mainUrl}/dca-bots/${botId}/exit`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
