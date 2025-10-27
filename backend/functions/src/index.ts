@@ -1499,6 +1499,12 @@ app.post('/order-queue/execute-now', authenticateToken, async (req, res) => {
     const resetCount = await orderQueueService.resetAllProcessingOrders();
     console.log(`[API] Reset ${resetCount} PROCESSING orders to RETRY`);
 
+    // Clear failed API keys from all pending orders
+    // This allows orders to retry with all available API keys after code fixes
+    console.log('[API] Clearing failed API keys from pending orders');
+    const clearedCount = await orderQueueService.clearAllFailedApiKeys();
+    console.log(`[API] Cleared failed API keys from ${clearedCount} orders`);
+
     // Execute orders using the API keys from headers (same as manual trades)
     const result = await orderExecutorService.executePendingOrders(krakenApiKey, krakenApiSecret);
 

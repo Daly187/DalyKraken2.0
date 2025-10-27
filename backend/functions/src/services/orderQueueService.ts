@@ -572,6 +572,53 @@ export class OrderQueueService {
   }
 
   /**
+   * Clear failedApiKeys from all pending/retry orders
+   * This allows orders to retry with all available API keys after fixes
+   */
+  async clearAllFailedApiKeys(): Promise<number> {
+    const snapshot = await db
+      .collection('pendingOrders')
+      .where('status', 'in', [OrderStatus.PENDING, OrderStatus.RETRY])
+      .get();
+
+    if (snapshot.empty) {
+      return 0;
+    }
+
+    const batch = db.batch();
+    const now = new Date().toISOString();
+    let count = 0;
+
+    snapshot.forEach((doc) => {
+      const order = doc.data() as PendingOrder;
+
+      // Only update if there are failed keys
+      if (order.failedApiKeys && order.failedApiKeys.length > 0) {
+        console.log(`[OrderQueue] Clearing ${order.failedApiKeys.length} failed API keys from order ${order.id}`);
+
+        batch.update(doc.ref, {
+          failedApiKeys: [],
+          updatedAt: now,
+          lastError: 'Cleared failed API keys - ready to retry',
+          'errors': [...(order.errors || []), {
+            timestamp: now,
+            error: 'Cleared failed API keys for manual retry',
+          }],
+        });
+
+        count++;
+      }
+    });
+
+    if (count > 0) {
+      await batch.commit();
+      console.log(`[OrderQueue] Cleared failed API keys from ${count} orders`);
+    }
+
+    return count;
+  }
+
+  /**
    * Clean up old completed/failed orders
    */
   async cleanupOldOrders(daysToKeep: number = 30): Promise<number> {
