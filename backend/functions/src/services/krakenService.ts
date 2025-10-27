@@ -124,6 +124,7 @@ export class KrakenService {
         type: 'sell',
         ordertype: orderType,
         volume: volume.toString(),
+        reduce_only: true, // Ensure this only closes positions, doesn't open shorts
       };
 
       if (orderType === 'limit' && price) {
@@ -134,7 +135,7 @@ export class KrakenService {
         orderParams.userref = userref;
       }
 
-      console.log(`[KrakenService] Placing sell order:`, JSON.stringify(orderParams));
+      console.log(`[KrakenService] Placing sell order with reduce_only:`, JSON.stringify(orderParams));
 
       const response = await this.client.api('AddOrder', orderParams);
 

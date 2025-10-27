@@ -6,10 +6,7 @@
  */
 
 import * as functions from 'firebase-functions';
-import * as admin from 'firebase-admin';
-
-// Initialize Firestore
-const db = admin.firestore();
+import { db } from './db.js';
 
 interface FundingPosition {
   userId: string;
