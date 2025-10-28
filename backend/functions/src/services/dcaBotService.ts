@@ -230,6 +230,7 @@ export class DCABotService {
       currentEntryCount: filledEntries.length,
       averagePurchasePrice, // Calculated from entries
       totalInvested, // Calculated from entries (will be 0 if no entries)
+      totalQuantity, // Total crypto holdings (matches Portfolio page balance)
       currentPrice,
       unrealizedPnL,
       unrealizedPnLPercent,
@@ -467,72 +468,56 @@ export class DCABotService {
       const ticker = await krakenService.getTicker(bot.symbol);
       const currentPrice = ticker.price;
 
-      // Calculate total quantity to sell from entries
-      const filledEntries = bot.entries.filter((e) => e.status === 'filled');
-      const expectedQuantity = filledEntries.reduce((sum, e) => sum + e.quantity, 0);
-
-      if (expectedQuantity === 0) {
-        return { success: false, error: 'No quantity to sell' };
-      }
-
-      // Get actual balance from Kraken and validate precision requirements
-      // This handles fees, rounding differences, and ensures we sell exactly what we have
-      let actualQuantity = expectedQuantity;
+      // Get precision requirements and base asset code from Kraken
       let volumePrecision = 8; // Default precision
+      let baseAssetCode = bot.symbol.split('/')[0]; // e.g., "ADA" from "ADA/USD"
 
-      if (krakenService) {
-        try {
-          // Get AssetPairs info for precision requirements AND correct asset name
-          const pairInfo = await krakenService.getAssetPairs(bot.symbol);
-          volumePrecision = pairInfo.lot_decimals;
+      try {
+        const pairInfo = await krakenService.getAssetPairs(bot.symbol);
+        volumePrecision = pairInfo.lot_decimals;
+        baseAssetCode = pairInfo.base; // Use Kraken's naming (e.g., "XXBT" for BTC, "ADA" for Cardano)
 
-          console.log(`[DCABotService] Asset pair ${bot.symbol}: lot_decimals=${volumePrecision}, ordermin=${pairInfo.ordermin}, base=${pairInfo.base}`);
-
-          // Use the exact base asset code from Kraken (e.g., "XXBT", "XETH", "ADA")
-          // This is the actual key used in getBalance response
-          const baseAssetCode = pairInfo.base || bot.symbol.split('/')[0];
-
-          console.log(`[DCABotService] Using base asset code: ${baseAssetCode} for balance lookup`);
-
-          // Get balance from Kraken
-          const balances = await krakenService.getBalance();
-
-          // Use the exact asset code from AssetPairs - no guessing!
-          const balance = balances[baseAssetCode] || 0;
-
-          if (balance === 0) {
-            // Log all available assets for debugging
-            const availableAssets = Object.keys(balances).filter(k => balances[k] > 0);
-            console.error(`[DCABotService] ERROR: No balance found for ${baseAssetCode}!`);
-            console.error(`[DCABotService] Available assets with balance: ${availableAssets.join(', ')}`);
-            console.error(`[DCABotService] Expected quantity: ${expectedQuantity.toFixed(volumePrecision)}`);
-          }
-
-          if (balance > 0) {
-            // NOTE: For spot sell orders on Kraken, fees are deducted from the RECEIVED currency (USD),
-            // not from the SOLD currency (crypto). Therefore, we don't need a fee buffer here.
-            // We can sell exactly the amount we have (adjusted by exit percentage later).
-
-            if (balance < expectedQuantity) {
-              console.log(`[DCABotService] Adjusting to actual balance: balance=${balance.toFixed(volumePrecision)}, expected=${expectedQuantity.toFixed(volumePrecision)}`);
-              actualQuantity = balance;
-            } else {
-              console.log(`[DCABotService] Using expected quantity: balance=${balance.toFixed(volumePrecision)}, expected=${expectedQuantity.toFixed(volumePrecision)}`);
-              actualQuantity = expectedQuantity;
-            }
-
-            // Validate against minimum order size
-            if (actualQuantity < pairInfo.ordermin) {
-              console.warn(`[DCABotService] Quantity ${actualQuantity.toFixed(volumePrecision)} is below minimum ${pairInfo.ordermin}, adjusting to minimum`);
-              actualQuantity = pairInfo.ordermin;
-            }
-          } else {
-            console.warn(`[DCABotService] Warning: No balance found for ${baseAssetCode}, using calculated quantity`);
-          }
-        } catch (error: any) {
-          console.warn(`[DCABotService] Could not fetch balance/pair info, using calculated quantity:`, error.message);
-        }
+        console.log(`[DCABotService] ${bot.symbol}: base=${baseAssetCode}, lot_decimals=${volumePrecision}, ordermin=${pairInfo.ordermin}`);
+      } catch (error: any) {
+        console.warn(`[DCABotService] Could not fetch pair info, using defaults:`, error.message);
       }
+
+      // Get actual balance from Kraken (this is what shows on portfolio page)
+      console.log(`[DCABotService] Fetching Kraken balance for ${baseAssetCode}...`);
+      const balances = await krakenService.getBalance();
+      const krakenBalance = balances[baseAssetCode] || 0;
+
+      console.log(`[DCABotService] Kraken balance for ${baseAssetCode}: ${krakenBalance}`);
+
+      if (krakenBalance === 0) {
+        console.log(`[DCABotService] No Kraken balance to sell - marking bot as completed`);
+
+        // Mark bot as completed since there's nothing to sell
+        await this.db.collection('dcaBots').doc(bot.id).update({
+          status: 'completed',
+          updatedAt: new Date().toISOString(),
+        });
+
+        // Log execution
+        await this.logExecution({
+          id: `${bot.id}_exec_${Date.now()}`,
+          botId: bot.id,
+          action: 'exit',
+          symbol: bot.symbol,
+          price: currentPrice,
+          quantity: 0,
+          amount: 0,
+          reason: `No Kraken balance to sell - bot completed without sell order`,
+          techScore: bot.techScore,
+          trendScore: bot.trendScore,
+          timestamp: new Date().toISOString(),
+          success: true,
+        });
+
+        return { success: true, error: 'No Kraken balance to sell' };
+      }
+
+      let actualQuantity = krakenBalance;
 
       // Apply exit percentage (default 90% = sell 90%, keep 10%)
       const exitPercentage = bot.exitPercentage || 90; // Default to 90% if not set
@@ -543,6 +528,35 @@ export class DCABotService {
 
       // Round to correct precision (CRITICAL: must match lot_decimals)
       actualQuantity = parseFloat(actualQuantity.toFixed(volumePrecision));
+
+      // Final safety check: don't create order if quantity is zero or invalid
+      if (actualQuantity <= 0 || !isFinite(actualQuantity)) {
+        console.error(`[DCABotService] Invalid quantity after calculations: ${actualQuantity} - marking bot as completed`);
+
+        // Mark bot as completed
+        await this.db.collection('dcaBots').doc(bot.id).update({
+          status: 'completed',
+          updatedAt: new Date().toISOString(),
+        });
+
+        // Log execution
+        await this.logExecution({
+          id: `${bot.id}_exec_${Date.now()}`,
+          botId: bot.id,
+          action: 'exit',
+          symbol: bot.symbol,
+          price: currentPrice,
+          quantity: 0,
+          amount: 0,
+          reason: `Invalid quantity (${actualQuantity}) - bot completed without sell order`,
+          techScore: bot.techScore,
+          trendScore: bot.trendScore,
+          timestamp: new Date().toISOString(),
+          success: true,
+        });
+
+        return { success: true, error: 'Invalid quantity - bot completed' };
+      }
 
       // Calculate total amount (USD value)
       const totalAmount = actualQuantity * currentPrice;

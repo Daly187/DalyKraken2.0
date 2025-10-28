@@ -45,6 +45,7 @@ export interface LiveDCABot extends DCABotConfig {
   currentEntryCount: number;
   averagePurchasePrice: number;
   totalInvested: number;
+  totalQuantity: number; // Total crypto holdings across all filled entries
   currentPrice: number;
   unrealizedPnL: number;
   unrealizedPnLPercent: number;

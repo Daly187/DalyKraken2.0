@@ -1333,10 +1333,16 @@ export default function DalyDCA() {
                     </div>
 
                     {!isExpanded && (
-                      <div className="grid grid-cols-2 md:grid-cols-6 gap-3 text-sm">
+                      <div className="grid grid-cols-2 md:grid-cols-7 gap-3 text-sm">
                         <div>
                           <p className="text-xs text-gray-500">Invested</p>
                           <p className="font-semibold text-white">{formatCurrency(bot.totalInvested || 0)}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-gray-500">Holdings</p>
+                          <p className="font-semibold text-purple-400">
+                            {bot.totalQuantity ? bot.totalQuantity.toFixed(6) : '0.000000'}
+                          </p>
                         </div>
                         <div>
                           <p className="text-xs text-gray-500">Avg Price</p>
@@ -1390,10 +1396,17 @@ export default function DalyDCA() {
                           <BarChart3 className="h-4 w-4 text-blue-400" />
                           Current Performance
                         </h4>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                           <div>
                             <p className="text-xs text-gray-400">Invested</p>
                             <p className="text-lg font-bold text-white">{formatCurrency(bot.totalInvested || 0)}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-gray-400">Holdings</p>
+                            <p className="text-lg font-bold text-purple-400">
+                              {bot.totalQuantity ? bot.totalQuantity.toFixed(6) : '0.000000'}
+                            </p>
+                            <p className="text-xs text-gray-500">{bot.symbol.split('/')[0]}</p>
                           </div>
                           <div>
                             <p className="text-xs text-gray-400">Current Value</p>

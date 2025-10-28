@@ -211,6 +211,7 @@ export interface LiveDCABot extends DCABotConfig {
   currentEntryCount: number; // How many entries have been made
   averagePurchasePrice: number; // Average price of all entries
   totalInvested: number; // Total amount invested so far
+  totalQuantity: number; // Total crypto holdings across all filled entries (matches Portfolio page)
   currentPrice: number; // Current market price
   unrealizedPnL: number; // Unrealized profit/loss
   unrealizedPnLPercent: number; // Unrealized profit/loss percentage
