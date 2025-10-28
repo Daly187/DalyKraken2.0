@@ -509,15 +509,13 @@ export class DCABotService {
           }
 
           if (balance > 0) {
-            // CRITICAL: Subtract a buffer (0.5%) to account for trading fees
-            // Kraken takes fees from the order amount, so selling 100% will fail
-            // Kraken fees: 0.16%-0.26% for most users, using 0.5% buffer to be safe
-            const feeBuffer = balance * 0.005; // 0.5% buffer for fees
-            const balanceAfterFees = balance - feeBuffer;
+            // NOTE: For spot sell orders on Kraken, fees are deducted from the RECEIVED currency (USD),
+            // not from the SOLD currency (crypto). Therefore, we don't need a fee buffer here.
+            // We can sell exactly the amount we have (adjusted by exit percentage later).
 
-            if (balanceAfterFees < expectedQuantity) {
-              console.log(`[DCABotService] Adjusting quantity: balance=${balance.toFixed(volumePrecision)}, after fee buffer=${balanceAfterFees.toFixed(volumePrecision)}, expected=${expectedQuantity.toFixed(volumePrecision)}`);
-              actualQuantity = balanceAfterFees;
+            if (balance < expectedQuantity) {
+              console.log(`[DCABotService] Adjusting to actual balance: balance=${balance.toFixed(volumePrecision)}, expected=${expectedQuantity.toFixed(volumePrecision)}`);
+              actualQuantity = balance;
             } else {
               console.log(`[DCABotService] Using expected quantity: balance=${balance.toFixed(volumePrecision)}, expected=${expectedQuantity.toFixed(volumePrecision)}`);
               actualQuantity = expectedQuantity;
