@@ -20,12 +20,13 @@ export class DCABotService {
   }
 
   /**
-   * Get all active bots
+   * Get all active bots (including 'exiting' status)
+   * Bots in 'exiting' status are still active - they're just selling their current position
    */
   async getActiveBots(): Promise<DCABotConfig[]> {
     const snapshot = await this.db
       .collection('dcaBots')
-      .where('status', '==', 'active')
+      .where('status', 'in', ['active', 'exiting'])
       .get();
 
     return snapshot.docs.map((doc) => ({
@@ -594,11 +595,12 @@ export class DCABotService {
         };
       }
 
-      // Only process active bots (skip exiting, paused, stopped, completed)
-      if (bot.status !== 'active') {
+      // Only process active and exiting bots (skip paused, stopped, completed)
+      // Bots in 'exiting' status should still be processed for new entries
+      if (bot.status !== 'active' && bot.status !== 'exiting') {
         return {
           processed: false,
-          reason: `Bot status is '${bot.status}', only 'active' bots are processed`,
+          reason: `Bot status is '${bot.status}', only 'active' and 'exiting' bots are processed`,
         };
       }
 

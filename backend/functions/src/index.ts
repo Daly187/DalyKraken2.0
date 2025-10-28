@@ -1019,7 +1019,7 @@ app.get('/dca/status', authenticateToken, async (req, res) => {
 
     const totalBots = snapshot.size;
     const activeBots = snapshot.docs.filter(
-      (doc) => doc.data().status === 'active'
+      (doc) => doc.data().status === 'active' || doc.data().status === 'exiting'
     ).length;
 
     res.json({
