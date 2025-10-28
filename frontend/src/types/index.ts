@@ -192,6 +192,7 @@ export interface DCABotConfig {
   stepPercent: number; // Default 1%
   stepMultiplier: number; // Default 2x
   tpTarget: number; // Default 3% (minimum TP based on average purchase price)
+  exitPercentage: number; // Percentage of holdings to sell on exit (e.g., 90 = sell 90%, keep 10%)
   supportResistanceEnabled: boolean; // Default false
   reEntryDelay: number; // Default 888 minutes
   trendAlignmentEnabled: boolean; // Default true

@@ -524,6 +524,13 @@ export class DCABotService {
         }
       }
 
+      // Apply exit percentage (default 90% = sell 90%, keep 10%)
+      const exitPercentage = bot.exitPercentage || 90; // Default to 90% if not set
+      const quantityBeforePercentage = actualQuantity;
+      actualQuantity = actualQuantity * (exitPercentage / 100);
+
+      console.log(`[DCABotService] Applying ${exitPercentage}% exit: ${quantityBeforePercentage.toFixed(volumePrecision)} -> ${actualQuantity.toFixed(volumePrecision)} (keeping ${100 - exitPercentage}%)`);
+
       // Round to correct precision (CRITICAL: must match lot_decimals)
       actualQuantity = parseFloat(actualQuantity.toFixed(volumePrecision));
 

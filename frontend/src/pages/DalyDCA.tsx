@@ -75,6 +75,7 @@ export default function DalyDCA() {
     stepPercent: 1,
     stepMultiplier: 2,
     tpTarget: 3,
+    exitPercentage: 90, // Default to selling 90%, keeping 10%
     supportResistanceEnabled: false,
     reEntryDelay: 888,
     trendAlignmentEnabled: true,
@@ -368,6 +369,7 @@ export default function DalyDCA() {
         stepPercent: 1,
         stepMultiplier: 2,
         tpTarget: 3,
+        exitPercentage: 90,
         supportResistanceEnabled: false,
         reEntryDelay: 888,
         trendAlignmentEnabled: true,
@@ -485,6 +487,7 @@ export default function DalyDCA() {
       stepPercent: bot.stepPercent,
       stepMultiplier: bot.stepMultiplier,
       tpTarget: bot.tpTarget,
+      exitPercentage: bot.exitPercentage || 90, // Default to 90% if not set
       supportResistanceEnabled: bot.supportResistanceEnabled,
       reEntryDelay: bot.reEntryDelay,
       trendAlignmentEnabled: bot.trendAlignmentEnabled,
@@ -1608,6 +1611,19 @@ export default function DalyDCA() {
                                 onChange={(e) => setEditFormData({ ...editFormData, tpTarget: parseFloat(e.target.value) })}
                                 className="w-full bg-slate-700/50 border border-slate-600 text-white px-3 py-2 rounded-lg text-sm"
                               />
+                            </div>
+                            <div>
+                              <label className="text-xs text-gray-400 block mb-1">Exit % (Sell on exit)</label>
+                              <input
+                                type="number"
+                                step="1"
+                                min="1"
+                                max="100"
+                                value={editFormData.exitPercentage}
+                                onChange={(e) => setEditFormData({ ...editFormData, exitPercentage: parseInt(e.target.value) })}
+                                className="w-full bg-slate-700/50 border border-slate-600 text-white px-3 py-2 rounded-lg text-sm"
+                              />
+                              <p className="text-xs text-gray-500 mt-1">Keep {100 - (editFormData.exitPercentage || 90)}%</p>
                             </div>
                             <div className="md:col-span-3">
                               <label className="text-xs text-gray-400 block mb-1">Re-Entry Delay (minutes)</label>

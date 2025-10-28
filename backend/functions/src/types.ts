@@ -27,6 +27,7 @@ export interface DCABotConfig {
   stepPercent: number;
   stepMultiplier: number;
   tpTarget: number;
+  exitPercentage: number; // Percentage of holdings to sell on exit (e.g., 90 = sell 90%, keep 10%)
   supportResistanceEnabled: boolean;
   reEntryDelay: number;
   trendAlignmentEnabled: boolean;

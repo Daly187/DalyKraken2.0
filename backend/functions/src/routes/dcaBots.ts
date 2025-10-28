@@ -120,6 +120,7 @@ export function createDCABotsRouter(db: Firestore): Router {
         stepPercent: req.body.stepPercent || 1,
         stepMultiplier: req.body.stepMultiplier || 2,
         tpTarget: req.body.tpTarget || 3,
+        exitPercentage: req.body.exitPercentage || 90, // Default to selling 90%, keeping 10%
         supportResistanceEnabled: req.body.supportResistanceEnabled ?? false,
         reEntryDelay: req.body.reEntryDelay || 888,
         trendAlignmentEnabled: req.body.trendAlignmentEnabled ?? true,
