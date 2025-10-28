@@ -191,8 +191,12 @@ export class KrakenService {
       // If API keys provided, create a new client instance
       const client = (apiKey && apiSecret) ? new KrakenClient(apiKey, apiSecret) : this.client;
 
+      // Check if this.client has keys by checking if it was created with keys in constructor
+      // this.client.config.key exists if keys were provided, otherwise it's undefined
+      const hasKeys = apiKey || apiSecret || (this.client && this.client.config && this.client.config.key) || process.env.KRAKEN_API_KEY;
+
       // Return mock data if no API keys configured
-      if (!apiKey && !apiSecret && !process.env.KRAKEN_API_KEY) {
+      if (!hasKeys) {
         console.warn('[KrakenService] No API keys configured, returning mock data');
         return {
           'ZUSD': 10000,
@@ -204,13 +208,9 @@ export class KrakenService {
       const response = await client.api('Balance');
       return response.result;
     } catch (error) {
-      console.error('[KrakenService] Error fetching balance:', error);
-      // Return mock data on error
-      return {
-        'ZUSD': 10000,
-        'XXBT': 0.5,
-        'XETH': 2.5,
-      };
+      console.error('[KrakenService] ❌ Error fetching balance:', error);
+      // THROW the error instead of returning mock data so we can see what's failing
+      throw error;
     }
   }
 
