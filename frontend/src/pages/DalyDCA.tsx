@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useStore } from '@/store/useStore';
 import config from '@/config/env';
+import { krakenApiService } from '@/services/krakenApiService';
 import {
   Play,
   Pause,
@@ -28,6 +29,14 @@ import {
 } from 'lucide-react';
 import type { DCABotConfig } from '@/types';
 
+interface Balance {
+  asset: string;
+  symbol: string;
+  amount: number;
+  availableBalance: number;
+  lockedBalance: number;
+}
+
 export default function DalyDCA() {
   const dcaBots = useStore((state) => state.dcaBots);
   const fetchDCABots = useStore((state) => state.fetchDCABots);
@@ -37,6 +46,7 @@ export default function DalyDCA() {
   const resumeDCABot = useStore((state) => state.resumeDCABot);
   const deleteDCABot = useStore((state) => state.deleteDCABot);
   const triggerDCABots = useStore((state) => state.triggerDCABots);
+  const livePrices = useStore((state) => state.livePrices);
 
   const [loading, setLoading] = useState(false);
   const [triggering, setTriggering] = useState(false);
@@ -52,6 +62,7 @@ export default function DalyDCA() {
   const [sortBy, setSortBy] = useState<'name' | 'invested' | 'pnl'>('name');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const [pendingOrders, setPendingOrders] = useState<any[]>([]);
+  const [portfolioBalances, setPortfolioBalances] = useState<Balance[]>([]);
 
   // Section collapse states
   const [isCreateSectionExpanded, setIsCreateSectionExpanded] = useState(true);
@@ -117,12 +128,35 @@ export default function DalyDCA() {
     }
   };
 
+  const fetchPortfolioBalances = async () => {
+    try {
+      // Try to fetch fresh balances from Kraken
+      const balances = await krakenApiService.getAccountBalance();
+      setPortfolioBalances(balances);
+      console.log('[DalyDCA] Fetched', balances.length, 'portfolio balances');
+    } catch (error) {
+      console.error('[DalyDCA] Error fetching portfolio balances:', error);
+      // Try to use cached data from Portfolio page
+      const cached = localStorage.getItem('portfolio_balances_cache');
+      if (cached) {
+        try {
+          const cachedBalances = JSON.parse(cached);
+          setPortfolioBalances(cachedBalances);
+          console.log('[DalyDCA] Using cached portfolio balances');
+        } catch (parseError) {
+          console.error('[DalyDCA] Failed to parse cached balances:', parseError);
+        }
+      }
+    }
+  };
+
   const refreshData = async () => {
     setLoading(true);
     try {
       await Promise.all([
         fetchDCABots(),
         fetchPendingOrders(),
+        fetchPortfolioBalances(),
       ]);
       setLastRefreshTime(new Date());
     } catch (error) {
@@ -651,6 +685,50 @@ export default function DalyDCA() {
     return `${Math.floor(diffMins / 60)}h`;
   };
 
+  // Helper function to enrich bot data with Portfolio balance data
+  const getEnrichedBotData = (bot: any) => {
+    // Extract the base asset from the symbol (e.g., "BTC" from "BTC/USD")
+    const baseAsset = bot.symbol.split('/')[0];
+
+    // Find the portfolio balance for this asset
+    const portfolioBalance = portfolioBalances.find(b =>
+      b.asset.toUpperCase() === baseAsset.toUpperCase() ||
+      b.asset.replace(/^X/, '').toUpperCase() === baseAsset.toUpperCase() ||
+      b.symbol === bot.symbol
+    );
+
+    // Get current price from live prices
+    const livePrice = livePrices.get(bot.symbol);
+    const currentPrice = livePrice?.price || bot.currentPrice || 0;
+
+    // Use portfolio data if available, otherwise fall back to bot data
+    const actualHoldings = portfolioBalance?.amount || 0;
+    const currentValue = actualHoldings * currentPrice;
+
+    // Calculate invested amount from bot entries (this stays the same)
+    const totalInvested = bot.totalInvested || 0;
+
+    // Calculate average price from totalInvested and actualHoldings
+    const averagePurchasePrice = actualHoldings > 0 ? totalInvested / actualHoldings : (bot.averagePurchasePrice || 0);
+
+    // Calculate P&L from actual holdings and current price
+    const unrealizedPnL = currentValue - totalInvested;
+    const unrealizedPnLPercent = totalInvested > 0 ? (unrealizedPnL / totalInvested) * 100 : 0;
+
+    return {
+      ...bot,
+      // Override with Portfolio-based data
+      totalQuantity: actualHoldings,
+      currentPrice,
+      currentValue,
+      averagePurchasePrice,
+      unrealizedPnL,
+      unrealizedPnLPercent,
+      // Flag to indicate if we're using portfolio data
+      usingPortfolioData: !!portfolioBalance,
+    };
+  };
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'active':
@@ -698,16 +776,19 @@ export default function DalyDCA() {
     }
   };
 
-  const activeBots = dcaBots.filter((bot) => bot.status === 'active');
-  const pausedBots = dcaBots.filter((bot) => bot.status === 'paused');
-  const completedBots = dcaBots.filter((bot) => bot.status === 'completed');
-  const totalInvested = dcaBots.reduce((sum, bot) => sum + (bot.totalInvested || 0), 0);
-  const totalUnrealizedPnL = dcaBots.reduce((sum, bot) => sum + (bot.unrealizedPnL || 0), 0);
+  // Enrich all bots with Portfolio data first
+  const enrichedBots = dcaBots.map(bot => getEnrichedBotData(bot));
+
+  const activeBots = enrichedBots.filter((bot) => bot.status === 'active');
+  const pausedBots = enrichedBots.filter((bot) => bot.status === 'paused');
+  const completedBots = enrichedBots.filter((bot) => bot.status === 'completed');
+  const totalInvested = enrichedBots.reduce((sum, bot) => sum + (bot.totalInvested || 0), 0);
+  const totalUnrealizedPnL = enrichedBots.reduce((sum, bot) => sum + (bot.unrealizedPnL || 0), 0);
   const totalCurrentValue = totalInvested + totalUnrealizedPnL;
   const totalPnLPercent = totalInvested > 0 ? (totalUnrealizedPnL / totalInvested) * 100 : 0;
 
-  // Sort bots based on selected criteria
-  const sortedBots = [...dcaBots].sort((a, b) => {
+  // Sort enriched bots based on selected criteria
+  const sortedBots = [...enrichedBots].sort((a, b) => {
     let compareValue = 0;
 
     if (sortBy === 'name') {
