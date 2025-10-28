@@ -510,15 +510,11 @@ export class DCABotService {
       console.log(`[DCABotService] Kraken balance search: tried=${possibleCodes.join(',')} found=${foundAssetCode} balance=${krakenBalance}`);
 
       if (krakenBalance === 0) {
-        console.log(`[DCABotService] No Kraken balance to sell - marking bot as completed`);
+        console.error(`[DCABotService] ⚠️  No Kraken balance found for ${bot.symbol} - cannot create sell order. Bot will retry on next run.`);
+        console.error(`[DCABotService] This could be due to: 1) API lookup failure, 2) Position already sold manually, or 3) Invalid asset codes`);
 
-        // Mark bot as completed since there's nothing to sell
-        await this.db.collection('dcaBots').doc(bot.id).update({
-          status: 'completed',
-          updatedAt: new Date().toISOString(),
-        });
-
-        // Log execution
+        // Log the failed attempt but DO NOT mark bot as completed
+        // The bot should only be marked completed after a successful sell order execution
         await this.logExecution({
           id: `${bot.id}_exec_${Date.now()}`,
           botId: bot.id,
@@ -527,14 +523,14 @@ export class DCABotService {
           price: currentPrice,
           quantity: 0,
           amount: 0,
-          reason: `No Kraken balance to sell - bot completed without sell order`,
+          reason: `Exit attempt failed: No Kraken balance found (balance lookup returned 0)`,
           techScore: bot.techScore,
           trendScore: bot.trendScore,
           timestamp: new Date().toISOString(),
-          success: true,
+          success: false,
         });
 
-        return { success: true, error: 'No Kraken balance to sell' };
+        return { success: false, error: 'No Kraken balance found - cannot create sell order' };
       }
 
       let actualQuantity = krakenBalance;
@@ -551,15 +547,9 @@ export class DCABotService {
 
       // Final safety check: don't create order if quantity is zero or invalid
       if (actualQuantity <= 0 || !isFinite(actualQuantity)) {
-        console.error(`[DCABotService] Invalid quantity after calculations: ${actualQuantity} - marking bot as completed`);
+        console.error(`[DCABotService] ⚠️  Invalid quantity after calculations: ${actualQuantity} - cannot create sell order. Bot will retry on next run.`);
 
-        // Mark bot as completed
-        await this.db.collection('dcaBots').doc(bot.id).update({
-          status: 'completed',
-          updatedAt: new Date().toISOString(),
-        });
-
-        // Log execution
+        // Log the failed attempt but DO NOT mark bot as completed
         await this.logExecution({
           id: `${bot.id}_exec_${Date.now()}`,
           botId: bot.id,
@@ -568,14 +558,14 @@ export class DCABotService {
           price: currentPrice,
           quantity: 0,
           amount: 0,
-          reason: `Invalid quantity (${actualQuantity}) - bot completed without sell order`,
+          reason: `Exit attempt failed: Invalid quantity after calculations (${actualQuantity})`,
           techScore: bot.techScore,
           trendScore: bot.trendScore,
           timestamp: new Date().toISOString(),
-          success: true,
+          success: false,
         });
 
-        return { success: true, error: 'Invalid quantity - bot completed' };
+        return { success: false, error: `Invalid quantity: ${actualQuantity}` };
       }
 
       // Calculate total amount (USD value)
