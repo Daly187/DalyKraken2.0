@@ -466,16 +466,46 @@ export class DCABotService {
       const ticker = await krakenService.getTicker(bot.symbol);
       const currentPrice = ticker.price;
 
-      // Calculate total quantity to sell
+      // Calculate total quantity to sell from entries
       const filledEntries = bot.entries.filter((e) => e.status === 'filled');
-      const totalQuantity = filledEntries.reduce((sum, e) => sum + e.quantity, 0);
+      const expectedQuantity = filledEntries.reduce((sum, e) => sum + e.quantity, 0);
 
-      if (totalQuantity === 0) {
+      if (expectedQuantity === 0) {
         return { success: false, error: 'No quantity to sell' };
       }
 
+      // Get actual balance from Kraken to avoid "insufficient funds" errors
+      // This handles fees, rounding differences, and ensures we sell exactly what we have
+      let actualQuantity = expectedQuantity;
+
+      if (krakenService) {
+        try {
+          console.log(`[DCABotService] Checking actual balance for ${bot.symbol} (expected: ${expectedQuantity.toFixed(8)})`);
+
+          // Extract base currency from pair (e.g., "ADA" from "ADA/USD")
+          const baseCurrency = bot.symbol.split('/')[0];
+
+          // Get balance from Kraken
+          const balances = await krakenService.getBalance();
+
+          // Kraken prefixes some currencies (e.g., XETH, XXBT), so check both formats
+          const balance = balances[baseCurrency] || balances[`X${baseCurrency}`] || balances[`Z${baseCurrency}`] || 0;
+
+          if (balance > 0 && balance < expectedQuantity) {
+            console.log(`[DCABotService] Actual balance (${balance.toFixed(8)}) is less than expected (${expectedQuantity.toFixed(8)}), using actual balance`);
+            actualQuantity = balance;
+          } else if (balance === 0) {
+            console.warn(`[DCABotService] Warning: No balance found for ${baseCurrency}, using calculated quantity`);
+          } else {
+            console.log(`[DCABotService] Actual balance: ${balance.toFixed(8)}, using expected quantity: ${expectedQuantity.toFixed(8)}`);
+          }
+        } catch (error: any) {
+          console.warn(`[DCABotService] Could not fetch balance, using calculated quantity:`, error.message);
+        }
+      }
+
       // Calculate total amount (USD value)
-      const totalAmount = totalQuantity * currentPrice;
+      const totalAmount = actualQuantity * currentPrice;
 
       // IMPORTANT: Create the order FIRST, then update bot status
       // This prevents the bot from getting stuck in 'exiting' status if order creation fails
@@ -485,13 +515,13 @@ export class DCABotService {
         pair: bot.symbol,
         type: OrderType.MARKET,
         side: 'sell',
-        volume: totalQuantity.toFixed(8),
+        volume: actualQuantity.toFixed(8),
         amount: totalAmount, // USD amount
         price: currentPrice.toString(), // Expected market execution price
         reason: 'Take profit target reached - waiting for order queue to execute market sell',
       });
 
-      console.log(`[DCABotService] Created pending exit order ${pendingOrder.id} for bot ${bot.id} - ${totalQuantity.toFixed(8)} ${bot.symbol} at $${currentPrice}`);
+      console.log(`[DCABotService] Created pending exit order ${pendingOrder.id} for bot ${bot.id} - ${actualQuantity.toFixed(8)} ${bot.symbol} at $${currentPrice}`);
 
       // Update bot status to 'exiting' ONLY AFTER order is successfully created
       // (will be set to 'active' or 'completed' after order executes/fails)
@@ -507,7 +537,7 @@ export class DCABotService {
         action: 'exit',
         symbol: bot.symbol,
         price: currentPrice,
-        quantity: totalQuantity,
+        quantity: actualQuantity,
         amount: totalAmount,
         reason: 'Take profit target reached - exit order queued',
         techScore: bot.techScore,
