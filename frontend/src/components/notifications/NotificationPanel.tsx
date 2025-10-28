@@ -1,12 +1,28 @@
 import { useStore } from '@/store/useStore';
 import { X, CheckCircle, AlertCircle, Info, AlertTriangle } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
+import { useEffect } from 'react';
 
 export default function NotificationPanel() {
   const notifications = useStore((state) => state.notifications);
   const markNotificationRead = useStore((state) => state.markNotificationRead);
 
   const unreadNotifications = notifications.filter((n) => !n.read).slice(0, 3);
+
+  // Auto-dismiss notifications after 5 seconds
+  useEffect(() => {
+    if (unreadNotifications.length > 0) {
+      const timers = unreadNotifications.map((notification) => {
+        return setTimeout(() => {
+          markNotificationRead(notification.id);
+        }, 5000); // 5 seconds
+      });
+
+      return () => {
+        timers.forEach((timer) => clearTimeout(timer));
+      };
+    }
+  }, [unreadNotifications.map((n) => n.id).join(','), markNotificationRead]);
 
   if (unreadNotifications.length === 0) {
     return null;
