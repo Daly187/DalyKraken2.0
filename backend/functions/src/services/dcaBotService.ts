@@ -485,9 +485,29 @@ export class DCABotService {
       // Get actual balance from Kraken (this is what shows on portfolio page)
       console.log(`[DCABotService] Fetching Kraken balance for ${baseAssetCode}...`);
       const balances = await krakenService.getBalance();
-      const krakenBalance = parseFloat(String(balances[baseAssetCode] || 0));
 
-      console.log(`[DCABotService] Kraken balance for ${baseAssetCode}: ${krakenBalance} (type: ${typeof krakenBalance})`);
+      // Try multiple possible asset codes since Kraken uses different codes in different APIs
+      // e.g., Balance API might use "ADA" while AssetPairs uses "ADA" or "XADA"
+      const possibleCodes = [
+        baseAssetCode,
+        baseAssetCode.replace(/^X/, ''), // Remove leading X (XXBT -> XBT)
+        baseAssetCode.replace(/^Z/, ''), // Remove leading Z (ZUSD -> USD)
+        bot.symbol.split('/')[0], // Original asset from symbol (BTC, ADA, etc.)
+      ];
+
+      let krakenBalance = 0;
+      let foundAssetCode = '';
+
+      for (const code of possibleCodes) {
+        const balance = parseFloat(String(balances[code] || 0));
+        if (balance > 0) {
+          krakenBalance = balance;
+          foundAssetCode = code;
+          break;
+        }
+      }
+
+      console.log(`[DCABotService] Kraken balance search: tried=${possibleCodes.join(',')} found=${foundAssetCode} balance=${krakenBalance}`);
 
       if (krakenBalance === 0) {
         console.log(`[DCABotService] No Kraken balance to sell - marking bot as completed`);
