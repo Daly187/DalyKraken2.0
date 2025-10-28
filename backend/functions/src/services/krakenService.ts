@@ -23,7 +23,10 @@ export class KrakenService {
    */
   async getTicker(pair: string): Promise<MarketData> {
     try {
-      const response = await this.client.api('Ticker', { pair });
+      // Normalize pair format: Remove slash (BTC/USD -> BTCUSD, BCH/USD -> BCHUSD)
+      const normalizedPair = pair.replace('/', '');
+
+      const response = await this.client.api('Ticker', { pair: normalizedPair });
       const pairData = response.result[Object.keys(response.result)[0]];
 
       return {
@@ -49,7 +52,10 @@ export class KrakenService {
    */
   async getOHLC(pair: string, interval: number = 60): Promise<any[]> {
     try {
-      const response = await this.client.api('OHLC', { pair, interval });
+      // Normalize pair format: Remove slash (BTC/USD -> BTCUSD, BCH/USD -> BCHUSD)
+      const normalizedPair = pair.replace('/', '');
+
+      const response = await this.client.api('OHLC', { pair: normalizedPair, interval });
       const pairData = response.result[Object.keys(response.result)[0]];
       return pairData;
     } catch (error) {
@@ -69,8 +75,11 @@ export class KrakenService {
     userref?: number
   ): Promise<any> {
     try {
+      // Normalize pair format: Remove slash (BTC/USD -> BTCUSD, BCH/USD -> BCHUSD)
+      const normalizedPair = pair.replace('/', '');
+
       const orderParams: any = {
-        pair,
+        pair: normalizedPair,
         type: 'buy',
         ordertype: orderType,
         volume: volume.toString(),
@@ -119,8 +128,11 @@ export class KrakenService {
     userref?: number
   ): Promise<any> {
     try {
+      // Normalize pair format: Remove slash (BTC/USD -> BTCUSD, BCH/USD -> BCHUSD)
+      const normalizedPair = pair.replace('/', '');
+
       const orderParams: any = {
-        pair,
+        pair: normalizedPair,
         type: 'sell',
         ordertype: orderType,
         volume: volume.toString(),
@@ -214,7 +226,10 @@ export class KrakenService {
    */
   async getAssetPairs(pair: string): Promise<any> {
     try {
-      const response = await this.client.api('AssetPairs', { pair });
+      // Normalize pair format: Remove slash (BTC/USD -> BTCUSD, BCH/USD -> BCHUSD)
+      const normalizedPair = pair.replace('/', '');
+
+      const response = await this.client.api('AssetPairs', { pair: normalizedPair });
 
       if (response.result && Object.keys(response.result).length > 0) {
         // Return the first (and usually only) pair info
