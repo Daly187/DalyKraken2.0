@@ -705,11 +705,16 @@ export default function DalyDCA() {
     const actualHoldings = portfolioBalance?.amount || 0;
     const currentValue = actualHoldings * currentPrice;
 
-    // Calculate invested amount from bot entries (this stays the same)
-    const totalInvested = bot.totalInvested || 0;
+    // Get the average purchase price from bot (calculated from all filled entries)
+    const botAveragePurchasePrice = bot.averagePurchasePrice || 0;
 
-    // Calculate average price from totalInvested and actualHoldings
-    const averagePurchasePrice = actualHoldings > 0 ? totalInvested / actualHoldings : (bot.averagePurchasePrice || 0);
+    // Calculate invested amount based on CURRENT holdings, not all entries
+    // This accounts for partial sells or manual exits
+    // Invested = Current Holdings × Average Purchase Price
+    const totalInvested = actualHoldings * botAveragePurchasePrice;
+
+    // Average price stays the same (from bot's buy entries)
+    const averagePurchasePrice = botAveragePurchasePrice;
 
     // Calculate P&L from actual holdings and current price
     const unrealizedPnL = currentValue - totalInvested;
@@ -721,6 +726,7 @@ export default function DalyDCA() {
       totalQuantity: actualHoldings,
       currentPrice,
       currentValue,
+      totalInvested, // Recalculated based on current holdings
       averagePurchasePrice,
       unrealizedPnL,
       unrealizedPnLPercent,
