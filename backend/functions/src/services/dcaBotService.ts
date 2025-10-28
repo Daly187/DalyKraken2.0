@@ -485,9 +485,9 @@ export class DCABotService {
       // Get actual balance from Kraken (this is what shows on portfolio page)
       console.log(`[DCABotService] Fetching Kraken balance for ${baseAssetCode}...`);
       const balances = await krakenService.getBalance();
-      const krakenBalance = balances[baseAssetCode] || 0;
+      const krakenBalance = parseFloat(String(balances[baseAssetCode] || 0));
 
-      console.log(`[DCABotService] Kraken balance for ${baseAssetCode}: ${krakenBalance}`);
+      console.log(`[DCABotService] Kraken balance for ${baseAssetCode}: ${krakenBalance} (type: ${typeof krakenBalance})`);
 
       if (krakenBalance === 0) {
         console.log(`[DCABotService] No Kraken balance to sell - marking bot as completed`);
