@@ -228,6 +228,8 @@ export class KrakenService {
           fee_volume_currency: pairInfo.fee_volume_currency,
           margin_call: pairInfo.margin_call,
           margin_stop: pairInfo.margin_stop,
+          base: pairInfo.base || null,  // Base asset code (e.g., "XXBT", "XETH", "ADA")
+          quote: pairInfo.quote || null, // Quote asset code (e.g., "ZUSD", "ZEUR")
         };
       }
 

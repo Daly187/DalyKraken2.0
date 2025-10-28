@@ -482,20 +482,31 @@ export class DCABotService {
 
       if (krakenService) {
         try {
-          // Get AssetPairs info for precision requirements
+          // Get AssetPairs info for precision requirements AND correct asset name
           const pairInfo = await krakenService.getAssetPairs(bot.symbol);
           volumePrecision = pairInfo.lot_decimals;
 
-          console.log(`[DCABotService] Asset pair ${bot.symbol}: lot_decimals=${volumePrecision}, ordermin=${pairInfo.ordermin}, expected qty=${expectedQuantity.toFixed(volumePrecision)}`);
+          console.log(`[DCABotService] Asset pair ${bot.symbol}: lot_decimals=${volumePrecision}, ordermin=${pairInfo.ordermin}, base=${pairInfo.base}`);
 
-          // Extract base currency from pair (e.g., "ADA" from "ADA/USD")
-          const baseCurrency = bot.symbol.split('/')[0];
+          // Use the exact base asset code from Kraken (e.g., "XXBT", "XETH", "ADA")
+          // This is the actual key used in getBalance response
+          const baseAssetCode = pairInfo.base || bot.symbol.split('/')[0];
+
+          console.log(`[DCABotService] Using base asset code: ${baseAssetCode} for balance lookup`);
 
           // Get balance from Kraken
           const balances = await krakenService.getBalance();
 
-          // Kraken prefixes some currencies (e.g., XETH, XXBT), so check both formats
-          const balance = balances[baseCurrency] || balances[`X${baseCurrency}`] || balances[`Z${baseCurrency}`] || 0;
+          // Use the exact asset code from AssetPairs - no guessing!
+          const balance = balances[baseAssetCode] || 0;
+
+          if (balance === 0) {
+            // Log all available assets for debugging
+            const availableAssets = Object.keys(balances).filter(k => balances[k] > 0);
+            console.error(`[DCABotService] ERROR: No balance found for ${baseAssetCode}!`);
+            console.error(`[DCABotService] Available assets with balance: ${availableAssets.join(', ')}`);
+            console.error(`[DCABotService] Expected quantity: ${expectedQuantity.toFixed(volumePrecision)}`);
+          }
 
           if (balance > 0) {
             // CRITICAL: Subtract a small buffer (0.1%) to account for trading fees
@@ -517,7 +528,7 @@ export class DCABotService {
               actualQuantity = pairInfo.ordermin;
             }
           } else {
-            console.warn(`[DCABotService] Warning: No balance found for ${baseCurrency}, using calculated quantity`);
+            console.warn(`[DCABotService] Warning: No balance found for ${baseAssetCode}, using calculated quantity`);
           }
         } catch (error: any) {
           console.warn(`[DCABotService] Could not fetch balance/pair info, using calculated quantity:`, error.message);
