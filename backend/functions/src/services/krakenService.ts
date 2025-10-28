@@ -210,6 +210,49 @@ export class KrakenService {
   }
 
   /**
+   * Get asset pair info including precision and minimum order size
+   */
+  async getAssetPairs(pair: string): Promise<any> {
+    try {
+      const response = await this.client.api('AssetPairs', { pair });
+
+      if (response.result && Object.keys(response.result).length > 0) {
+        // Return the first (and usually only) pair info
+        const pairInfo = Object.values(response.result)[0] as any;
+        return {
+          pair_decimals: pairInfo.pair_decimals || 1,  // Price decimals
+          lot_decimals: pairInfo.lot_decimals || 8,    // Volume decimals
+          lot_multiplier: pairInfo.lot_multiplier || 1,
+          ordermin: parseFloat(pairInfo.ordermin || '0'), // Minimum order size
+          costmin: parseFloat(pairInfo.costmin || '0'),   // Minimum order cost
+          fee_volume_currency: pairInfo.fee_volume_currency,
+          margin_call: pairInfo.margin_call,
+          margin_stop: pairInfo.margin_stop,
+        };
+      }
+
+      // Return defaults if not found
+      return {
+        pair_decimals: 1,
+        lot_decimals: 8,
+        lot_multiplier: 1,
+        ordermin: 0,
+        costmin: 0,
+      };
+    } catch (error) {
+      console.error(`[KrakenService] Error fetching asset pair info for ${pair}:`, error);
+      // Return safe defaults
+      return {
+        pair_decimals: 1,
+        lot_decimals: 8,
+        lot_multiplier: 1,
+        ordermin: 0,
+        costmin: 0,
+      };
+    }
+  }
+
+  /**
    * Get current prices for multiple pairs
    */
   async getCurrentPrices(pairs?: string[]): Promise<Record<string, number>> {

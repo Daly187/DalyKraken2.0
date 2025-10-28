@@ -475,13 +475,18 @@ export class DCABotService {
         return { success: false, error: 'No quantity to sell' };
       }
 
-      // Get actual balance from Kraken to avoid "insufficient funds" errors
+      // Get actual balance from Kraken and validate precision requirements
       // This handles fees, rounding differences, and ensures we sell exactly what we have
       let actualQuantity = expectedQuantity;
+      let volumePrecision = 8; // Default precision
 
       if (krakenService) {
         try {
-          console.log(`[DCABotService] Checking actual balance for ${bot.symbol} (expected: ${expectedQuantity.toFixed(8)})`);
+          // Get AssetPairs info for precision requirements
+          const pairInfo = await krakenService.getAssetPairs(bot.symbol);
+          volumePrecision = pairInfo.lot_decimals;
+
+          console.log(`[DCABotService] Asset pair ${bot.symbol}: lot_decimals=${volumePrecision}, ordermin=${pairInfo.ordermin}, expected qty=${expectedQuantity.toFixed(volumePrecision)}`);
 
           // Extract base currency from pair (e.g., "ADA" from "ADA/USD")
           const baseCurrency = bot.symbol.split('/')[0];
@@ -492,18 +497,35 @@ export class DCABotService {
           // Kraken prefixes some currencies (e.g., XETH, XXBT), so check both formats
           const balance = balances[baseCurrency] || balances[`X${baseCurrency}`] || balances[`Z${baseCurrency}`] || 0;
 
-          if (balance > 0 && balance < expectedQuantity) {
-            console.log(`[DCABotService] Actual balance (${balance.toFixed(8)}) is less than expected (${expectedQuantity.toFixed(8)}), using actual balance`);
-            actualQuantity = balance;
-          } else if (balance === 0) {
-            console.warn(`[DCABotService] Warning: No balance found for ${baseCurrency}, using calculated quantity`);
+          if (balance > 0) {
+            // CRITICAL: Subtract a small buffer (0.1%) to account for trading fees
+            // Kraken takes fees from the order amount, so selling 100% will fail
+            const feeBuffer = balance * 0.001; // 0.1% buffer for fees
+            const balanceAfterFees = balance - feeBuffer;
+
+            if (balanceAfterFees < expectedQuantity) {
+              console.log(`[DCABotService] Adjusting quantity: balance=${balance.toFixed(volumePrecision)}, after fee buffer=${balanceAfterFees.toFixed(volumePrecision)}, expected=${expectedQuantity.toFixed(volumePrecision)}`);
+              actualQuantity = balanceAfterFees;
+            } else {
+              console.log(`[DCABotService] Using expected quantity: balance=${balance.toFixed(volumePrecision)}, expected=${expectedQuantity.toFixed(volumePrecision)}`);
+              actualQuantity = expectedQuantity;
+            }
+
+            // Validate against minimum order size
+            if (actualQuantity < pairInfo.ordermin) {
+              console.warn(`[DCABotService] Quantity ${actualQuantity.toFixed(volumePrecision)} is below minimum ${pairInfo.ordermin}, adjusting to minimum`);
+              actualQuantity = pairInfo.ordermin;
+            }
           } else {
-            console.log(`[DCABotService] Actual balance: ${balance.toFixed(8)}, using expected quantity: ${expectedQuantity.toFixed(8)}`);
+            console.warn(`[DCABotService] Warning: No balance found for ${baseCurrency}, using calculated quantity`);
           }
         } catch (error: any) {
-          console.warn(`[DCABotService] Could not fetch balance, using calculated quantity:`, error.message);
+          console.warn(`[DCABotService] Could not fetch balance/pair info, using calculated quantity:`, error.message);
         }
       }
+
+      // Round to correct precision (CRITICAL: must match lot_decimals)
+      actualQuantity = parseFloat(actualQuantity.toFixed(volumePrecision));
 
       // Calculate total amount (USD value)
       const totalAmount = actualQuantity * currentPrice;
@@ -516,13 +538,13 @@ export class DCABotService {
         pair: bot.symbol,
         type: OrderType.MARKET,
         side: 'sell',
-        volume: actualQuantity.toFixed(8),
+        volume: actualQuantity.toFixed(volumePrecision), // Use correct precision
         amount: totalAmount, // USD amount
         price: currentPrice.toString(), // Expected market execution price
         reason: 'Take profit target reached - waiting for order queue to execute market sell',
       });
 
-      console.log(`[DCABotService] Created pending exit order ${pendingOrder.id} for bot ${bot.id} - ${actualQuantity.toFixed(8)} ${bot.symbol} at $${currentPrice}`);
+      console.log(`[DCABotService] Created pending exit order ${pendingOrder.id} for bot ${bot.id} - ${actualQuantity.toFixed(volumePrecision)} ${bot.symbol} at $${currentPrice}`);
 
       // Update bot status to 'exiting' ONLY AFTER order is successfully created
       // (will be set to 'active' or 'completed' after order executes/fails)

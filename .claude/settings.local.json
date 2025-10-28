@@ -14,7 +14,8 @@
       "Bash(cat:*)",
       "Bash(firebase functions:list:*)",
       "Bash(firebase functions:log:*)",
-      "Bash(node clear-failed-keys.mjs:*)"
+      "Bash(node clear-failed-keys.mjs:*)",
+      "Bash(GOOGLE_APPLICATION_CREDENTIALS=\"\" node:*)"
     ],
     "deny": [],
     "ask": []

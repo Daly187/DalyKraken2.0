@@ -109,7 +109,7 @@ export const DEFAULT_ORDER_QUEUE_CONFIG: OrderQueueConfig = {
     resetTimeout: 300, // Try again after 5 minutes
     failureWindow: 300, // Count failures in 5-minute window
   },
-  stuckOrderTimeout: 600, // Reset orders stuck in PROCESSING for >10 minutes
+  stuckOrderTimeout: 120, // Reset orders stuck in PROCESSING for >2 minutes
 };
 
 // Circuit breaker states
