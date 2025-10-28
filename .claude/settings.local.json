@@ -15,7 +15,11 @@
       "Bash(firebase functions:list:*)",
       "Bash(firebase functions:log:*)",
       "Bash(node clear-failed-keys.mjs:*)",
-      "Bash(GOOGLE_APPLICATION_CREDENTIALS=\"\" node:*)"
+      "Bash(GOOGLE_APPLICATION_CREDENTIALS=\"\" node:*)",
+      "Bash(curl:*)",
+      "Bash(node test-sell-order.mjs:*)",
+      "Bash(node:*)",
+      "Read(//Users/Daly/Desktop/DalyDough/**)"
     ],
     "deny": [],
     "ask": []

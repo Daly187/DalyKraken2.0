@@ -1,91 +1,58 @@
-/**
- * Check bot status and why they might not be creating orders
- */
-
-import { initializeApp, cert } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
+import admin from 'firebase-admin';
 import { readFileSync } from 'fs';
 
 const serviceAccount = JSON.parse(
-  readFileSync('./serviceAccountKey.json', 'utf8')
+  readFileSync('/Users/Daly/Desktop/DalyDough/DalyKraken2.0/backend/functions/serviceAccountKey.json', 'utf8')
 );
 
-initializeApp({
-  credential: cert(serviceAccount)
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+  databaseURL: 'https://dalydough-default-rtdb.asia-southeast1.firebasedatabase.app'
 });
 
-const db = getFirestore();
+const db = admin.firestore();
 
 async function checkBotStatus() {
-  console.log('=== Checking Bot Status ===\n');
+  console.log('Checking DCA bot statuses...');
 
   try {
-    // Get all active bots
-    const botsSnapshot = await db
-      .collection('dcaBots')
-      .where('status', '==', 'active')
+    const exitingBotsSnapshot = await db.collection('dcaBots')
+      .where('status', '==', 'exiting')
       .get();
 
-    console.log(`Found ${botsSnapshot.size} active bots\n`);
+    console.log('Bots in exiting status:', exitingBotsSnapshot.size);
+    exitingBotsSnapshot.forEach(doc => {
+      const bot = doc.data();
+      console.log('  -', bot.symbol, ':', bot.id);
+    });
 
-    for (const botDoc of botsSnapshot.docs) {
-      const bot = botDoc.data();
-      console.log(`\n--- ${bot.symbol} (${botDoc.id}) ---`);
-      console.log(`  Status: ${bot.status}`);
-      console.log(`  Current Entry Count: ${bot.currentEntryCount || 0}`);
-      console.log(`  Max Re-entries: ${bot.reEntryCount}`);
-      console.log(`  Average Entry Price: $${bot.averageEntryPrice || 0}`);
-      console.log(`  Total Invested: $${bot.totalInvested || 0}`);
-      console.log(`  Total Volume: ${bot.totalVolume || 0}`);
-      console.log(`  Last Entry Time: ${bot.lastEntryTime || 'Never'}`);
-      console.log(`  Next Entry Price: $${bot.nextEntryPrice || 'N/A'}`);
+    const failedOrdersSnapshot = await db.collection('pendingOrders')
+      .where('status', '==', 'failed')
+      .orderBy('createdAt', 'desc')
+      .limit(5)
+      .get();
 
-      // Check for pending orders
-      const pendingOrders = await db
-        .collection('pendingOrders')
-        .where('botId', '==', botDoc.id)
-        .where('status', 'in', ['pending', 'processing', 'retry'])
-        .get();
+    console.log('Recent failed orders:', failedOrdersSnapshot.size);
+    failedOrdersSnapshot.forEach(doc => {
+      const order = doc.data();
+      console.log('  -', order.pair, order.side, ':', order.lastError);
+    });
 
-      console.log(`  Pending Orders: ${pendingOrders.size}`);
+    const allPendingSnapshot = await db.collection('pendingOrders')
+      .where('status', '==', 'pending')
+      .get();
 
-      // Determine if it should enter
-      if (bot.currentEntryCount === 0) {
-        console.log(`  ✓ Should create FIRST ENTRY (no checks needed)`);
-      } else if (bot.currentEntryCount >= bot.reEntryCount) {
-        console.log(`  ✗ Max re-entries reached (${bot.currentEntryCount}/${bot.reEntryCount})`);
-      } else if (bot.lastEntryTime) {
-        const lastEntryTime = new Date(bot.lastEntryTime).getTime();
-        const timeSinceLastEntry = Date.now() - lastEntryTime;
-        const delayMs = (bot.reEntryDelay || 0) * 60 * 1000;
-        const minutesRemaining = Math.round((delayMs - timeSinceLastEntry) / 60000);
-
-        if (timeSinceLastEntry < delayMs) {
-          console.log(`  ⏳ Re-entry delay not met (${minutesRemaining} minutes remaining)`);
-        } else {
-          console.log(`  ✓ Re-entry delay met`);
-        }
-      } else {
-        console.log(`  ✓ Should check price and market conditions`);
-      }
-
-      if (pendingOrders.size > 0) {
-        console.log(`  ⚠️  Already has pending order - won't create new one`);
-      }
-    }
+    console.log('All pending orders:', allPendingSnapshot.size);
+    allPendingSnapshot.forEach(doc => {
+      const order = doc.data();
+      console.log('  -', order.pair, order.side, 'attempts:', order.attempts || 0);
+    });
 
   } catch (error) {
-    console.error('Error:', error);
-    throw error;
+    console.error('Error:', error.message);
   }
+
+  process.exit(0);
 }
 
-checkBotStatus()
-  .then(() => {
-    console.log('\n\nDone!');
-    process.exit(0);
-  })
-  .catch((error) => {
-    console.error('\nFailed:', error);
-    process.exit(1);
-  });
+checkBotStatus();

@@ -509,9 +509,10 @@ export class DCABotService {
           }
 
           if (balance > 0) {
-            // CRITICAL: Subtract a small buffer (0.1%) to account for trading fees
+            // CRITICAL: Subtract a buffer (0.5%) to account for trading fees
             // Kraken takes fees from the order amount, so selling 100% will fail
-            const feeBuffer = balance * 0.001; // 0.1% buffer for fees
+            // Kraken fees: 0.16%-0.26% for most users, using 0.5% buffer to be safe
+            const feeBuffer = balance * 0.005; // 0.5% buffer for fees
             const balanceAfterFees = balance - feeBuffer;
 
             if (balanceAfterFees < expectedQuantity) {

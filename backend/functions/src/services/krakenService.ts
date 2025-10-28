@@ -128,8 +128,11 @@ export class KrakenService {
     userref?: number
   ): Promise<any> {
     try {
+      console.log(`[KrakenService] SELL ORDER START - Original pair: "${pair}", volume: ${volume}, orderType: ${orderType}`);
+
       // Normalize pair format: Remove slash (BTC/USD -> BTCUSD, BCH/USD -> BCHUSD)
       const normalizedPair = pair.replace('/', '');
+      console.log(`[KrakenService] Normalized pair: "${normalizedPair}"`);
 
       const orderParams: any = {
         pair: normalizedPair,
@@ -147,11 +150,12 @@ export class KrakenService {
         orderParams.userref = userref;
       }
 
-      console.log(`[KrakenService] Placing sell order:`, JSON.stringify(orderParams));
+      console.log(`[KrakenService] FINAL ORDER PARAMS:`, JSON.stringify(orderParams));
+      console.log(`[KrakenService] Calling Kraken AddOrder API...`);
 
       const response = await this.client.api('AddOrder', orderParams);
 
-      console.log(`[KrakenService] Kraken response received:`, JSON.stringify(response));
+      console.log(`[KrakenService] SUCCESS - Kraken response:`, JSON.stringify(response));
 
       if (!response || !response.result) {
         throw new Error('Invalid response from Kraken API - no result field');
@@ -163,10 +167,16 @@ export class KrakenService {
 
       return response.result;
     } catch (error: any) {
-      console.error('[KrakenService] Error placing sell order:', error?.message || error);
+      console.error('[KrakenService] ❌ SELL ORDER FAILED');
+      console.error('[KrakenService] Error message:', error?.message || error);
+      console.error('[KrakenService] Error type:', typeof error);
       if (error.response) {
         console.error('[KrakenService] Error response:', JSON.stringify(error.response));
       }
+      if (error.error) {
+        console.error('[KrakenService] Kraken error array:', JSON.stringify(error.error));
+      }
+      console.error('[KrakenService] Full error object:', JSON.stringify(error, null, 2));
       throw error;
     }
   }
