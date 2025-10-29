@@ -190,15 +190,71 @@ class MultiExchangeService {
   }
 
   /**
-   * Connect to Hyperliquid WebSocket for funding rates
+   * Connect to Hyperliquid for funding rates using REST API
+   * Note: HyperLiquid funding is paid HOURLY (not 8-hourly)
+   * Uses REST API polling instead of WebSocket for simplicity
    */
   connectHyperliquid(symbols: string[]) {
-    const credentials = this.getCredentials('hyperliquid');
-    if (!credentials.privateKey || !credentials.walletAddress) {
-      console.warn('[MultiExchange] Hyperliquid credentials not configured');
-      return;
-    }
+    console.log(`[HyperLiquid] Initializing funding rate polling for all assets...`);
 
+    // Fetch funding rates immediately
+    this.fetchHyperliquidFunding();
+
+    // Poll every 60 seconds for updates (funding paid hourly)
+    const pollInterval = setInterval(() => {
+      this.fetchHyperliquidFunding();
+    }, 60000);
+
+    this.reconnectIntervals.set('hyperliquid', pollInterval as any);
+    console.log(`[HyperLiquid] Polling started - updating every 60 seconds`);
+  }
+
+  /**
+   * Fetch current funding rates from HyperLiquid REST API
+   */
+  private async fetchHyperliquidFunding() {
+    try {
+      const response = await fetch('https://api.hyperliquid.xyz/info', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'metaAndAssetCtxs' }),
+      });
+
+      const data = await response.json();
+
+      // data[0] = metadata, data[1] = array of asset contexts
+      const assetCtxs = data[1];
+
+      assetCtxs.forEach((asset: any, index: number) => {
+        const meta = data[0].universe[index];
+
+        // Convert HyperLiquid coin name to our symbol format (e.g., "BTC" -> "BTCUSDT")
+        const symbol = `${meta.name}USDT`;
+
+        const fundingRate: FundingRate = {
+          symbol: symbol,
+          exchange: 'hyperliquid',
+          rate: parseFloat(asset.funding) * 100, // Convert to percentage (hourly rate)
+          timestamp: Date.now(),
+          nextFundingTime: Date.now() + (60 * 60 * 1000), // Next hour
+          markPrice: parseFloat(asset.markPx),
+        };
+
+        this.fundingRates.set(`hyperliquid-${symbol}`, fundingRate);
+        this.fundingCallbacks.forEach(cb => cb(fundingRate));
+      });
+
+      console.log(`[HyperLiquid] Updated funding rates for ${assetCtxs.length} assets`);
+
+    } catch (error) {
+      console.error('[HyperLiquid] Error fetching funding rates:', error);
+    }
+  }
+
+  /**
+   * OLD WebSocket implementation (kept for reference)
+   */
+  private connectHyperliquidWebSocket_OLD(symbols: string[]) {
     const ws = new WebSocket('wss://api.hyperliquid.xyz/ws');
 
     ws.onopen = () => {
@@ -402,16 +458,13 @@ class MultiExchangeService {
    * Connect to all configured exchanges
    */
   connectAll(symbols: string[]) {
-    const hyperCreds = this.getCredentials('hyperliquid');
     const liquidCreds = this.getCredentials('liquid');
 
-    // Aster: Always connect (public market data doesn't require auth)
+    // AsterDEX: Always connect (public market data doesn't require auth)
     this.connectAster(symbols);
 
-    // Hyperliquid: Requires credentials
-    if (hyperCreds.privateKey && hyperCreds.walletAddress) {
-      this.connectHyperliquid(symbols);
-    }
+    // HyperLiquid: Always connect (public market data doesn't require auth)
+    this.connectHyperliquid(symbols);
 
     // Liquid: Requires credentials
     if (liquidCreds.apiToken && liquidCreds.apiSecret) {

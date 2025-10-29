@@ -402,7 +402,9 @@ export default function DalyFunding() {
               </thead>
               <tbody className="divide-y divide-slate-700/50">
                 {sortedRates.map((rate) => {
-                  const annualRate = rate.rate * 3 * 365; // 3 times per day * 365 days
+                  // HyperLiquid: hourly (24x per day), AsterDEX/others: 8-hourly (3x per day)
+                  const paymentsPerDay = rate.exchange === 'hyperliquid' ? 24 : 3;
+                  const annualRate = rate.rate * paymentsPerDay * 365;
                   return (
                     <tr
                       key={`${rate.exchange}-${rate.symbol}`}
