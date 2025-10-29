@@ -81,30 +81,30 @@ class MultiExchangeService {
   }
 
   /**
-   * Connect to Aster DEX WebSocket for funding rates
-   * Note: Public market data doesn't require authentication
+   * Connect to Binance Futures WebSocket for funding rates
+   * Note: Using Binance public API (no authentication required for market data)
    */
   connectAster(symbols: string[]) {
-    console.log(`[Aster] Connecting to WebSocket for ${symbols.length} symbols...`);
+    console.log(`[Binance] Connecting to WebSocket for ${symbols.length} symbols...`);
 
-    const ws = new WebSocket('wss://fstream.asterdex.com');
+    // Binance Futures WebSocket endpoint
+    const ws = new WebSocket('wss://fstream.binance.com/ws');
 
     ws.onopen = () => {
-      console.log('[Aster] WebSocket connected');
+      console.log('[Binance] WebSocket connected');
 
-      // Subscribe to mark price streams in batches (max 50 symbols per subscription)
-      const batchSize = 50;
-      for (let i = 0; i < symbols.length; i += batchSize) {
-        const batch = symbols.slice(i, i + batchSize);
-        const subscribeMsg = {
-          method: 'SUBSCRIBE',
-          params: batch.map(s => `${s.toLowerCase()}@markPrice`),
-          id: Date.now() + i,
-        };
+      // Subscribe to mark price streams for all symbols (Binance format)
+      // Binance accepts multiple streams in one subscription
+      const streams = symbols.map(s => `${s.toLowerCase()}@markPrice@1s`);
 
-        console.log(`[Aster] Subscribing to batch ${Math.floor(i / batchSize) + 1} (${batch.length} symbols)`);
-        ws.send(JSON.stringify(subscribeMsg));
-      }
+      const subscribeMsg = {
+        method: 'SUBSCRIBE',
+        params: streams,
+        id: Date.now(),
+      };
+
+      console.log(`[Binance] Subscribing to ${symbols.length} funding rate streams`);
+      ws.send(JSON.stringify(subscribeMsg));
     };
 
     ws.onmessage = (event) => {
@@ -113,20 +113,20 @@ class MultiExchangeService {
 
         // Log subscription responses for debugging
         if (data.result === null && data.id) {
-          console.log(`[Aster] Subscription confirmed (ID: ${data.id})`);
+          console.log(`[Binance] Subscription confirmed (ID: ${data.id})`);
           return;
         }
 
         // Log errors from server
         if (data.error) {
-          console.error('[Aster] Server error:', data.error);
+          console.error('[Binance] Server error:', data.error);
           return;
         }
 
-        // Handle mark price updates
+        // Handle mark price updates (Binance format)
         if (data.e === 'markPriceUpdate') {
           const fundingRate: FundingRate = {
-            symbol: data.s.toUpperCase(),
+            symbol: data.s.replace('USDT', 'USDT'), // Keep symbol format
             exchange: 'aster',
             rate: parseFloat(data.r) * 100, // Convert to percentage
             timestamp: data.E,
@@ -134,31 +134,35 @@ class MultiExchangeService {
             markPrice: parseFloat(data.p),
           };
 
-          this.fundingRates.set(`aster-${data.s.toUpperCase()}`, fundingRate);
+          this.fundingRates.set(`aster-${data.s}`, fundingRate);
           this.fundingCallbacks.forEach(cb => cb(fundingRate));
-          console.log(`[Aster] Received funding rate for ${data.s}: ${fundingRate.rate.toFixed(4)}%`);
+
+          // Log first few updates for debugging
+          if (this.fundingRates.size <= 5) {
+            console.log(`[Binance] Funding rate: ${data.s} = ${fundingRate.rate.toFixed(4)}% (Mark: $${fundingRate.markPrice})`);
+          }
         }
       } catch (error) {
-        console.error('[Aster] Error parsing message:', error);
+        console.error('[Binance] Error parsing message:', error);
       }
     };
 
     ws.onerror = (error) => {
-      console.error('[Aster] WebSocket error:', error);
+      console.error('[Binance] WebSocket error:', error);
     };
 
     ws.onclose = (event) => {
-      console.log(`[Aster] WebSocket closed (Code: ${event.code}, Reason: ${event.reason || 'No reason provided'})`);
+      console.log(`[Binance] WebSocket closed (Code: ${event.code}, Reason: ${event.reason || 'No reason provided'})`);
       this.wsConnections.delete('aster');
 
       // Don't reconnect if close was intentional (code 1000)
       if (event.code === 1000) {
-        console.log('[Aster] WebSocket closed normally, not reconnecting');
+        console.log('[Binance] WebSocket closed normally, not reconnecting');
         return;
       }
 
       // Reconnect after 5 seconds
-      console.log('[Aster] Reconnecting in 5 seconds...');
+      console.log('[Binance] Reconnecting in 5 seconds...');
       const reconnect = setTimeout(() => {
         this.connectAster(symbols);
       }, 5000);
