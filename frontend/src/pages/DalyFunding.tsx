@@ -31,7 +31,7 @@ export default function DalyFunding() {
   const [isConnected, setIsConnected] = useState(false);
   const [sortBy, setSortBy] = useState<'rate' | 'symbol' | 'markPrice'>('rate');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
-  const [viewMode, setViewMode] = useState<'all' | 'arbitrage'>('arbitrage');
+  const [viewMode, setViewMode] = useState<'all' | 'arbitrage' | 'diagnostics'>('arbitrage');
 
   // Strategy Configuration
   const [positionSize, setPositionSize] = useState(100);
@@ -200,6 +200,12 @@ export default function DalyFunding() {
     )
     .sort((a, b) => Math.abs(b.annualSpread || 0) - Math.abs(a.annualSpread || 0));
 
+  // Get exclusive assets (only on one exchange)
+  const exclusiveAssets = multiExchangeService.getExclusiveAssets();
+  const totalMatched = matchedPairs.filter(p => p.aster && p.hyperliquid).length;
+  const asterOnlyCount = exclusiveAssets.asterOnly.length;
+  const hlOnlyCount = exclusiveAssets.hyperliquidOnly.length;
+
   // Calculate statistics
   const totalPositions = positions.filter(p => p.status === 'open').length;
   const totalInvested = positions
@@ -318,6 +324,17 @@ export default function DalyFunding() {
               >
                 <ArrowDownUp className="h-3 w-3" />
                 Arbitrage ({arbitrageOpportunities.length})
+              </button>
+              <button
+                onClick={() => setViewMode('diagnostics')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${
+                  viewMode === 'diagnostics'
+                    ? 'bg-yellow-500 text-white'
+                    : 'bg-slate-700/50 text-gray-400 hover:bg-slate-600/50'
+                }`}
+              >
+                <Activity className="h-3 w-3" />
+                Diagnostics ({totalMatched} matched)
               </button>
               <button
                 onClick={() => setViewMode('all')}
@@ -530,6 +547,134 @@ export default function DalyFunding() {
               </p>
             </div>
           )
+        ) : viewMode === 'diagnostics' ? (
+          // Diagnostics View - Symbol Mapping Status
+          <div className="space-y-6">
+            {/* Summary Cards */}
+            <div className="grid grid-cols-3 gap-4 mb-6">
+              <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <CheckCircle className="h-5 w-5 text-green-400" />
+                  <span className="text-sm font-medium text-gray-400">Matched Assets</span>
+                </div>
+                <div className="text-3xl font-bold text-green-400">{totalMatched}</div>
+                <div className="text-xs text-gray-500 mt-1">Available on both exchanges</div>
+              </div>
+              <div className="bg-cyan-500/10 border border-cyan-500/20 rounded-lg p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <Activity className="h-5 w-5 text-cyan-400" />
+                  <span className="text-sm font-medium text-gray-400">AsterDEX Only</span>
+                </div>
+                <div className="text-3xl font-bold text-cyan-400">{asterOnlyCount}</div>
+                <div className="text-xs text-gray-500 mt-1">Exclusive to AsterDEX</div>
+              </div>
+              <div className="bg-purple-500/10 border border-purple-500/20 rounded-lg p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <Activity className="h-5 w-5 text-purple-400" />
+                  <span className="text-sm font-medium text-gray-400">HyperLiquid Only</span>
+                </div>
+                <div className="text-3xl font-bold text-purple-400">{hlOnlyCount}</div>
+                <div className="text-xs text-gray-500 mt-1">Exclusive to HyperLiquid</div>
+              </div>
+            </div>
+
+            {/* Matched Pairs Table */}
+            <div className="bg-slate-800/30 rounded-lg p-4 border border-slate-700/50">
+              <h3 className="text-lg font-bold text-green-400 mb-4 flex items-center gap-2">
+                <CheckCircle className="h-5 w-5" />
+                Matched Assets ({totalMatched})
+              </h3>
+              <div className="overflow-x-auto max-h-96 overflow-y-auto">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-slate-800 border-b border-slate-600/50">
+                    <tr>
+                      <th className="px-3 py-2 text-left text-xs font-semibold text-gray-400">Canonical</th>
+                      <th className="px-3 py-2 text-left text-xs font-semibold text-gray-400">AsterDEX Symbol</th>
+                      <th className="px-3 py-2 text-left text-xs font-semibold text-gray-400">HyperLiquid Symbol</th>
+                      <th className="px-3 py-2 text-right text-xs font-semibold text-gray-400">Multiplier</th>
+                      <th className="px-3 py-2 text-center text-xs font-semibold text-gray-400">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-700/30">
+                    {matchedPairs
+                      .filter(p => p.aster && p.hyperliquid)
+                      .sort((a, b) => a.canonical.localeCompare(b.canonical))
+                      .map((pair) => (
+                        <tr key={pair.canonical} className="hover:bg-slate-700/20">
+                          <td className="px-3 py-2 font-bold text-white">{pair.canonical}</td>
+                          <td className="px-3 py-2">
+                            <span className="text-cyan-400 font-mono text-xs">
+                              {pair.aster?.symbol}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2">
+                            <span className="text-purple-400 font-mono text-xs">
+                              {pair.hyperliquid?.symbol}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 text-right">
+                            <span className={`text-xs ${
+                              (pair.aster?.multiplier || 1) > 1 ? 'text-yellow-400 font-bold' : 'text-gray-500'
+                            }`}>
+                              {pair.aster?.multiplier || 1}x
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 text-center">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-green-500/20 text-green-400">
+                              <CheckCircle className="h-3 w-3" />
+                              Matched
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Exchange-Exclusive Assets */}
+            <div className="grid grid-cols-2 gap-4">
+              {/* AsterDEX Only */}
+              <div className="bg-slate-800/30 rounded-lg p-4 border border-cyan-500/20">
+                <h3 className="text-lg font-bold text-cyan-400 mb-4 flex items-center gap-2">
+                  <Activity className="h-5 w-5" />
+                  AsterDEX Exclusive ({asterOnlyCount})
+                </h3>
+                <div className="max-h-64 overflow-y-auto">
+                  <div className="space-y-2">
+                    {exclusiveAssets.asterOnly
+                      .sort((a, b) => a.canonical.localeCompare(b.canonical))
+                      .map((pair) => (
+                        <div key={pair.canonical} className="flex items-center justify-between p-2 bg-cyan-500/5 rounded">
+                          <span className="font-bold text-white">{pair.canonical}</span>
+                          <span className="text-xs text-cyan-400 font-mono">{pair.aster?.symbol}</span>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* HyperLiquid Only */}
+              <div className="bg-slate-800/30 rounded-lg p-4 border border-purple-500/20">
+                <h3 className="text-lg font-bold text-purple-400 mb-4 flex items-center gap-2">
+                  <Activity className="h-5 w-5" />
+                  HyperLiquid Exclusive ({hlOnlyCount})
+                </h3>
+                <div className="max-h-64 overflow-y-auto">
+                  <div className="space-y-2">
+                    {exclusiveAssets.hyperliquidOnly
+                      .sort((a, b) => a.canonical.localeCompare(b.canonical))
+                      .map((pair) => (
+                        <div key={pair.canonical} className="flex items-center justify-between p-2 bg-purple-500/5 rounded">
+                          <span className="font-bold text-white">{pair.canonical}</span>
+                          <span className="text-xs text-purple-400 font-mono">{pair.hyperliquid?.symbol}</span>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         ) : (
           // All Assets View
           sortedRates.length > 0 ? (
