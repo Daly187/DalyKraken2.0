@@ -92,23 +92,41 @@ class MultiExchangeService {
     ws.onopen = () => {
       console.log('[Aster] WebSocket connected');
 
-      // Subscribe to mark price streams for funding rates
-      const subscribeMsg = {
-        method: 'SUBSCRIBE',
-        params: symbols.map(s => `${s.toLowerCase()}@markPrice`),
-        id: Date.now(),
-      };
+      // Subscribe to mark price streams in batches (max 50 symbols per subscription)
+      const batchSize = 50;
+      for (let i = 0; i < symbols.length; i += batchSize) {
+        const batch = symbols.slice(i, i + batchSize);
+        const subscribeMsg = {
+          method: 'SUBSCRIBE',
+          params: batch.map(s => `${s.toLowerCase()}@markPrice`),
+          id: Date.now() + i,
+        };
 
-      ws.send(JSON.stringify(subscribeMsg));
+        console.log(`[Aster] Subscribing to batch ${Math.floor(i / batchSize) + 1} (${batch.length} symbols)`);
+        ws.send(JSON.stringify(subscribeMsg));
+      }
     };
 
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
 
+        // Log subscription responses for debugging
+        if (data.result === null && data.id) {
+          console.log(`[Aster] Subscription confirmed (ID: ${data.id})`);
+          return;
+        }
+
+        // Log errors from server
+        if (data.error) {
+          console.error('[Aster] Server error:', data.error);
+          return;
+        }
+
+        // Handle mark price updates
         if (data.e === 'markPriceUpdate') {
           const fundingRate: FundingRate = {
-            symbol: data.s,
+            symbol: data.s.toUpperCase(),
             exchange: 'aster',
             rate: parseFloat(data.r) * 100, // Convert to percentage
             timestamp: data.E,
@@ -116,8 +134,9 @@ class MultiExchangeService {
             markPrice: parseFloat(data.p),
           };
 
-          this.fundingRates.set(`aster-${data.s}`, fundingRate);
+          this.fundingRates.set(`aster-${data.s.toUpperCase()}`, fundingRate);
           this.fundingCallbacks.forEach(cb => cb(fundingRate));
+          console.log(`[Aster] Received funding rate for ${data.s}: ${fundingRate.rate.toFixed(4)}%`);
         }
       } catch (error) {
         console.error('[Aster] Error parsing message:', error);
@@ -128,11 +147,18 @@ class MultiExchangeService {
       console.error('[Aster] WebSocket error:', error);
     };
 
-    ws.onclose = () => {
-      console.log('[Aster] WebSocket closed, reconnecting...');
+    ws.onclose = (event) => {
+      console.log(`[Aster] WebSocket closed (Code: ${event.code}, Reason: ${event.reason || 'No reason provided'})`);
       this.wsConnections.delete('aster');
 
+      // Don't reconnect if close was intentional (code 1000)
+      if (event.code === 1000) {
+        console.log('[Aster] WebSocket closed normally, not reconnecting');
+        return;
+      }
+
       // Reconnect after 5 seconds
+      console.log('[Aster] Reconnecting in 5 seconds...');
       const reconnect = setTimeout(() => {
         this.connectAster(symbols);
       }, 5000);
