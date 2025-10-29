@@ -28,6 +28,8 @@ export default function DalyFunding() {
   const [fundingRates, setFundingRates] = useState<FundingRate[]>([]);
   const [positions, setPositions] = useState<FundingPosition[]>([]);
   const [isConnected, setIsConnected] = useState(false);
+  const [sortBy, setSortBy] = useState<'rate' | 'symbol' | 'markPrice'>('rate');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
   // Strategy Configuration
   const [positionSize, setPositionSize] = useState(100);
@@ -36,10 +38,23 @@ export default function DalyFunding() {
   const [maxSpread, setMaxSpread] = useState(0.1);
   const [autoExecute, setAutoExecute] = useState(false);
 
-  // Available trading pairs (normalized format)
+  // Available trading pairs (normalized format) - Aster DEX supported assets
   const availablePairs = [
-    'BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT', 'ADAUSDT',
-    'DOGEUSDT', 'DOTUSDT', 'LINKUSDT', 'UNIUSDT', 'AVAXUSDT',
+    // Major Assets
+    'BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT',
+    // Layer 1s
+    'ADAUSDT', 'AVAXUSDT', 'DOTUSDT', 'MATICUSDT', 'ATOMUSDT',
+    // DeFi
+    'LINKUSDT', 'UNIUSDT', 'AAVEUSDT', 'MKRUSDT', 'SNXUSDT',
+    // Meme Coins
+    'DOGEUSDT', 'SHIBUSDT', 'PEPEUSDT', 'FLOKIUSDT',
+    // Gaming & Metaverse
+    'SANDUSDT', 'MANAUSDT', 'AXSUSDT', 'ENJUSDT',
+    // Other Popular
+    'LTCUSDT', 'BCHUSDT', 'ETCUSDT', 'FILUSDT', 'APTUSDT',
+    'ARBUSDT', 'OPUSDT', 'NEARUSDT', 'SUIUSDT', 'INJUSDT',
+    'STXUSDT', 'TIAUSDT', 'SEIUSDT', 'JUPUSDT', 'WLDUSDT',
+    'RENDERUSDT', 'FTMUSDT', 'IMXUSDT', 'THETAUSDT', 'LDOUSDT',
   ];
 
   // Connect to WebSocket feeds on mount
@@ -83,10 +98,37 @@ export default function DalyFunding() {
     };
   }, [autoExecute, fundingThreshold]);
 
-  // Filter funding rates by selected exchange
+  // Filter and sort funding rates
   const filteredRates = selectedExchange === 'all'
     ? fundingRates
     : fundingRates.filter(f => f.exchange === selectedExchange);
+
+  const sortedRates = [...filteredRates].sort((a, b) => {
+    let comparison = 0;
+
+    switch (sortBy) {
+      case 'rate':
+        comparison = a.rate - b.rate;
+        break;
+      case 'symbol':
+        comparison = a.symbol.localeCompare(b.symbol);
+        break;
+      case 'markPrice':
+        comparison = a.markPrice - b.markPrice;
+        break;
+    }
+
+    return sortOrder === 'asc' ? comparison : -comparison;
+  });
+
+  const handleSort = (column: 'rate' | 'symbol' | 'markPrice') => {
+    if (sortBy === column) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortBy(column);
+      setSortOrder('desc');
+    }
+  };
 
   // Calculate statistics
   const totalPositions = positions.filter(p => p.status === 'open').length;
@@ -240,58 +282,152 @@ export default function DalyFunding() {
           </div>
         </div>
 
-        {filteredRates.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredRates.map((rate) => (
-              <div
-                key={`${rate.exchange}-${rate.symbol}`}
-                className="p-4 rounded-lg bg-slate-700/30 border border-slate-600/30 hover:border-primary-500/30 transition-all"
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <Activity className={`h-4 w-4 ${
-                      rate.exchange === 'aster' ? 'text-cyan-400' :
-                      rate.exchange === 'hyperliquid' ? 'text-purple-400' :
-                      'text-blue-400'
-                    }`} />
-                    <span className="font-bold">{rate.symbol}</span>
-                  </div>
-                  <span className={`text-xs px-2 py-1 rounded ${
-                    rate.exchange === 'aster' ? 'bg-cyan-500/20 text-cyan-400' :
-                    rate.exchange === 'hyperliquid' ? 'bg-purple-500/20 text-purple-400' :
-                    'bg-blue-500/20 text-blue-400'
-                  }`}>
-                    {rate.exchange}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs text-gray-400">Funding Rate</p>
-                    <p className={`text-2xl font-bold ${
-                      rate.rate > 0 ? 'text-green-400' :
-                      rate.rate < 0 ? 'text-red-400' :
-                      'text-gray-400'
-                    }`}>
-                      {rate.rate > 0 ? '+' : ''}{rate.rate.toFixed(4)}%
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-xs text-gray-400">Mark Price</p>
-                    <p className="text-sm font-mono">${rate.markPrice.toFixed(2)}</p>
-                  </div>
-                </div>
-                <div className="mt-3 pt-3 border-t border-slate-600/30">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-gray-500">Next Funding</span>
-                    <span className="text-gray-400">
-                      {rate.nextFundingTime > 0
-                        ? new Date(rate.nextFundingTime).toLocaleTimeString()
-                        : 'N/A'}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            ))}
+        {sortedRates.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-slate-600/50">
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                    Exchange
+                  </th>
+                  <th
+                    className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider cursor-pointer hover:text-gray-200 transition-colors"
+                    onClick={() => handleSort('symbol')}
+                  >
+                    <div className="flex items-center gap-1">
+                      Symbol
+                      {sortBy === 'symbol' && (
+                        <span className="text-primary-400">
+                          {sortOrder === 'asc' ? '↑' : '↓'}
+                        </span>
+                      )}
+                    </div>
+                  </th>
+                  <th
+                    className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider cursor-pointer hover:text-gray-200 transition-colors"
+                    onClick={() => handleSort('rate')}
+                  >
+                    <div className="flex items-center justify-end gap-1">
+                      Funding Rate (8h)
+                      {sortBy === 'rate' && (
+                        <span className="text-primary-400">
+                          {sortOrder === 'asc' ? '↑' : '↓'}
+                        </span>
+                      )}
+                    </div>
+                  </th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                    Annual Rate
+                  </th>
+                  <th
+                    className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider cursor-pointer hover:text-gray-200 transition-colors"
+                    onClick={() => handleSort('markPrice')}
+                  >
+                    <div className="flex items-center justify-end gap-1">
+                      Mark Price
+                      {sortBy === 'markPrice' && (
+                        <span className="text-primary-400">
+                          {sortOrder === 'asc' ? '↑' : '↓'}
+                        </span>
+                      )}
+                    </div>
+                  </th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                    24h Volume
+                  </th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                    Next Funding
+                  </th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                    Action
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-700/50">
+                {sortedRates.map((rate) => {
+                  const annualRate = rate.rate * 3 * 365; // 3 times per day * 365 days
+                  return (
+                    <tr
+                      key={`${rate.exchange}-${rate.symbol}`}
+                      className="hover:bg-slate-700/20 transition-colors"
+                    >
+                      <td className="px-4 py-4">
+                        <div className="flex items-center gap-2">
+                          <Activity className={`h-4 w-4 ${
+                            rate.exchange === 'aster' ? 'text-cyan-400' :
+                            rate.exchange === 'hyperliquid' ? 'text-purple-400' :
+                            'text-blue-400'
+                          }`} />
+                          <span className={`text-xs px-2 py-1 rounded font-medium ${
+                            rate.exchange === 'aster' ? 'bg-cyan-500/20 text-cyan-400' :
+                            rate.exchange === 'hyperliquid' ? 'bg-purple-500/20 text-purple-400' :
+                            'bg-blue-500/20 text-blue-400'
+                          }`}>
+                            {rate.exchange}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-4">
+                        <span className="font-bold text-white">{rate.symbol}</span>
+                      </td>
+                      <td className="px-4 py-4 text-right">
+                        <span className={`text-lg font-bold ${
+                          rate.rate > 0 ? 'text-green-400' :
+                          rate.rate < 0 ? 'text-red-400' :
+                          'text-gray-400'
+                        }`}>
+                          {rate.rate > 0 ? '+' : ''}{rate.rate.toFixed(4)}%
+                        </span>
+                      </td>
+                      <td className="px-4 py-4 text-right">
+                        <span className={`text-sm font-medium ${
+                          annualRate > 0 ? 'text-green-400' :
+                          annualRate < 0 ? 'text-red-400' :
+                          'text-gray-400'
+                        }`}>
+                          {annualRate > 0 ? '+' : ''}{annualRate.toFixed(2)}%
+                        </span>
+                      </td>
+                      <td className="px-4 py-4 text-right">
+                        <span className="text-sm font-mono text-gray-300">
+                          ${rate.markPrice.toFixed(2)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-4 text-right">
+                        <span className="text-sm text-gray-400">
+                          -
+                        </span>
+                      </td>
+                      <td className="px-4 py-4 text-center">
+                        <span className="text-xs text-gray-400">
+                          {rate.nextFundingTime > 0
+                            ? new Date(rate.nextFundingTime).toLocaleTimeString([], {
+                                hour: '2-digit',
+                                minute: '2-digit'
+                              })
+                            : 'N/A'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-4 text-center">
+                        <button
+                          className="px-3 py-1.5 rounded-lg text-xs font-medium bg-primary-500/20 text-primary-400 hover:bg-primary-500/30 transition-all"
+                          onClick={() => {
+                            setSelectedPair(rate.symbol);
+                            addNotification({
+                              type: 'info',
+                              title: 'Symbol Selected',
+                              message: `Now tracking ${rate.symbol} on ${rate.exchange}`,
+                            });
+                          }}
+                        >
+                          Track
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         ) : (
           <div className="text-center py-12">
