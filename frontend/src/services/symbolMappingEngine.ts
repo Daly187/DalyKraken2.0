@@ -652,6 +652,258 @@ class SymbolMappingEngine {
         variants: ['RATS', 'RATSUSDT', 'RATS-USD', 'RATS-PERP', '1000RATSUSDT', '1000RATS'],
         multipliers: { aster: 1000, hyperliquid: 1000 },
       },
+      {
+        canonical: 'CFX',
+        name: 'Conflux',
+        variants: ['CFX', 'CFXUSDT', 'CFX-USD', 'CFX-PERP', 'CONFLUX'],
+        multipliers: { aster: 1, hyperliquid: 1 },
+      },
+      {
+        canonical: 'GMX',
+        name: 'GMX',
+        variants: ['GMX', 'GMXUSDT', 'GMX-USD', 'GMX-PERP'],
+        multipliers: { aster: 1, hyperliquid: 1 },
+      },
+      {
+        canonical: 'FXS',
+        name: 'Frax Share',
+        variants: ['FXS', 'FXSUSDT', 'FXS-USD', 'FXS-PERP', 'FRAX'],
+        multipliers: { aster: 1, hyperliquid: 1 },
+      },
+      {
+        canonical: 'HPOS',
+        name: 'HPOS',
+        variants: ['HPOS', 'HPOSUSDT', 'HPOS-USD', 'HPOS-PERP'],
+        multipliers: { aster: 1, hyperliquid: 1 },
+      },
+      {
+        canonical: 'RLB',
+        name: 'Rollbit Coin',
+        variants: ['RLB', 'RLBUSDT', 'RLB-USD', 'RLB-PERP', 'ROLLBIT'],
+        multipliers: { aster: 1, hyperliquid: 1 },
+      },
+      {
+        canonical: 'UNIBOT',
+        name: 'Unibot',
+        variants: ['UNIBOT', 'UNIBOTUSDT', 'UNIBOT-USD', 'UNIBOT-PERP'],
+        multipliers: { aster: 1, hyperliquid: 1 },
+      },
+      {
+        canonical: 'YGG',
+        name: 'Yield Guild Games',
+        variants: ['YGG', 'YGGUSDT', 'YGG-USD', 'YGG-PERP'],
+        multipliers: { aster: 1, hyperliquid: 1 },
+      },
+      {
+        canonical: 'FRIEND',
+        name: 'Friend.tech',
+        variants: ['FRIEND', 'FRIENDUSDT', 'FRIEND-USD', 'FRIEND-PERP'],
+        multipliers: { aster: 1, hyperliquid: 1 },
+      },
+      {
+        canonical: 'NEIRO',
+        name: 'Neiro',
+        variants: ['NEIRO', 'NEIROUSDT', 'NEIRO-USD', 'NEIRO-PERP'],
+        multipliers: { aster: 1, hyperliquid: 1 },
+      },
+      {
+        canonical: 'CAKE',
+        name: 'PancakeSwap',
+        variants: ['CAKE', 'CAKEUSDT', 'CAKE-USD', 'CAKE-PERP', 'PANCAKESWAP'],
+        multipliers: { aster: 1, hyperliquid: 1 },
+      },
+      {
+        canonical: 'JASMY',
+        name: 'JasmyCoin',
+        variants: ['JASMY', 'JASMYUSDT', 'JASMY-USD', 'JASMY-PERP'],
+        multipliers: { aster: 1, hyperliquid: 1 },
+      },
+      {
+        canonical: 'ONDO',
+        name: 'Ondo',
+        variants: ['ONDO', 'ONDOUSDT', 'ONDO-USD', 'ONDO-PERP'],
+        multipliers: { aster: 1, hyperliquid: 1 },
+      },
+      {
+        canonical: 'POPCAT',
+        name: 'Popcat',
+        variants: ['POPCAT', 'POPCATUSDT', 'POPCAT-USD', 'POPCAT-PERP'],
+        multipliers: { aster: 1, hyperliquid: 1 },
+      },
+      {
+        canonical: 'MOG',
+        name: 'Mog Coin',
+        variants: ['MOG', 'MOGUSDT', 'MOG-USD', 'MOG-PERP'],
+        multipliers: { aster: 1, hyperliquid: 1 },
+      },
+      {
+        canonical: 'TRUMP',
+        name: 'MAGA',
+        variants: ['TRUMP', 'TRUMPUSDT', 'TRUMP-USD', 'TRUMP-PERP', 'MAGA'],
+        multipliers: { aster: 1, hyperliquid: 1 },
+      },
+      {
+        canonical: 'MOTHER',
+        name: 'Mother Iggy',
+        variants: ['MOTHER', 'MOTHERUSDT', 'MOTHER-USD', 'MOTHER-PERP'],
+        multipliers: { aster: 1, hyperliquid: 1 },
+      },
+      {
+        canonical: 'BRETT',
+        name: 'Brett',
+        variants: ['BRETT', 'BRETTUSDT', 'BRETT-USD', 'BRETT-PERP'],
+        multipliers: { aster: 1, hyperliquid: 1 },
+      },
+      {
+        canonical: 'TURBO',
+        name: 'Turbo',
+        variants: ['TURBO', 'TURBOUSDT', 'TURBO-USD', 'TURBO-PERP'],
+        multipliers: { aster: 1, hyperliquid: 1 },
+      },
+      {
+        canonical: 'MOODENG',
+        name: 'Moo Deng',
+        variants: ['MOODENG', 'MOODENGUSDT', 'MOODENG-USD', 'MOODENG-PERP'],
+        multipliers: { aster: 1, hyperliquid: 1 },
+      },
+      {
+        canonical: 'RENDER',
+        name: 'Render Token',
+        variants: ['RENDER', 'RENDERUSDT', 'RENDER-USD', 'RENDER-PERP', 'RNDR', 'RNDRUSDT'],
+        multipliers: { aster: 1, hyperliquid: 1 },
+      },
+      {
+        canonical: 'ENA',
+        name: 'Ethena',
+        variants: ['ENA', 'ENAUSDT', 'ENA-USD', 'ENA-PERP', 'ETHENA'],
+        multipliers: { aster: 1, hyperliquid: 1 },
+      },
+      {
+        canonical: 'GOAT',
+        name: 'Goatseus Maximus',
+        variants: ['GOAT', 'GOATUSDT', 'GOAT-USD', 'GOAT-PERP'],
+        multipliers: { aster: 1, hyperliquid: 1 },
+      },
+      {
+        canonical: 'PNUT',
+        name: 'Peanut',
+        variants: ['PNUT', 'PNUTUSDT', 'PNUT-USD', 'PNUT-PERP'],
+        multipliers: { aster: 1, hyperliquid: 1 },
+      },
+      {
+        canonical: 'CETUS',
+        name: 'Cetus Protocol',
+        variants: ['CETUS', 'CETUSUSDT', 'CETUS-USD', 'CETUS-PERP'],
+        multipliers: { aster: 1, hyperliquid: 1 },
+      },
+      {
+        canonical: 'ACT',
+        name: 'Achain',
+        variants: ['ACT', 'ACTUSDT', 'ACT-USD', 'ACT-PERP'],
+        multipliers: { aster: 1, hyperliquid: 1 },
+      },
+      {
+        canonical: 'CHILLGUY',
+        name: 'Chill Guy',
+        variants: ['CHILLGUY', 'CHILLGUYUSDT', 'CHILLGUY-USD', 'CHILLGUY-PERP'],
+        multipliers: { aster: 1, hyperliquid: 1 },
+      },
+      {
+        canonical: 'MORPHO',
+        name: 'Morpho',
+        variants: ['MORPHO', 'MORPHOUSDT', 'MORPHO-USD', 'MORPHO-PERP'],
+        multipliers: { aster: 1, hyperliquid: 1 },
+      },
+      {
+        canonical: 'GRASS',
+        name: 'Grass',
+        variants: ['GRASS', 'GRASSUSDT', 'GRASS-USD', 'GRASS-PERP'],
+        multipliers: { aster: 1, hyperliquid: 1 },
+      },
+      {
+        canonical: 'EIGEN',
+        name: 'EigenLayer',
+        variants: ['EIGEN', 'EIGENUSDT', 'EIGEN-USD', 'EIGEN-PERP', 'EIGENLAYER'],
+        multipliers: { aster: 1, hyperliquid: 1 },
+      },
+      {
+        canonical: 'VIRTUAL',
+        name: 'Virtual Protocol',
+        variants: ['VIRTUAL', 'VIRTUALUSDT', 'VIRTUAL-USD', 'VIRTUAL-PERP'],
+        multipliers: { aster: 1, hyperliquid: 1 },
+      },
+      {
+        canonical: 'AI16Z',
+        name: 'ai16z',
+        variants: ['AI16Z', 'AI16ZUSDT', 'AI16Z-USD', 'AI16Z-PERP'],
+        multipliers: { aster: 1, hyperliquid: 1 },
+      },
+      {
+        canonical: 'ZEREBRO',
+        name: 'Zerebro',
+        variants: ['ZEREBRO', 'ZEREBROUSDT', 'ZEREBRO-USD', 'ZEREBRO-PERP'],
+        multipliers: { aster: 1, hyperliquid: 1 },
+      },
+      {
+        canonical: 'GRIFFAIN',
+        name: 'Griffain',
+        variants: ['GRIFFAIN', 'GRIFFAINUSDT', 'GRIFFAIN-USD', 'GRIFFAIN-PERP'],
+        multipliers: { aster: 1, hyperliquid: 1 },
+      },
+      {
+        canonical: 'FARTCOIN',
+        name: 'Fartcoin',
+        variants: ['FARTCOIN', 'FARTCOINUSDT', 'FARTCOIN-USD', 'FARTCOIN-PERP'],
+        multipliers: { aster: 1, hyperliquid: 1 },
+      },
+      {
+        canonical: 'MOVE',
+        name: 'Move',
+        variants: ['MOVE', 'MOVEUSDT', 'MOVE-USD', 'MOVE-PERP'],
+        multipliers: { aster: 1, hyperliquid: 1 },
+      },
+      {
+        canonical: 'ME',
+        name: 'Magic Eden',
+        variants: ['ME', 'MEUSDT', 'ME-USD', 'ME-PERP', 'MAGICEDEN'],
+        multipliers: { aster: 1, hyperliquid: 1 },
+      },
+      {
+        canonical: 'HYPE',
+        name: 'Hyperliquid',
+        variants: ['HYPE', 'HYPEUSDT', 'HYPE-USD', 'HYPE-PERP'],
+        multipliers: { aster: 1, hyperliquid: 1 },
+      },
+      {
+        canonical: 'COOKIE',
+        name: 'Cookie DAO',
+        variants: ['COOKIE', 'COOKIEUSDT', 'COOKIE-USD', 'COOKIE-PERP'],
+        multipliers: { aster: 1, hyperliquid: 1 },
+      },
+      {
+        canonical: 'FWOG',
+        name: 'Fwog',
+        variants: ['FWOG', 'FWOGUSDT', 'FWOG-USD', 'FWOG-PERP'],
+        multipliers: { aster: 1, hyperliquid: 1 },
+      },
+      {
+        canonical: 'GIGA',
+        name: 'Giga',
+        variants: ['GIGA', 'GIGAUSDT', 'GIGA-USD', 'GIGA-PERP'],
+        multipliers: { aster: 1, hyperliquid: 1 },
+      },
+      {
+        canonical: 'PUMPBTC',
+        name: 'PumpBTC',
+        variants: ['PUMPBTC', 'PUMPBTCUSDT', 'PUMPBTC-USD', 'PUMPBTC-PERP'],
+        multipliers: { aster: 1, hyperliquid: 1 },
+      },
+      {
+        canonical: 'RETARDIO',
+        name: 'Retardio',
+        variants: ['RETARDIO', 'RETARDIOUSDT', 'RETARDIO-USD', 'RETARDIO-PERP'],
+        multipliers: { aster: 1, hyperliquid: 1 },
+      },
     ];
 
     symbols.forEach(symbol => {
@@ -661,18 +913,31 @@ class SymbolMappingEngine {
 
   /**
    * Normalize exchange-specific symbol to canonical format
+   * PUBLIC method for debugging and analysis
    */
-  normalizeSymbol(rawSymbol: string): { canonical: string | null; multiplier: number } {
+  public normalizeSymbol(rawSymbol: string): { canonical: string | null; multiplier: number } {
     // Remove common suffixes
     const cleaned = rawSymbol
       .toUpperCase()
       .replace(/USDT$|USD$|-USD$|-PERP$|PERP$/g, '')
       .trim();
 
-    // Check for 1000x multiplier prefix
-    const multiplierMatch = cleaned.match(/^1000(.+)$/);
-    const baseSymbol = multiplierMatch ? multiplierMatch[1] : cleaned;
-    const detectedMultiplier = multiplierMatch ? 1000 : 1;
+    // Check for multiplier prefixes:
+    // - 1000x: "1000PEPE" format (AsterDEX)
+    // - 1000x: "kPEPE" format (HyperLiquid)
+    let baseSymbol = cleaned;
+    let detectedMultiplier = 1;
+
+    const multiplier1000Match = cleaned.match(/^1000(.+)$/);
+    const multiplierKMatch = cleaned.match(/^k(.+)$/i);
+
+    if (multiplier1000Match) {
+      baseSymbol = multiplier1000Match[1];
+      detectedMultiplier = 1000;
+    } else if (multiplierKMatch) {
+      baseSymbol = multiplierKMatch[1];
+      detectedMultiplier = 1000;
+    }
 
     // Check custom mappings first
     if (this.customMappings.has(baseSymbol)) {

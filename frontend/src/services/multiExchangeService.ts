@@ -83,11 +83,39 @@ class MultiExchangeService {
   }
 
   /**
+   * Fetch all available perpetual symbols from AsterDEX
+   */
+  private async fetchAsterSymbols(): Promise<string[]> {
+    try {
+      const response = await fetch('https://fapi.asterdex.com/fapi/v1/exchangeInfo');
+      const data = await response.json();
+
+      const perpetuals = data.symbols
+        .filter((s: any) =>
+          s.contractType === 'PERPETUAL' &&
+          s.status === 'TRADING'
+        )
+        .map((s: any) => s.symbol);
+
+      console.log(`[AsterDEX] Discovered ${perpetuals.length} perpetual contracts`);
+      return perpetuals;
+    } catch (error) {
+      console.error('[AsterDEX] Error fetching exchange info:', error);
+      return [];
+    }
+  }
+
+  /**
    * Connect to AsterDEX Futures WebSocket for funding rates
    * Note: Using AsterDEX public API (no authentication required for market data)
    * Endpoint: wss://fstream.asterdex.com
    */
-  connectAster(symbols: string[]) {
+  async connectAster(symbols?: string[]) {
+    // If no symbols provided, fetch all available perpetuals
+    if (!symbols || symbols.length === 0) {
+      symbols = await this.fetchAsterSymbols();
+    }
+
     console.log(`[AsterDEX] Connecting to WebSocket for ${symbols.length} symbols...`);
 
     // AsterDEX Futures WebSocket endpoint (Binance-compatible API)
@@ -459,18 +487,18 @@ class MultiExchangeService {
   /**
    * Connect to all configured exchanges
    */
-  connectAll(symbols: string[]) {
+  connectAll(symbols?: string[]) {
     const liquidCreds = this.getCredentials('liquid');
 
-    // AsterDEX: Always connect (public market data doesn't require auth)
+    // AsterDEX: Always connect, auto-discover all perpetuals if no symbols provided
     this.connectAster(symbols);
 
     // HyperLiquid: Always connect (public market data doesn't require auth)
-    this.connectHyperliquid(symbols);
+    this.connectHyperliquid(symbols || []);
 
     // Liquid: Requires credentials
     if (liquidCreds.apiToken && liquidCreds.apiSecret) {
-      this.connectLiquid(symbols);
+      this.connectLiquid(symbols || []);
     }
   }
 
@@ -496,6 +524,27 @@ class MultiExchangeService {
         hlAssets.push(assetInfo);
       }
     });
+
+    // Log for debugging
+    if (asterAssets.length > 0 && hlAssets.length > 0) {
+      console.log(`[Symbol Matching] AsterDEX: ${asterAssets.length} assets, HyperLiquid: ${hlAssets.length} assets`);
+
+      // Log a sample of unmatched symbols for debugging
+      const matched = symbolMappingEngine.matchAssets(asterAssets, hlAssets);
+      const matchedCanonicals = new Set(matched.filter(p => p.aster && p.hyperliquid).map(p => p.canonical));
+
+      const asterUnmapped = asterAssets
+        .map(a => ({ symbol: a.symbol, ...symbolMappingEngine.normalizeSymbol(a.symbol) }))
+        .filter(a => !a.canonical || !matchedCanonicals.has(a.canonical));
+
+      const hlUnmapped = hlAssets
+        .map(a => ({ symbol: a.symbol, ...symbolMappingEngine.normalizeSymbol(a.symbol) }))
+        .filter(a => !a.canonical || !matchedCanonicals.has(a.canonical));
+
+      console.log(`[Unmatched] AsterDEX: ${asterUnmapped.length}, HyperLiquid: ${hlUnmapped.length}`);
+      console.log('[Sample Unmapped AsterDEX]:', asterUnmapped.slice(0, 20).map(a => a.symbol).join(', '));
+      console.log('[Sample Unmapped HyperLiquid]:', hlUnmapped.slice(0, 20).map(a => a.symbol).join(', '));
+    }
 
     return symbolMappingEngine.matchAssets(asterAssets, hlAssets);
   }

@@ -120,7 +120,8 @@ export default function DalyFunding() {
   useEffect(() => {
     console.log('[DalyFunding] Connecting to multi-exchange feeds...');
 
-    multiExchangeService.connectAll(availablePairs);
+    // Connect to all exchanges - AsterDEX will auto-discover all available perpetuals
+    multiExchangeService.connectAll();
     setIsConnected(true);
 
     // Subscribe to funding rate updates
