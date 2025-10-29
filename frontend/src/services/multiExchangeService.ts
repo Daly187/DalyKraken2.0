@@ -82,13 +82,10 @@ class MultiExchangeService {
 
   /**
    * Connect to Aster DEX WebSocket for funding rates
+   * Note: Public market data doesn't require authentication
    */
   connectAster(symbols: string[]) {
-    const credentials = this.getCredentials('aster');
-    if (!credentials.apiKey || !credentials.apiSecret) {
-      console.warn('[MultiExchange] Aster credentials not configured');
-      return;
-    }
+    console.log(`[Aster] Connecting to WebSocket for ${symbols.length} symbols...`);
 
     const ws = new WebSocket('wss://fstream.asterdex.com');
 
@@ -359,18 +356,18 @@ class MultiExchangeService {
    * Connect to all configured exchanges
    */
   connectAll(symbols: string[]) {
-    const asterCreds = this.getCredentials('aster');
     const hyperCreds = this.getCredentials('hyperliquid');
     const liquidCreds = this.getCredentials('liquid');
 
-    if (asterCreds.apiKey && asterCreds.apiSecret) {
-      this.connectAster(symbols);
-    }
+    // Aster: Always connect (public market data doesn't require auth)
+    this.connectAster(symbols);
 
+    // Hyperliquid: Requires credentials
     if (hyperCreds.privateKey && hyperCreds.walletAddress) {
       this.connectHyperliquid(symbols);
     }
 
+    // Liquid: Requires credentials
     if (liquidCreds.apiToken && liquidCreds.apiSecret) {
       this.connectLiquid(symbols);
     }
