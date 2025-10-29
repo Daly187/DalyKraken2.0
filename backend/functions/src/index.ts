@@ -69,6 +69,33 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Balance cache update endpoint (public - called by frontend Portfolio page)
+app.post('/balance-cache', async (req, res) => {
+  try {
+    const { balances } = req.body;
+
+    if (!balances || typeof balances !== 'object') {
+      return res.status(400).json({ error: 'Invalid balances data' });
+    }
+
+    await db.collection('krakenBalanceCache').doc('latest').set({
+      balances,
+      updatedAt: new Date().toISOString(),
+      source: 'portfolio_page',
+    });
+
+    console.log(`[API] Updated balance cache with ${Object.keys(balances).length} assets`);
+
+    res.json({
+      success: true,
+      assetsUpdated: Object.keys(balances).length,
+    });
+  } catch (error: any) {
+    console.error('[API] Error updating balance cache:', error);
+    res.status(500).json({ error: 'Failed to update balance cache' });
+  }
+});
+
 // Mount authentication routes (public)
 app.use('/auth', createAuthRouter(db));
 
@@ -1185,8 +1212,11 @@ export const updateMarketData = functions.pubsub
         try {
           const ticker = await krakenService.getTicker(symbol);
 
-          const docRef = db.collection('marketData').doc(symbol);
+          // Replace / with - for Firestore document ID (slashes are not allowed)
+          const docId = symbol.replace(/\//g, '-');
+          const docRef = db.collection('marketData').doc(docId);
           batch.set(docRef, {
+            symbol, // Keep original symbol in the data
             ...ticker,
             lastUpdate: new Date().toISOString(),
           }, { merge: true });

@@ -242,13 +242,19 @@ export class OrderQueueService {
     const attempts = order.attempts + 1;
 
     // Add error to history
+    const errorEntry: any = {
+      timestamp: now,
+      error,
+    };
+
+    // Only add apiKeyUsed if it's defined (Firestore doesn't allow undefined values)
+    if (apiKeyUsed !== undefined) {
+      errorEntry.apiKeyUsed = apiKeyUsed;
+    }
+
     const errors = [
       ...order.errors,
-      {
-        timestamp: now,
-        error,
-        apiKeyUsed,
-      },
+      errorEntry,
     ];
 
     // Track failed API keys
@@ -261,31 +267,43 @@ export class OrderQueueService {
       const retryDelay = this.calculateRetryDelay(attempts);
       const nextRetryAt = new Date(Date.now() + retryDelay * 1000).toISOString();
 
-      await db.collection('pendingOrders').doc(orderId).update({
+      const updateData: any = {
         status: OrderStatus.RETRY,
         attempts,
         lastError: error,
         errors,
         failedApiKeys,
-        apiKeyUsed,
         lastAttemptAt: now,
         nextRetryAt,
         updatedAt: now,
-      });
+      };
+
+      // Only add apiKeyUsed if it's defined
+      if (apiKeyUsed !== undefined) {
+        updateData.apiKeyUsed = apiKeyUsed;
+      }
+
+      await db.collection('pendingOrders').doc(orderId).update(updateData);
 
       console.log(`[OrderQueue] Order ${orderId} will retry in ${retryDelay}s (attempt ${attempts}/${this.config.maxAttempts})`);
     } else {
       // Max attempts reached or should not retry
-      await db.collection('pendingOrders').doc(orderId).update({
+      const updateData: any = {
         status: OrderStatus.FAILED,
         attempts,
         lastError: error,
         errors,
         failedApiKeys,
-        apiKeyUsed,
         lastAttemptAt: now,
         updatedAt: now,
-      });
+      };
+
+      // Only add apiKeyUsed if it's defined
+      if (apiKeyUsed !== undefined) {
+        updateData.apiKeyUsed = apiKeyUsed;
+      }
+
+      await db.collection('pendingOrders').doc(orderId).update(updateData);
 
       console.error(`[OrderQueue] Order ${orderId} permanently failed after ${attempts} attempts: ${error}`);
     }

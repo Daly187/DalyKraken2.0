@@ -351,14 +351,25 @@ export class OrderExecutorService {
     const apiKeys = await this.getAvailableApiKeys(order.userId, order.failedApiKeys);
 
     if (apiKeys.length === 0) {
-      console.error(`[OrderExecutor] No available API keys for user ${order.userId}`);
+      console.warn(`[OrderExecutor] No available API keys for user ${order.userId} - all keys have been tried`);
+
+      // CRITICAL FIX: Clear failedApiKeys to give them another chance on next retry
+      // This handles temporary failures like rate limits, network issues, etc.
+      console.log(`[OrderExecutor] Clearing failedApiKeys list to retry all keys on next attempt`);
+
+      await db.collection('pendingOrders').doc(order.id).update({
+        failedApiKeys: [], // Reset the failed keys list
+        lastError: 'All API keys failed on this attempt - will retry all keys next time',
+        updatedAt: new Date().toISOString(),
+      });
+
       await orderQueueService.markAsFailed(
         order.id,
-        'No available API keys. All configured keys have failed or are inactive.',
+        'All API keys temporarily failed. Cleared failed list and will retry.',
         undefined,
-        false // Don't retry if no keys available
+        true // DO retry - this is likely a temporary issue
       );
-      return { success: false, error: 'No available API keys', shouldRetry: false };
+      return { success: false, error: 'All API keys temporarily failed', shouldRetry: true };
     }
 
     // Try each available API key

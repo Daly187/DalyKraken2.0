@@ -18,6 +18,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { multiExchangeService, FundingRate, FundingPosition } from '@/services/multiExchangeService';
+import { MatchedPair } from '@/services/symbolMappingEngine';
 import { useStore } from '@/store/useStore';
 
 export default function DalyFunding() {
@@ -30,6 +31,7 @@ export default function DalyFunding() {
   const [isConnected, setIsConnected] = useState(false);
   const [sortBy, setSortBy] = useState<'rate' | 'symbol' | 'markPrice'>('rate');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [viewMode, setViewMode] = useState<'all' | 'arbitrage'>('arbitrage');
 
   // Strategy Configuration
   const [positionSize, setPositionSize] = useState(100);
@@ -187,6 +189,17 @@ export default function DalyFunding() {
     }
   };
 
+  // Get matched pairs and arbitrage opportunities
+  const matchedPairs = multiExchangeService.getMatchedPairs();
+  const arbitrageOpportunities = matchedPairs
+    .filter(pair =>
+      pair.aster &&
+      pair.hyperliquid &&
+      pair.spread !== undefined &&
+      Math.abs(pair.spread) >= 0.005 // At least 0.005% spread (0.5 basis points)
+    )
+    .sort((a, b) => Math.abs(b.annualSpread || 0) - Math.abs(a.annualSpread || 0));
+
   // Calculate statistics
   const totalPositions = positions.filter(p => p.status === 'open').length;
   const totalInvested = positions
@@ -292,56 +305,236 @@ export default function DalyFunding() {
             </h2>
             <p className="text-sm text-gray-400 mt-1">Real-time monitoring across Aster, Hyperliquid, and Liquid</p>
           </div>
-          <div className="flex items-center gap-2">
-            {/* Exchange Filter */}
-            <div className="flex gap-2">
+          <div className="flex items-center gap-4">
+            {/* View Mode Toggle */}
+            <div className="flex gap-2 border-r border-slate-600/50 pr-4">
               <button
-                onClick={() => setSelectedExchange('all')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                  selectedExchange === 'all'
+                onClick={() => setViewMode('arbitrage')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${
+                  viewMode === 'arbitrage'
+                    ? 'bg-gradient-to-r from-green-500 to-emerald-500 text-white'
+                    : 'bg-slate-700/50 text-gray-400 hover:bg-slate-600/50'
+                }`}
+              >
+                <ArrowDownUp className="h-3 w-3" />
+                Arbitrage ({arbitrageOpportunities.length})
+              </button>
+              <button
+                onClick={() => setViewMode('all')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${
+                  viewMode === 'all'
                     ? 'bg-primary-500 text-white'
                     : 'bg-slate-700/50 text-gray-400 hover:bg-slate-600/50'
                 }`}
               >
-                All
-              </button>
-              <button
-                onClick={() => setSelectedExchange('aster')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                  selectedExchange === 'aster'
-                    ? 'bg-cyan-500 text-white'
-                    : 'bg-slate-700/50 text-gray-400 hover:bg-slate-600/50'
-                }`}
-              >
-                Aster
-              </button>
-              <button
-                onClick={() => setSelectedExchange('hyperliquid')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                  selectedExchange === 'hyperliquid'
-                    ? 'bg-purple-500 text-white'
-                    : 'bg-slate-700/50 text-gray-400 hover:bg-slate-600/50'
-                }`}
-              >
-                Hyperliquid
-              </button>
-              <button
-                onClick={() => setSelectedExchange('liquid')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                  selectedExchange === 'liquid'
-                    ? 'bg-blue-500 text-white'
-                    : 'bg-slate-700/50 text-gray-400 hover:bg-slate-600/50'
-                }`}
-              >
-                Liquid
+                <Layers className="h-3 w-3" />
+                All Assets ({sortedRates.length})
               </button>
             </div>
+
+            {/* Exchange Filter (only shown in All Assets view) */}
+            {viewMode === 'all' && (
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setSelectedExchange('all')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    selectedExchange === 'all'
+                      ? 'bg-primary-500 text-white'
+                      : 'bg-slate-700/50 text-gray-400 hover:bg-slate-600/50'
+                  }`}
+                >
+                  All
+                </button>
+                <button
+                  onClick={() => setSelectedExchange('aster')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    selectedExchange === 'aster'
+                      ? 'bg-cyan-500 text-white'
+                      : 'bg-slate-700/50 text-gray-400 hover:bg-slate-600/50'
+                  }`}
+                >
+                  Aster
+                </button>
+                <button
+                  onClick={() => setSelectedExchange('hyperliquid')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    selectedExchange === 'hyperliquid'
+                      ? 'bg-purple-500 text-white'
+                      : 'bg-slate-700/50 text-gray-400 hover:bg-slate-600/50'
+                  }`}
+                >
+                  Hyperliquid
+                </button>
+                <button
+                  onClick={() => setSelectedExchange('liquid')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    selectedExchange === 'liquid'
+                      ? 'bg-blue-500 text-white'
+                      : 'bg-slate-700/50 text-gray-400 hover:bg-slate-600/50'
+                  }`}
+                >
+                  Liquid
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
-        {sortedRates.length > 0 ? (
-          <div className="overflow-x-auto">
-            <table className="w-full">
+        {viewMode === 'arbitrage' ? (
+          // Arbitrage Opportunities View
+          arbitrageOpportunities.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-slate-600/50">
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                      Symbol
+                    </th>
+                    <th className="px-4 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                      AsterDEX
+                    </th>
+                    <th className="px-4 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                      HyperLiquid
+                    </th>
+                    <th className="px-4 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                      Spread
+                    </th>
+                    <th className="px-4 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                      Annual Spread
+                    </th>
+                    <th className="px-4 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                      Strategy
+                    </th>
+                    <th className="px-4 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                      Action
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-700/50">
+                  {arbitrageOpportunities.map((pair) => (
+                    <tr
+                      key={pair.canonical}
+                      className="hover:bg-slate-700/20 transition-colors"
+                    >
+                      <td className="px-4 py-4">
+                        <div className="flex items-center gap-2">
+                          <Target className="h-4 w-4 text-emerald-400" />
+                          <span className="font-bold text-white">{pair.canonical}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-4 text-center">
+                        {pair.aster ? (
+                          <div className="space-y-1">
+                            <div className={`text-sm font-bold ${
+                              pair.aster.fundingRate > 0 ? 'text-green-400' : 'text-red-400'
+                            }`}>
+                              {pair.aster.fundingRate > 0 ? '+' : ''}{pair.aster.fundingRate.toFixed(4)}%
+                            </div>
+                            <div className="text-xs text-gray-400">
+                              Annual: {pair.aster.annualRate > 0 ? '+' : ''}{pair.aster.annualRate.toFixed(2)}%
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="text-xs text-gray-500">N/A</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-4 text-center">
+                        {pair.hyperliquid ? (
+                          <div className="space-y-1">
+                            <div className={`text-sm font-bold ${
+                              pair.hyperliquid.fundingRate > 0 ? 'text-green-400' : 'text-red-400'
+                            }`}>
+                              {pair.hyperliquid.fundingRate > 0 ? '+' : ''}{pair.hyperliquid.fundingRate.toFixed(4)}%
+                            </div>
+                            <div className="text-xs text-gray-400">
+                              Annual: {pair.hyperliquid.annualRate > 0 ? '+' : ''}{pair.hyperliquid.annualRate.toFixed(2)}%
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="text-xs text-gray-500">N/A</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-4 text-center">
+                        <div className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg font-bold ${
+                          Math.abs(pair.spread || 0) >= 0.01
+                            ? 'bg-emerald-500/20 text-emerald-400'
+                            : 'bg-yellow-500/20 text-yellow-400'
+                        }`}>
+                          {pair.spread && pair.spread > 0 ? '+' : ''}
+                          {pair.spread?.toFixed(4)}%
+                        </div>
+                      </td>
+                      <td className="px-4 py-4 text-center">
+                        <div className={`text-lg font-bold ${
+                          Math.abs(pair.annualSpread || 0) >= 1
+                            ? 'text-emerald-400'
+                            : 'text-yellow-400'
+                        }`}>
+                          {pair.annualSpread && pair.annualSpread > 0 ? '+' : ''}
+                          {pair.annualSpread?.toFixed(2)}%
+                        </div>
+                      </td>
+                      <td className="px-4 py-4 text-center">
+                        <div className="flex flex-col items-center gap-1">
+                          {pair.opportunity === 'long_aster_short_hl' && (
+                            <>
+                              <div className="flex items-center gap-1 text-xs">
+                                <TrendingUp className="h-3 w-3 text-cyan-400" />
+                                <span className="text-cyan-400 font-medium">Long Aster</span>
+                              </div>
+                              <div className="flex items-center gap-1 text-xs">
+                                <TrendingDown className="h-3 w-3 text-purple-400" />
+                                <span className="text-purple-400 font-medium">Short HL</span>
+                              </div>
+                            </>
+                          )}
+                          {pair.opportunity === 'short_aster_long_hl' && (
+                            <>
+                              <div className="flex items-center gap-1 text-xs">
+                                <TrendingDown className="h-3 w-3 text-cyan-400" />
+                                <span className="text-cyan-400 font-medium">Short Aster</span>
+                              </div>
+                              <div className="flex items-center gap-1 text-xs">
+                                <TrendingUp className="h-3 w-3 text-purple-400" />
+                                <span className="text-purple-400 font-medium">Long HL</span>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-4 text-center">
+                        <button
+                          className="px-4 py-2 rounded-lg text-xs font-bold bg-gradient-to-r from-green-500 to-emerald-500 text-white hover:from-green-600 hover:to-emerald-600 transition-all"
+                          onClick={() => {
+                            addNotification({
+                              type: 'success',
+                              title: 'Arbitrage Opportunity',
+                              message: `${pair.canonical}: ${pair.annualSpread?.toFixed(2)}% annual spread`,
+                            });
+                          }}
+                        >
+                          Execute
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="text-center py-12">
+              <AlertCircle className="h-12 w-12 text-gray-400 mx-auto mb-3" />
+              <p className="text-gray-400">No arbitrage opportunities found</p>
+              <p className="text-sm text-gray-500 mt-1">
+                Waiting for funding rate data from both exchanges...
+              </p>
+            </div>
+          )
+        ) : (
+          // All Assets View
+          sortedRates.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full">
               <thead>
                 <tr className="border-b border-slate-600/50">
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">
@@ -488,14 +681,15 @@ export default function DalyFunding() {
               </tbody>
             </table>
           </div>
-        ) : (
-          <div className="text-center py-12">
-            <Signal className="h-12 w-12 text-gray-600 mx-auto mb-3 animate-pulse" />
-            <p className="text-gray-400">Waiting for funding rate data...</p>
-            <p className="text-xs text-gray-500 mt-1">
-              Make sure API keys are configured in Settings
-            </p>
-          </div>
+          ) : (
+            <div className="text-center py-12">
+              <Signal className="h-12 w-12 text-gray-600 mx-auto mb-3 animate-pulse" />
+              <p className="text-gray-400">Waiting for funding rate data...</p>
+              <p className="text-xs text-gray-500 mt-1">
+                Make sure API keys are configured in Settings
+              </p>
+            </div>
+          )
         )}
       </div>
 

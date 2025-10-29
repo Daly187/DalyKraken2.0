@@ -3,6 +3,8 @@
  * Handles WebSocket connections, funding rate monitoring, and trade execution
  */
 
+import { symbolMappingEngine, MatchedPair, AssetInfo } from './symbolMappingEngine';
+
 export interface FundingRate {
   symbol: string;
   exchange: 'aster' | 'hyperliquid' | 'liquid';
@@ -470,6 +472,58 @@ class MultiExchangeService {
     if (liquidCreds.apiToken && liquidCreds.apiSecret) {
       this.connectLiquid(symbols);
     }
+  }
+
+  /**
+   * Get matched pairs with arbitrage opportunities
+   */
+  getMatchedPairs(): MatchedPair[] {
+    const asterAssets: AssetInfo[] = [];
+    const hlAssets: AssetInfo[] = [];
+
+    // Convert funding rates to AssetInfo format
+    this.fundingRates.forEach((rate) => {
+      const assetInfo: AssetInfo = {
+        symbol: rate.symbol,
+        exchange: rate.exchange,
+        fundingRate: rate.rate,
+        markPrice: rate.markPrice,
+      };
+
+      if (rate.exchange === 'aster') {
+        asterAssets.push(assetInfo);
+      } else if (rate.exchange === 'hyperliquid') {
+        hlAssets.push(assetInfo);
+      }
+    });
+
+    return symbolMappingEngine.matchAssets(asterAssets, hlAssets);
+  }
+
+  /**
+   * Get arbitrage opportunities sorted by absolute spread
+   */
+  getArbitrageOpportunities(minSpreadPercent: number = 0.01): MatchedPair[] {
+    return this.getMatchedPairs()
+      .filter(pair =>
+        pair.aster &&
+        pair.hyperliquid &&
+        pair.spread !== undefined &&
+        Math.abs(pair.spread) >= minSpreadPercent
+      )
+      .sort((a, b) => Math.abs(b.spread!) - Math.abs(a.spread!));
+  }
+
+  /**
+   * Get assets available on only one exchange
+   */
+  getExclusiveAssets(): { asterOnly: MatchedPair[]; hyperliquidOnly: MatchedPair[] } {
+    const allPairs = this.getMatchedPairs();
+
+    return {
+      asterOnly: allPairs.filter(pair => pair.aster && !pair.hyperliquid),
+      hyperliquidOnly: allPairs.filter(pair => pair.hyperliquid && !pair.aster),
+    };
   }
 }
 

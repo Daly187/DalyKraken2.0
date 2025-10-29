@@ -87,6 +87,28 @@ export default function Portfolio() {
       localStorage.setItem(CACHE_KEY, JSON.stringify(fetchedBalances));
       localStorage.setItem(CACHE_TIMESTAMP_KEY, now.toISOString());
 
+      // Also update backend balance cache for backend functions to use
+      try {
+        const balanceMap: { [asset: string]: number } = {};
+        fetchedBalances.forEach((balance: any) => {
+          if (balance.asset && balance.total) {
+            balanceMap[balance.asset] = balance.total;
+          }
+        });
+
+        // Call backend API to update balance cache
+        await fetch('/api/balance-cache', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ balances: balanceMap }),
+        });
+
+        console.log('[Portfolio] Updated backend balance cache with', Object.keys(balanceMap).length, 'assets');
+      } catch (cacheError) {
+        console.warn('[Portfolio] Failed to update backend balance cache:', cacheError);
+        // Don't fail the whole operation if cache update fails
+      }
+
       // Clear any previous errors on success
       if (fetchedBalances.length > 0) {
         setError(null);

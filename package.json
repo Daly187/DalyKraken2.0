@@ -37,6 +37,10 @@
   "author": "DalyDough",
   "license": "MIT",
   "devDependencies": {
+    "@types/ws": "^8.18.1",
     "firebase-tools": "^13.0.0"
+  },
+  "dependencies": {
+    "ws": "^8.18.3"
   }
 }

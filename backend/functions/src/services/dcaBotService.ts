@@ -475,24 +475,63 @@ export class DCABotService {
       try {
         const pairInfo = await krakenService.getAssetPairs(bot.symbol);
         volumePrecision = pairInfo.lot_decimals;
-        baseAssetCode = pairInfo.base; // Use Kraken's naming (e.g., "XXBT" for BTC, "ADA" for Cardano)
-
+        baseAssetCode = pairInfo.base; // Use Kraken's naming
         console.log(`[DCABotService] ${bot.symbol}: base=${baseAssetCode}, lot_decimals=${volumePrecision}, ordermin=${pairInfo.ordermin}`);
       } catch (error: any) {
         console.warn(`[DCABotService] Could not fetch pair info, using defaults:`, error.message);
       }
 
-      // Get actual balance from Kraken (this is what shows on portfolio page)
-      console.log(`[DCABotService] Fetching Kraken balance for ${baseAssetCode}...`);
-      const balances = await krakenService.getBalance();
+      // CRITICAL: Fetch ACTUAL balance from Kraken - we must sell the correct amount
+      // Try REST API first, fallback to WebSocket cache if rate limited
+      console.log(`[DCABotService] Fetching actual Kraken balance for ${baseAssetCode}...`);
 
-      // Try multiple possible asset codes since Kraken uses different codes in different APIs
-      // e.g., Balance API might use "ADA" while AssetPairs uses "ADA" or "XADA"
+      let balances: any = {};
+      let balanceSource = 'rest_api';
+
+      try {
+        balances = await krakenService.getBalance();
+      } catch (error: any) {
+        // If rate limited, try WebSocket cache fallback
+        if (error.message?.includes('Temporary lockout') || error.message?.includes('Rate limit')) {
+          console.warn(`[DCABotService] REST API rate limited, trying WebSocket cache...`);
+
+          // Import WebSocket service dynamically to avoid circular dependency
+          const { KrakenWebSocketService } = await import('./krakenWebSocketService.js');
+          const cachedBalances = await KrakenWebSocketService.getCachedBalances();
+
+          if (Object.keys(cachedBalances).length > 0) {
+            balances = cachedBalances;
+            balanceSource = 'websocket_cache';
+            console.log(`[DCABotService] Using WebSocket cached balances (${Object.keys(cachedBalances).length} assets)`);
+          } else {
+            console.error(`[DCABotService] ⚠️  No cached balances available - will retry exit on next run`);
+            await this.logExecution({
+              id: `${bot.id}_exec_${Date.now()}`,
+              botId: bot.id,
+              action: 'exit',
+              symbol: bot.symbol,
+              price: currentPrice,
+              quantity: 0,
+              amount: 0,
+              reason: `Exit delayed: Kraken API rate limit and no cached balance available`,
+              techScore: bot.techScore,
+              trendScore: bot.trendScore,
+              timestamp: new Date().toISOString(),
+              success: false,
+            });
+            return { success: false, error: 'Kraken API rate limit and no cache' };
+          }
+        } else {
+          throw error;
+        }
+      }
+
+      // Try multiple asset code variations
       const possibleCodes = [
         baseAssetCode,
-        baseAssetCode.replace(/^X/, ''), // Remove leading X (XXBT -> XBT)
-        baseAssetCode.replace(/^Z/, ''), // Remove leading Z (ZUSD -> USD)
-        bot.symbol.split('/')[0], // Original asset from symbol (BTC, ADA, etc.)
+        baseAssetCode.replace(/^X/, ''),
+        baseAssetCode.replace(/^Z/, ''),
+        bot.symbol.split('/')[0],
       ];
 
       let krakenBalance = 0;
@@ -507,14 +546,37 @@ export class DCABotService {
         }
       }
 
-      console.log(`[DCABotService] Kraken balance search: tried=${possibleCodes.join(',')} found=${foundAssetCode} balance=${krakenBalance}`);
+      console.log(`[DCABotService] Kraken balance (${balanceSource}): tried=${possibleCodes.join(',')} found=${foundAssetCode} balance=${krakenBalance}`);
+
+      // NEW: If we got 0 balance from REST API, try cache as fallback before giving up
+      if (krakenBalance === 0 && balanceSource === 'rest_api') {
+        console.warn(`[DCABotService] Got 0 balance from REST API, trying WebSocket cache fallback...`);
+
+        // Import WebSocket service dynamically to avoid circular dependency
+        const { KrakenWebSocketService } = await import('./krakenWebSocketService.js');
+        const cachedBalances = await KrakenWebSocketService.getCachedBalances();
+
+        if (Object.keys(cachedBalances).length > 0) {
+          console.log(`[DCABotService] Cache has ${Object.keys(cachedBalances).length} assets`);
+
+          // Try the same asset code variations with cached balances
+          for (const code of possibleCodes) {
+            const balance = parseFloat(String(cachedBalances[code] || 0));
+            if (balance > 0) {
+              krakenBalance = balance;
+              foundAssetCode = code;
+              balanceSource = 'websocket_cache';
+              console.log(`[DCABotService] ✅ Found balance in cache: ${code} = ${balance}`);
+              break;
+            }
+          }
+        } else {
+          console.warn(`[DCABotService] Cache is empty, cannot use fallback`);
+        }
+      }
 
       if (krakenBalance === 0) {
-        console.error(`[DCABotService] ⚠️  No Kraken balance found for ${bot.symbol} - cannot create sell order. Bot will retry on next run.`);
-        console.error(`[DCABotService] This could be due to: 1) API lookup failure, 2) Position already sold manually, or 3) Invalid asset codes`);
-
-        // Log the failed attempt but DO NOT mark bot as completed
-        // The bot should only be marked completed after a successful sell order execution
+        console.error(`[DCABotService] ⚠️  No Kraken balance for ${bot.symbol} - position may have been sold manually`);
         await this.logExecution({
           id: `${bot.id}_exec_${Date.now()}`,
           botId: bot.id,
@@ -523,14 +585,13 @@ export class DCABotService {
           price: currentPrice,
           quantity: 0,
           amount: 0,
-          reason: `Exit attempt failed: No Kraken balance found (balance lookup returned 0)`,
+          reason: `Exit skipped: No Kraken balance (sold manually?)`,
           techScore: bot.techScore,
           trendScore: bot.trendScore,
           timestamp: new Date().toISOString(),
           success: false,
         });
-
-        return { success: false, error: 'No Kraken balance found - cannot create sell order' };
+        return { success: false, error: 'No Kraken balance' };
       }
 
       let actualQuantity = krakenBalance;

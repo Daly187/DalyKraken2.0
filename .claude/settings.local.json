@@ -19,7 +19,12 @@
       "Bash(curl:*)",
       "Bash(node test-sell-order.mjs:*)",
       "Bash(node:*)",
-      "Read(//Users/Daly/Desktop/DalyDough/**)"
+      "Read(//Users/Daly/Desktop/DalyDough/**)",
+      "Bash(GOOGLE_APPLICATION_CREDENTIALS=\"./serviceAccountKey.json\" node:*)",
+      "Bash(TZ='America/New_York' date:*)",
+      "Bash(firebase functions:config:get:*)",
+      "Bash(GOOGLE_APPLICATION_CREDENTIALS=\"./backend/functions/serviceAccountKey.json\" node:*)",
+      "Bash(npm install:*)"
     ],
     "deny": [],
     "ask": []
