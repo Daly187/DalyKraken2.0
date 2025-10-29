@@ -94,18 +94,31 @@ class MultiExchangeService {
     ws.onopen = () => {
       console.log('[AsterDEX] WebSocket connected');
 
-      // Subscribe to mark price streams for all symbols
-      // AsterDEX uses Binance-compatible format: symbol@markPrice (updates every 3s)
-      const streams = symbols.map(s => `${s.toLowerCase()}@markPrice`);
+      // Subscribe to mark price streams in batches
+      // AsterDEX/Binance has a limit of ~200 streams per subscription
+      // We'll use 100 streams per batch to be safe
+      const batchSize = 100;
+      let subscriptionsSent = 0;
 
-      const subscribeMsg = {
-        method: 'SUBSCRIBE',
-        params: streams,
-        id: Date.now(),
-      };
+      for (let i = 0; i < symbols.length; i += batchSize) {
+        const batch = symbols.slice(i, i + batchSize);
+        const streams = batch.map(s => `${s.toLowerCase()}@markPrice`);
 
-      console.log(`[AsterDEX] Subscribing to ${symbols.length} funding rate streams`);
-      ws.send(JSON.stringify(subscribeMsg));
+        const subscribeMsg = {
+          method: 'SUBSCRIBE',
+          params: streams,
+          id: Date.now() + i,
+        };
+
+        // Send subscriptions with a small delay to avoid overwhelming the server
+        setTimeout(() => {
+          ws.send(JSON.stringify(subscribeMsg));
+          subscriptionsSent++;
+          console.log(`[AsterDEX] Sent subscription batch ${subscriptionsSent} (${batch.length} streams)`);
+        }, i * 100); // 100ms delay between batches
+      }
+
+      console.log(`[AsterDEX] Queued ${Math.ceil(symbols.length / batchSize)} subscription batches for ${symbols.length} symbols`);
     };
 
     ws.onmessage = (event) => {
