@@ -38,23 +38,80 @@ export default function DalyFunding() {
   const [maxSpread, setMaxSpread] = useState(0.1);
   const [autoExecute, setAutoExecute] = useState(false);
 
-  // Available trading pairs (normalized format) - Aster DEX supported assets
+  // Available trading pairs (normalized format) - Complete Aster DEX asset list
   const availablePairs = [
-    // Major Assets
+    // Top 10 by Market Cap
     'BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT',
-    // Layer 1s
-    'ADAUSDT', 'AVAXUSDT', 'DOTUSDT', 'MATICUSDT', 'ATOMUSDT',
-    // DeFi
+    'ADAUSDT', 'AVAXUSDT', 'DOGEUSDT', 'DOTUSDT', 'MATICUSDT',
+
+    // Layer 1 Blockchains
+    'ATOMUSDT', 'LTCUSDT', 'BCHUSDT', 'ETCUSDT', 'FILUSDT',
+    'NEARUSDT', 'APTUSDT', 'ALGOUSDT', 'VETUSD', 'ICPUSDT',
+    'XLMUSDT', 'XMRUSDT', 'QNTUSDT', 'HBARUSDT', 'INJUSDT',
+    'SUIUSDT', 'SEIUSDT', 'FLOWUSDT', 'EGLDUSDT', 'XTZUSDT',
+    'EOSUSDT', 'ARUSDT', 'ZILUSDT', 'KASUSDT', 'TONUSDT',
+    'FETUSDT', 'BEAMUSDT', 'IMXUSDT', 'RUNEUSDT', 'MINAUSDT',
+
+    // Layer 2 & Scaling Solutions
+    'ARBUSDT', 'OPUSDT', 'LDOUSDT', 'METISUSDT', 'STXUSDT',
+    'MANTAUSDT', 'BLASTUSDT', 'POLYGONUSDT', 'ZKUSDT',
+
+    // DeFi Tokens
     'LINKUSDT', 'UNIUSDT', 'AAVEUSDT', 'MKRUSDT', 'SNXUSDT',
+    'CRVUSDT', 'COMPUSDT', 'SUSHIUSDT', 'BALUSDT', '1INCHUSDT',
+    'YFIUSDT', 'LRCUSDT', 'ZRXUSDT', 'GMXUSDT', 'DYDXUSDT',
+    'RDNTUSDT', 'PENDLEUSDT', 'WOOUSDT', 'SPELLUSDT',
+
     // Meme Coins
-    'DOGEUSDT', 'SHIBUSDT', 'PEPEUSDT', 'FLOKIUSDT',
+    'SHIBUSDT', 'PEPEUSDT', 'FLOKIUSDT', 'BONKUSDT', 'WIFUSDT',
+    '1000SATSUSDT', 'ORDIUSDT', 'RATSUSDT', 'MEMECUSDT', 'DOGSUSDT',
+    'POPCATUSDT', 'MEWUSDT', 'BOMEUSDT', 'NEIROUSDT',
+
     // Gaming & Metaverse
-    'SANDUSDT', 'MANAUSDT', 'AXSUSDT', 'ENJUSDT',
-    // Other Popular
-    'LTCUSDT', 'BCHUSDT', 'ETCUSDT', 'FILUSDT', 'APTUSDT',
-    'ARBUSDT', 'OPUSDT', 'NEARUSDT', 'SUIUSDT', 'INJUSDT',
-    'STXUSDT', 'TIAUSDT', 'SEIUSDT', 'JUPUSDT', 'WLDUSDT',
-    'RENDERUSDT', 'FTMUSDT', 'IMXUSDT', 'THETAUSDT', 'LDOUSDT',
+    'SANDUSDT', 'MANAUSDT', 'AXSUSDT', 'ENJUSDT', 'GALAUSDT',
+    'GMTUSDT', 'APECUSDT', 'ILVSDT', 'YGGUSDT', 'RONINUSDT',
+    'PIXELUSDT', 'PORTALUSDT', 'XAIUSDT', 'BLURUSDT', 'BELDUSDT',
+    'SUPERUSDT', 'ALICEUSDT', 'TLMUSDT',
+
+    // AI & Big Data
+    'RENDERUSDT', 'GRTTUSDT', 'FETCHUSDT', 'AIUSDT', 'AGIXUSDT',
+    'OCEUSDT', 'NMRUSDT', 'PHBUSDT', 'WLDUSDT', 'ARKMUSDT',
+    'TIAUSDT', 'AKASHUSDT', 'ARKUSDT',
+
+    // Storage & Infrastructure
+    'ARUSDT', 'STORJUSDT', 'ICPUSDT', 'THETAUSDT', 'VIDTUSDT',
+    'LPTUSDT', 'RNDRYSDT', 'HNTUSDT', 'IOTAUSDT',
+
+    // Exchange Tokens
+    'UNIUSDT', 'CAKEUSDT', 'SXPUSDT', 'MDXUSDT', 'GFTUSDT',
+    '1INCHUSDT', 'DEXEUSDT', 'PERPUSDT',
+
+    // Privacy Coins
+    'XMRUSDT', 'ZCASHUSDT', 'SCRTUSDT', 'ROSUSDT', 'DASHUSDT',
+
+    // Oracles & Data
+    'LINKUSDT', 'BANDUSDT', 'TLMUSDT', 'APITUSDT', 'DIAUSDT',
+
+    // Stablecoins & Yield
+    'USTUSDT', 'LUNAUSTDT', 'FRAXUSDT', 'PAXGUSDT',
+
+    // NFT & Collectibles
+    'BLUESUSDT', 'RAREUSDT', 'LOOKUSDT', 'X2Y2USDT',
+
+    // Emerging & New Projects
+    'JUPUSDT', 'PYTHUSDT', 'WUSDT', 'JTOUSDT', 'DYMUSDT',
+    'ALTUSDT', 'PIXFIUSDT', 'MAGICUSDT', 'SYNUSDT', 'SFPUSDT',
+    'OMGUSDT', 'ANTUSDT', 'BATUSDT', 'CHZUSDT', 'ENJUSDT',
+    'IOSTUSDT', 'ICXUSDT', 'KAVAUSDT', 'KSMUSDT', 'KNCUSDT',
+    'ONTUSDT', 'QTUMUSDT', 'RENUSDT', 'RLCUSDT', 'SCUSDT',
+    'SRMUSDT', 'STMXUSDT', 'TRBUSDT', 'WAVESUSDT', 'WINUSDT',
+
+    // Miscellaneous High Opportunity
+    'FTMUSDT', 'LUNA2USDT', 'GRTUSDT', 'JASMYUSDT', 'CKBUSDT',
+    'CELRUSDT', 'CTSIUSDT', 'DARUSDT', 'C98USDT', 'GLMRUSDT',
+    'CELOUSDT', 'CLVUSDT', 'CVXUSDT', 'LDOUSDT', 'LEVERUSDT',
+    'LITUSDT', 'MCUSDT', 'MDTUSDT', 'MOVRUSDT', 'MTLUSDT',
+    'OGNUSDT', 'POLYXUSDT', 'QIUSDT', 'RIFUSDT', 'VANRYUSDT',
   ];
 
   // Connect to WebSocket feeds on mount
@@ -158,7 +215,7 @@ export default function DalyFunding() {
             </span>
           </div>
           <div className="text-sm text-gray-400">
-            {fundingRates.length} rates tracking
+            {fundingRates.length} / {availablePairs.length} assets tracking
           </div>
         </div>
       </div>
