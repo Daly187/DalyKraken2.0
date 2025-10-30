@@ -19,13 +19,14 @@ import {
 } from 'lucide-react';
 import { multiExchangeService, FundingRate, FundingPosition } from '@/services/multiExchangeService';
 import { MatchedPair } from '@/services/symbolMappingEngine';
+import { fundingArbitrageService, type FundingSpread, type StrategyPosition } from '@/services/fundingArbitrageService';
 import { useStore } from '@/store/useStore';
 
 export default function DalyFunding() {
   const addNotification = useStore((state) => state.addNotification);
 
   const [selectedPair, setSelectedPair] = useState('BTCUSDT');
-  const [selectedExchange, setSelectedExchange] = useState<'all' | 'aster' | 'hyperliquid' | 'liquid'>('all');
+  const [selectedExchange, setSelectedExchange] = useState<'all' | 'aster' | 'hyperliquid'>('all');
   const [fundingRates, setFundingRates] = useState<FundingRate[]>([]);
   const [positions, setPositions] = useState<FundingPosition[]>([]);
   const [isConnected, setIsConnected] = useState(false);
@@ -33,7 +34,24 @@ export default function DalyFunding() {
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [viewMode, setViewMode] = useState<'all' | 'arbitrage' | 'diagnostics'>('arbitrage');
 
-  // Strategy Configuration
+  // Auto-Strategy State
+  const [strategyEnabled, setStrategyEnabled] = useState(false);
+  const [totalCapital, setTotalCapital] = useState(10000);
+  const [minSpreadThreshold, setMinSpreadThreshold] = useState(0.5);
+  const [excludedSymbols, setExcludedSymbols] = useState<string[]>([]);
+  const [excludeInput, setExcludeInput] = useState('');
+  const [top5Spreads, setTop5Spreads] = useState<FundingSpread[]>([]);
+  const [strategyPositions, setStrategyPositions] = useState<StrategyPosition[]>([]);
+  const [nextRebalanceTime, setNextRebalanceTime] = useState(0);
+  const [asterWallet, setAsterWallet] = useState('');
+  const [hyperliquidWallet, setHyperliquidWallet] = useState('');
+
+  // Wallet Balances
+  const [asterBalance, setAsterBalance] = useState(0);
+  const [hyperliquidBalance, setHyperliquidBalance] = useState(0);
+  const [loadingBalances, setLoadingBalances] = useState(false);
+
+  // Legacy Strategy Configuration (keep for backward compatibility)
   const [positionSize, setPositionSize] = useState(100);
   const [fundingThreshold, setFundingThreshold] = useState(0.01);
   const [minVolume24h, setMinVolume24h] = useState(1000000);
@@ -115,6 +133,83 @@ export default function DalyFunding() {
     'LITUSDT', 'MCUSDT', 'MDTUSDT', 'MOVRUSDT', 'MTLUSDT',
     'OGNUSDT', 'POLYXUSDT', 'QIUSDT', 'RIFUSDT', 'VANRYUSDT',
   ];
+
+  // Load wallet addresses from localStorage
+  useEffect(() => {
+    const savedAsterWallet = localStorage.getItem('aster_wallet_address') || '';
+    const savedHLWallet = localStorage.getItem('hyperliquid_wallet_address') || '';
+    setAsterWallet(savedAsterWallet);
+    setHyperliquidWallet(savedHLWallet);
+  }, []);
+
+  // Fetch wallet balances
+  const fetchWalletBalances = async () => {
+    setLoadingBalances(true);
+    try {
+      // HyperLiquid balance fetch
+      if (hyperliquidWallet) {
+        try {
+          const hlResponse = await fetch('https://api.hyperliquid.xyz/info', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              type: 'clearinghouseState',
+              user: hyperliquidWallet
+            }),
+          });
+          const hlData = await hlResponse.json();
+          if (hlData && hlData.marginSummary && hlData.marginSummary.accountValue) {
+            setHyperliquidBalance(parseFloat(hlData.marginSummary.accountValue));
+            console.log('[DalyFunding] Hyperliquid balance:', hlData.marginSummary.accountValue);
+          } else {
+            console.warn('[DalyFunding] Invalid Hyperliquid response:', hlData);
+            setHyperliquidBalance(0);
+          }
+        } catch (hlError) {
+          console.error('[DalyFunding] Error fetching Hyperliquid balance:', hlError);
+          setHyperliquidBalance(0);
+        }
+      } else {
+        setHyperliquidBalance(0);
+      }
+
+      // AsterDEX balance fetch - API endpoint TBD
+      // Aster doesn't have a public balance API endpoint yet
+      setAsterBalance(0);
+
+    } catch (error) {
+      console.error('[DalyFunding] Error fetching wallet balances:', error);
+    } finally {
+      setLoadingBalances(false);
+    }
+  };
+
+  // Fetch balances on mount and every 30 seconds
+  useEffect(() => {
+    if (asterWallet || hyperliquidWallet) {
+      fetchWalletBalances();
+      const interval = setInterval(fetchWalletBalances, 30000);
+      return () => clearInterval(interval);
+    }
+  }, [asterWallet, hyperliquidWallet]);
+
+  // Update strategy status periodically
+  useEffect(() => {
+    const updateStrategyStatus = () => {
+      const status = fundingArbitrageService.getStatus();
+      setStrategyPositions(status.positions);
+      setNextRebalanceTime(status.nextRebalanceTime);
+      setStrategyEnabled(status.enabled);
+    };
+
+    // Update immediately
+    updateStrategyStatus();
+
+    // Update every 5 seconds
+    const interval = setInterval(updateStrategyStatus, 5000);
+
+    return () => clearInterval(interval);
+  }, []);
 
   // Connect to WebSocket feeds on mount
   useEffect(() => {
@@ -208,14 +303,107 @@ export default function DalyFunding() {
   const hlOnlyCount = exclusiveAssets.hyperliquidOnly.length;
 
   // Calculate statistics
-  const totalPositions = positions.filter(p => p.status === 'open').length;
-  const totalInvested = positions
-    .filter(p => p.status === 'open')
-    .reduce((sum, p) => sum + (p.size * p.entryPrice), 0);
-  const totalFundingEarned = positions.reduce((sum, p) => sum + p.fundingEarned, 0);
-  const totalPnL = positions
-    .filter(p => p.status === 'open')
-    .reduce((sum, p) => sum + p.pnl, 0);
+  const totalPositions = strategyPositions.length;
+  const totalInvested = strategyPositions.reduce((sum, p) => sum + (p.longSize + p.shortSize), 0);
+  const totalFundingEarned = strategyPositions.reduce((sum, p) => sum + p.fundingEarned, 0);
+  const totalPnL = strategyPositions.reduce((sum, p) => sum + p.pnl, 0);
+
+  // Calculate time until next rebalance
+  const getTimeUntilRebalance = () => {
+    if (!nextRebalanceTime) return 'Not scheduled';
+    const diff = nextRebalanceTime - Date.now();
+    if (diff <= 0) return 'Rebalancing...';
+
+    const hours = Math.floor(diff / (60 * 60 * 1000));
+    const minutes = Math.floor((diff % (60 * 60 * 1000)) / (60 * 1000));
+    return `${hours}h ${minutes}m`;
+  };
+
+  // Strategy control handlers
+  const handleStartStrategy = () => {
+    if (totalCapital <= 0) {
+      addNotification({
+        type: 'error',
+        title: 'Invalid Capital',
+        message: 'Please enter a valid capital amount',
+      });
+      return;
+    }
+
+    // Update configuration
+    fundingArbitrageService.updateConfig({
+      totalCapital,
+      minSpreadThreshold,
+      excludedSymbols,
+      walletAddresses: {
+        aster: asterWallet || undefined,
+        hyperliquid: hyperliquidWallet || undefined,
+      },
+    });
+
+    // Get current funding rates organized by exchange
+    const { aster: asterRates, hyperliquid: hlRates } = multiExchangeService.getFundingRatesByExchange();
+
+    // Start strategy
+    fundingArbitrageService.start(asterRates, hlRates);
+
+    addNotification({
+      type: 'success',
+      title: 'Strategy Started',
+      message: `Auto-arbitrage strategy started with $${totalCapital.toLocaleString()} capital`,
+    });
+  };
+
+  const handleStopStrategy = () => {
+    fundingArbitrageService.stop();
+
+    addNotification({
+      type: 'info',
+      title: 'Strategy Stopped',
+      message: 'Auto-arbitrage strategy has been stopped and all positions closed',
+    });
+  };
+
+  const handleAddExcludedSymbol = () => {
+    if (excludeInput && !excludedSymbols.includes(excludeInput.toUpperCase())) {
+      setExcludedSymbols([...excludedSymbols, excludeInput.toUpperCase()]);
+      setExcludeInput('');
+    }
+  };
+
+  const handleRemoveExcludedSymbol = (symbol: string) => {
+    setExcludedSymbols(excludedSymbols.filter(s => s !== symbol));
+  };
+
+  const handleSaveWalletAddresses = () => {
+    localStorage.setItem('aster_wallet_address', asterWallet);
+    localStorage.setItem('hyperliquid_wallet_address', hyperliquidWallet);
+
+    addNotification({
+      type: 'success',
+      title: 'Wallets Saved',
+      message: 'Wallet addresses have been saved',
+    });
+  };
+
+  // Update top 5 spreads periodically
+  useEffect(() => {
+    if (!isConnected) return;
+
+    const updateTop5 = () => {
+      const { aster: asterRates, hyperliquid: hlRates } = multiExchangeService.getFundingRatesByExchange();
+      const spreads = fundingArbitrageService.getTop5Spreads(asterRates, hlRates);
+      setTop5Spreads(spreads);
+    };
+
+    // Update immediately
+    updateTop5();
+
+    // Update every 10 seconds
+    const interval = setInterval(updateTop5, 10000);
+
+    return () => clearInterval(interval);
+  }, [isConnected]);
 
   return (
     <div className="space-y-6">
@@ -224,10 +412,53 @@ export default function DalyFunding() {
         <div>
           <h1 className="text-3xl font-bold">DalyFunding Strategy</h1>
           <p className="text-sm text-gray-400 mt-1">
-            Multi-Exchange Funding Rate Arbitrage (Aster, Hyperliquid, Liquid)
+            Delta-Neutral Funding Rate Arbitrage (Aster & Hyperliquid)
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-4">
+          {/* Wallet Balances */}
+          <div className="flex items-center gap-3 border-r border-slate-600/50 pr-4">
+            <div className="text-right">
+              <div className="text-xs text-gray-400 mb-1">Wallet Balances</div>
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-1.5">
+                  <div className="w-2 h-2 rounded-full bg-cyan-500" />
+                  <span className="text-sm font-medium text-gray-300">Aster:</span>
+                  {loadingBalances ? (
+                    <RefreshCw className="h-3 w-3 text-gray-400 animate-spin" />
+                  ) : (
+                    <span className="text-sm font-bold text-cyan-400">
+                      ${asterBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <div className="w-2 h-2 rounded-full bg-purple-500" />
+                  <span className="text-sm font-medium text-gray-300">HL:</span>
+                  {loadingBalances ? (
+                    <RefreshCw className="h-3 w-3 text-gray-400 animate-spin" />
+                  ) : (
+                    <span className="text-sm font-bold text-purple-400">
+                      ${hyperliquidBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="text-xs text-gray-500 mt-0.5">
+                Total: ${(asterBalance + hyperliquidBalance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </div>
+            </div>
+            <button
+              onClick={fetchWalletBalances}
+              disabled={loadingBalances}
+              className="btn btn-secondary btn-sm p-2"
+              title="Refresh balances"
+            >
+              <RefreshCw className={`h-4 w-4 ${loadingBalances ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
+
+          {/* Connection Status */}
           <div className="flex items-center gap-2">
             <div className={`w-3 h-3 rounded-full ${isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
             <span className="text-sm text-gray-400">
@@ -235,7 +466,7 @@ export default function DalyFunding() {
             </span>
           </div>
           <div className="text-sm text-gray-400">
-            {fundingRates.length} / {availablePairs.length} assets tracking
+            {fundingRates.length} assets tracking
           </div>
         </div>
       </div>
@@ -310,7 +541,7 @@ export default function DalyFunding() {
             <h2 className="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-purple-400 bg-clip-text text-transparent">
               Live Funding Rates
             </h2>
-            <p className="text-sm text-gray-400 mt-1">Real-time monitoring across Aster, Hyperliquid, and Liquid</p>
+            <p className="text-sm text-gray-400 mt-1">Real-time 2-way arbitrage monitoring across Aster and Hyperliquid</p>
           </div>
           <div className="flex items-center gap-4">
             {/* View Mode Toggle */}
@@ -324,7 +555,7 @@ export default function DalyFunding() {
                 }`}
               >
                 <ArrowDownUp className="h-3 w-3" />
-                Arbitrage ({arbitrageOpportunities.length})
+                2-Way Arbitrage ({arbitrageOpportunities.length})
               </button>
               <button
                 onClick={() => setViewMode('diagnostics')}
@@ -382,16 +613,6 @@ export default function DalyFunding() {
                   }`}
                 >
                   Hyperliquid
-                </button>
-                <button
-                  onClick={() => setSelectedExchange('liquid')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                    selectedExchange === 'liquid'
-                      ? 'bg-blue-500 text-white'
-                      : 'bg-slate-700/50 text-gray-400 hover:bg-slate-600/50'
-                  }`}
-                >
-                  Liquid
                 </button>
               </div>
             )}
@@ -754,12 +975,14 @@ export default function DalyFunding() {
                           <Activity className={`h-4 w-4 ${
                             rate.exchange === 'aster' ? 'text-cyan-400' :
                             rate.exchange === 'hyperliquid' ? 'text-purple-400' :
-                            'text-blue-400'
+                            rate.exchange === 'lighter' ? 'text-blue-400' :
+                            'text-gray-400'
                           }`} />
                           <span className={`text-xs px-2 py-1 rounded font-medium ${
                             rate.exchange === 'aster' ? 'bg-cyan-500/20 text-cyan-400' :
                             rate.exchange === 'hyperliquid' ? 'bg-purple-500/20 text-purple-400' :
-                            'bg-blue-500/20 text-blue-400'
+                            rate.exchange === 'lighter' ? 'bg-blue-500/20 text-blue-400' :
+                            'bg-gray-500/20 text-gray-400'
                           }`}>
                             {rate.exchange}
                           </span>
@@ -839,179 +1062,251 @@ export default function DalyFunding() {
         )}
       </div>
 
-      {/* Strategy Configuration */}
+      {/* Auto-Arbitrage Strategy Configuration */}
       <div className="card">
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h2 className="text-2xl font-bold bg-gradient-to-r from-primary-400 to-purple-400 bg-clip-text text-transparent">
-              Configure Funding Strategy
+            <h2 className="text-2xl font-bold bg-gradient-to-r from-emerald-400 via-cyan-400 to-purple-400 bg-clip-text text-transparent">
+              Auto-Arbitrage Strategy
             </h2>
-            <p className="text-sm text-gray-400 mt-1">Set up automated funding rate collection with liquidity checks</p>
+            <p className="text-sm text-gray-400 mt-1">Delta-neutral funding rate arbitrage across HyperLiquid & AsterDEX</p>
           </div>
-          <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-primary-500 to-purple-500 flex items-center justify-center">
-            <Zap className="h-6 w-6 text-white" />
+          <div className="flex items-center gap-3">
+            {strategyEnabled ? (
+              <div className="flex items-center gap-2 px-4 py-2 bg-green-500/20 rounded-lg border border-green-500/30">
+                <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                <span className="text-sm font-semibold text-green-400">ACTIVE</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 px-4 py-2 bg-gray-500/20 rounded-lg border border-gray-500/30">
+                <div className="w-2 h-2 rounded-full bg-gray-500" />
+                <span className="text-sm font-semibold text-gray-400">INACTIVE</span>
+              </div>
+            )}
           </div>
         </div>
 
         <div className="space-y-6">
-          {/* Pair Selection */}
-          <div className="p-5 rounded-xl bg-gradient-to-br from-slate-800/50 to-slate-700/30 border border-slate-600/50">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="h-8 w-8 rounded-lg bg-primary-500/20 flex items-center justify-center">
-                <Target className="h-4 w-4 text-primary-400" />
+          {/* Strategy Status Overview */}
+          {strategyEnabled && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="bg-gradient-to-br from-emerald-500/10 to-emerald-600/5 border border-emerald-500/20 rounded-lg p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <Clock className="h-4 w-4 text-emerald-400" />
+                  <span className="text-xs text-gray-400">Next Rebalance</span>
+                </div>
+                <div className="text-xl font-bold text-emerald-400">{getTimeUntilRebalance()}</div>
               </div>
-              <div>
-                <label className="block text-sm font-semibold text-white">
-                  Trading Pair
-                </label>
-                <p className="text-xs text-gray-400">Select pair for funding rate strategy</p>
+              <div className="bg-gradient-to-br from-cyan-500/10 to-cyan-600/5 border border-cyan-500/20 rounded-lg p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <Target className="h-4 w-4 text-cyan-400" />
+                  <span className="text-xs text-gray-400">Active Positions</span>
+                </div>
+                <div className="text-xl font-bold text-cyan-400">{totalPositions} / 5</div>
+              </div>
+              <div className="bg-gradient-to-br from-purple-500/10 to-purple-600/5 border border-purple-500/20 rounded-lg p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <DollarSign className="h-4 w-4 text-purple-400" />
+                  <span className="text-xs text-gray-400">Capital Deployed</span>
+                </div>
+                <div className="text-xl font-bold text-purple-400">${totalInvested.toFixed(0)}</div>
               </div>
             </div>
-            <div className="grid grid-cols-5 md:grid-cols-10 gap-2">
-              {availablePairs.map((pair) => (
-                <button
-                  key={pair}
-                  type="button"
-                  onClick={() => setSelectedPair(pair)}
-                  className={`px-3 py-2.5 rounded-lg text-xs font-bold transition-all duration-200 ${
-                    selectedPair === pair
-                      ? 'bg-gradient-to-br from-primary-500 to-primary-600 text-white shadow-lg shadow-primary-500/25 scale-105'
-                      : 'bg-slate-700/50 text-gray-400 hover:bg-slate-600/50 hover:text-gray-300'
-                  }`}
-                >
-                  {pair.replace('USDT', '')}
-                </button>
-              ))}
-            </div>
-          </div>
+          )}
 
-          {/* Configuration Options */}
+          {/* Configuration Section */}
           <div className="grid md:grid-cols-2 gap-5">
+            {/* Total Capital */}
             <div>
               <label className="flex items-center gap-2 text-sm font-medium text-gray-300 mb-3">
-                <DollarSign className="h-4 w-4 text-green-400" />
-                Position Size
+                <Wallet className="h-4 w-4 text-green-400" />
+                Total Capital (100% Allocation)
                 <span className="text-red-400">*</span>
               </label>
               <div className="relative">
                 <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
                 <input
                   type="number"
-                  step="0.01"
-                  min="1"
-                  value={positionSize}
-                  onChange={(e) => setPositionSize(Number(e.target.value))}
-                  className="w-full bg-slate-800/50 border border-slate-600/50 focus:border-primary-500/50 text-white pl-8 pr-4 py-3 rounded-xl transition-all focus:ring-2 focus:ring-primary-500/20"
-                  placeholder="100.00"
+                  step="100"
+                  min="100"
+                  value={totalCapital}
+                  onChange={(e) => setTotalCapital(Number(e.target.value))}
+                  disabled={strategyEnabled}
+                  className="w-full bg-slate-800/50 border border-slate-600/50 focus:border-primary-500/50 text-white pl-8 pr-4 py-3 rounded-xl transition-all focus:ring-2 focus:ring-primary-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                  placeholder="10000.00"
                 />
               </div>
-              <p className="text-xs text-gray-500 mt-2">Amount to allocate per position</p>
+              <p className="text-xs text-gray-500 mt-2">
+                Allocations: 30%, 30%, 20%, 10%, 10% (Rank 1-5)
+              </p>
             </div>
 
+            {/* Minimum Spread Threshold */}
             <div>
               <label className="flex items-center gap-2 text-sm font-medium text-gray-300 mb-3">
                 <Target className="h-4 w-4 text-purple-400" />
-                Funding Rate Threshold
+                Minimum Spread Threshold
               </label>
               <div className="relative">
                 <input
                   type="number"
-                  step="0.001"
+                  step="0.1"
                   min="0"
-                  value={fundingThreshold}
-                  onChange={(e) => setFundingThreshold(Number(e.target.value))}
-                  className="w-full bg-slate-800/50 border border-slate-600/50 focus:border-primary-500/50 text-white px-4 pr-8 py-3 rounded-xl transition-all focus:ring-2 focus:ring-primary-500/20"
-                  placeholder="0.01"
+                  value={minSpreadThreshold}
+                  onChange={(e) => setMinSpreadThreshold(Number(e.target.value))}
+                  disabled={strategyEnabled}
+                  className="w-full bg-slate-800/50 border border-slate-600/50 focus:border-primary-500/50 text-white px-4 pr-8 py-3 rounded-xl transition-all focus:ring-2 focus:ring-primary-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                  placeholder="0.5"
                 />
                 <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm">%</span>
               </div>
-              <p className="text-xs text-gray-500 mt-2">Minimum funding rate to enter</p>
-            </div>
-
-            <div>
-              <label className="flex items-center gap-2 text-sm font-medium text-gray-300 mb-3">
-                <Activity className="h-4 w-4 text-blue-400" />
-                Minimum 24h Volume
-              </label>
-              <div className="relative">
-                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
-                <input
-                  type="number"
-                  step="100000"
-                  min="0"
-                  value={minVolume24h}
-                  onChange={(e) => setMinVolume24h(Number(e.target.value))}
-                  className="w-full bg-slate-800/50 border border-slate-600/50 focus:border-primary-500/50 text-white pl-8 pr-4 py-3 rounded-xl transition-all focus:ring-2 focus:ring-primary-500/20"
-                  placeholder="1000000"
-                />
-              </div>
-              <p className="text-xs text-gray-500 mt-2">Liquidity check - minimum daily volume</p>
-            </div>
-
-            <div>
-              <label className="flex items-center gap-2 text-sm font-medium text-gray-300 mb-3">
-                <Layers className="h-4 w-4 text-yellow-400" />
-                Max Spread %
-              </label>
-              <div className="relative">
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={maxSpread}
-                  onChange={(e) => setMaxSpread(Number(e.target.value))}
-                  className="w-full bg-slate-800/50 border border-slate-600/50 focus:border-primary-500/50 text-white px-4 pr-8 py-3 rounded-xl transition-all focus:ring-2 focus:ring-primary-500/20"
-                  placeholder="0.1"
-                />
-                <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm">%</span>
-              </div>
-              <p className="text-xs text-gray-500 mt-2">Maximum bid-ask spread allowed</p>
+              <p className="text-xs text-gray-500 mt-2">Only enter when spread exceeds this value</p>
             </div>
           </div>
 
-          {/* Auto-Execute Toggle */}
-          <div className="p-4 rounded-lg bg-slate-700/30 border border-slate-600/30">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className={`h-10 w-10 rounded-lg ${autoExecute ? 'bg-green-500/20' : 'bg-gray-500/20'} flex items-center justify-center`}>
-                  {autoExecute ? (
-                    <CheckCircle className="h-5 w-5 text-green-400" />
-                  ) : (
-                    <AlertCircle className="h-5 w-5 text-gray-400" />
-                  )}
-                </div>
-                <div>
-                  <label className="font-semibold text-white cursor-pointer">
-                    Auto-Execute Strategy
-                  </label>
-                  <p className="text-xs text-gray-400">
-                    Automatically enter positions when funding rate exceeds threshold
-                  </p>
-                </div>
+          {/* Wallet Addresses */}
+          <div className="p-5 rounded-xl bg-gradient-to-br from-slate-800/50 to-slate-700/30 border border-slate-600/50">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="h-8 w-8 rounded-lg bg-primary-500/20 flex items-center justify-center">
+                <Wallet className="h-4 w-4 text-primary-400" />
               </div>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={autoExecute}
-                  onChange={(e) => setAutoExecute(e.target.checked)}
-                  className="sr-only peer"
-                />
-                <div className="w-14 h-7 bg-gray-600 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-500/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[4px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-primary-500"></div>
-              </label>
+              <div>
+                <label className="block text-sm font-semibold text-white">
+                  Wallet Addresses
+                </label>
+                <p className="text-xs text-gray-400">Connected wallets for each exchange</p>
+              </div>
             </div>
+            <div className="grid md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs text-gray-400 mb-2">AsterDEX Wallet</label>
+                <input
+                  type="text"
+                  value={asterWallet}
+                  onChange={(e) => setAsterWallet(e.target.value)}
+                  disabled={strategyEnabled}
+                  className="w-full bg-slate-700 text-white px-3 py-2 rounded-lg text-sm font-mono disabled:opacity-50 disabled:cursor-not-allowed"
+                  placeholder="0x..."
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-2">HyperLiquid Wallet</label>
+                <input
+                  type="text"
+                  value={hyperliquidWallet}
+                  onChange={(e) => setHyperliquidWallet(e.target.value)}
+                  disabled={strategyEnabled}
+                  className="w-full bg-slate-700 text-white px-3 py-2 rounded-lg text-sm font-mono disabled:opacity-50 disabled:cursor-not-allowed"
+                  placeholder="0x..."
+                />
+              </div>
+            </div>
+            {!strategyEnabled && (
+              <button
+                onClick={handleSaveWalletAddresses}
+                className="btn btn-secondary btn-sm mt-3"
+              >
+                Save Wallet Addresses
+              </button>
+            )}
           </div>
 
-          {/* Action Button */}
+          {/* Exclusion List */}
+          <div className="p-5 rounded-xl bg-gradient-to-br from-slate-800/50 to-slate-700/30 border border-slate-600/50">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="h-8 w-8 rounded-lg bg-yellow-500/20 flex items-center justify-center">
+                <AlertCircle className="h-4 w-4 text-yellow-400" />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-white">
+                  Symbol Exclusion List
+                </label>
+                <p className="text-xs text-gray-400">Manually exclude specific symbols from the strategy</p>
+              </div>
+            </div>
+            <div className="flex gap-2 mb-3">
+              <input
+                type="text"
+                value={excludeInput}
+                onChange={(e) => setExcludeInput(e.target.value)}
+                onKeyPress={(e) => e.key === 'Enter' && handleAddExcludedSymbol()}
+                disabled={strategyEnabled}
+                className="flex-1 bg-slate-700 text-white px-3 py-2 rounded-lg text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                placeholder="Enter symbol (e.g., BTCUSDT)"
+              />
+              <button
+                onClick={handleAddExcludedSymbol}
+                disabled={strategyEnabled || !excludeInput}
+                className="btn btn-secondary btn-sm"
+              >
+                Add
+              </button>
+            </div>
+            {excludedSymbols.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {excludedSymbols.map(symbol => (
+                  <div
+                    key={symbol}
+                    className="flex items-center gap-2 px-3 py-1 bg-red-500/20 border border-red-500/30 rounded-lg text-sm"
+                  >
+                    <span className="text-red-400 font-medium">{symbol}</span>
+                    {!strategyEnabled && (
+                      <button
+                        onClick={() => handleRemoveExcludedSymbol(symbol)}
+                        className="text-red-400 hover:text-red-300"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Strategy Control Buttons */}
           <div className="flex gap-3 pt-2">
-            <button
-              type="button"
-              className="flex-1 relative overflow-hidden px-6 py-4 rounded-xl font-semibold text-white transition-all duration-300 bg-gradient-to-r from-primary-500 to-purple-500 hover:from-primary-600 hover:to-purple-600 shadow-lg shadow-primary-500/25 hover:shadow-primary-500/40"
-            >
-              <div className="relative flex items-center justify-center gap-2">
-                <Zap className="h-5 w-5" />
-                <span>Create Funding Position</span>
+            {!strategyEnabled ? (
+              <button
+                type="button"
+                onClick={handleStartStrategy}
+                className="flex-1 relative overflow-hidden px-6 py-4 rounded-xl font-semibold text-white transition-all duration-300 bg-gradient-to-r from-emerald-500 via-cyan-500 to-purple-500 hover:from-emerald-600 hover:via-cyan-600 hover:to-purple-600 shadow-lg shadow-emerald-500/25 hover:shadow-emerald-500/40"
+              >
+                <div className="relative flex items-center justify-center gap-2">
+                  <Zap className="h-5 w-5" />
+                  <span>Start Auto-Arbitrage Strategy</span>
+                </div>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleStopStrategy}
+                className="flex-1 relative overflow-hidden px-6 py-4 rounded-xl font-semibold text-white transition-all duration-300 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 shadow-lg shadow-red-500/25 hover:shadow-red-500/40"
+              >
+                <div className="relative flex items-center justify-center gap-2">
+                  <AlertCircle className="h-5 w-5" />
+                  <span>Stop Strategy & Close All Positions</span>
+                </div>
+              </button>
+            )}
+          </div>
+
+          {/* Info Alert */}
+          <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4">
+            <div className="flex items-start gap-3">
+              <Info className="h-5 w-5 text-blue-400 mt-0.5 flex-shrink-0" />
+              <div className="text-sm text-gray-300">
+                <p className="font-semibold text-blue-300 mb-2">How Auto-Arbitrage Works</p>
+                <ul className="space-y-1 text-xs">
+                  <li>• Identifies top 5 funding rate spreads between HyperLiquid and AsterDEX</li>
+                  <li>• Opens offsetting long/short positions (delta-neutral, no market risk)</li>
+                  <li>• Allocates capital: Rank 1 (30%), Rank 2 (30%), Rank 3 (20%), Rank 4 (10%), Rank 5 (10%)</li>
+                  <li>• Rebalances every 4 hours automatically</li>
+                  <li>• Exits immediately if spread turns negative</li>
+                  <li>• Profitable spreads outside top 5 are held until next rebalance</li>
+                </ul>
               </div>
-            </button>
+            </div>
           </div>
         </div>
       </div>
@@ -1021,23 +1316,148 @@ export default function DalyFunding() {
         <div className="flex justify-between items-center mb-4">
           <div>
             <h2 className="text-xl font-bold flex items-center gap-2">
-              Active Positions
+              <ArrowDownUp className="h-6 w-6 text-primary-400" />
+              Active Arbitrage Positions
             </h2>
             <p className="text-xs text-gray-500 mt-1">
-              Currently earning funding rates
+              Currently earning from funding rate spreads
             </p>
           </div>
+          {strategyPositions.length > 0 && (
+            <div className="flex items-center gap-2">
+              <div className="text-right">
+                <div className="text-xs text-gray-400">Total P&L</div>
+                <div className={`text-lg font-bold ${totalPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                  {totalPnL >= 0 ? '+' : ''}${totalPnL.toFixed(2)}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
-        <div className="text-center py-16">
-          <div className="inline-flex items-center justify-center h-20 w-20 rounded-full bg-gradient-to-br from-primary-500/20 to-purple-500/20 mb-4">
-            <ArrowDownUp className="h-10 w-10 text-primary-400" />
+        {strategyPositions.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-slate-600/50">
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">Rank</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">Symbol</th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-400 uppercase">Long Side</th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-400 uppercase">Short Side</th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-400 uppercase">Spread</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase">Position Size</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase">P&L</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase">Funding Earned</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-700/50">
+                {strategyPositions.map((position) => (
+                  <tr key={position.id} className="hover:bg-slate-700/20 transition-colors">
+                    <td className="px-4 py-4">
+                      <div className="flex items-center gap-2">
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold ${
+                          position.rank === 1 ? 'bg-yellow-500/20 text-yellow-400' :
+                          position.rank === 2 ? 'bg-gray-300/20 text-gray-300' :
+                          position.rank === 3 ? 'bg-orange-500/20 text-orange-400' :
+                          'bg-gray-500/20 text-gray-400'
+                        }`}>
+                          #{position.rank}
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-4">
+                      <div className="font-bold text-white">{position.canonical}</div>
+                      <div className="text-xs text-gray-500">{position.allocation}% allocation</div>
+                    </td>
+                    <td className="px-4 py-4 text-center">
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-center gap-1">
+                          <TrendingUp className="h-3 w-3 text-green-400" />
+                          <span className={`text-xs font-bold px-2 py-0.5 rounded ${
+                            position.longExchange === 'aster' ? 'bg-cyan-500/20 text-cyan-400' : 'bg-purple-500/20 text-purple-400'
+                          }`}>
+                            {position.longExchange.toUpperCase()}
+                          </span>
+                        </div>
+                        <div className="text-xs text-green-400 font-medium">
+                          {position.longFundingRate > 0 ? '+' : ''}{position.longFundingRate.toFixed(4)}%
+                        </div>
+                        <div className="text-xs text-gray-500">${position.longCurrentPrice.toFixed(2)}</div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-4 text-center">
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-center gap-1">
+                          <TrendingDown className="h-3 w-3 text-red-400" />
+                          <span className={`text-xs font-bold px-2 py-0.5 rounded ${
+                            position.shortExchange === 'aster' ? 'bg-cyan-500/20 text-cyan-400' : 'bg-purple-500/20 text-purple-400'
+                          }`}>
+                            {position.shortExchange.toUpperCase()}
+                          </span>
+                        </div>
+                        <div className="text-xs text-red-400 font-medium">
+                          {position.shortFundingRate > 0 ? '+' : ''}{position.shortFundingRate.toFixed(4)}%
+                        </div>
+                        <div className="text-xs text-gray-500">${position.shortCurrentPrice.toFixed(2)}</div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-4 text-center">
+                      <div className={`inline-flex flex-col items-center gap-1 px-3 py-2 rounded-lg font-bold ${
+                        position.spread >= 1 ? 'bg-emerald-500/20 text-emerald-400' :
+                        position.spread >= 0.5 ? 'bg-yellow-500/20 text-yellow-400' :
+                        position.spread >= 0 ? 'bg-gray-500/20 text-gray-400' :
+                        'bg-red-500/20 text-red-400'
+                      }`}>
+                        <div className="text-sm">
+                          {position.spread.toFixed(4)}%
+                        </div>
+                        <div className="text-xs opacity-75">
+                          Entry: {position.entrySpread.toFixed(4)}%
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-4 text-right">
+                      <div className="font-bold text-white">${(position.longSize + position.shortSize).toFixed(0)}</div>
+                      <div className="text-xs text-gray-500">
+                        ${position.longSize.toFixed(0)} + ${position.shortSize.toFixed(0)}
+                      </div>
+                    </td>
+                    <td className="px-4 py-4 text-right">
+                      <div className={`text-lg font-bold ${position.pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                        {position.pnl >= 0 ? '+' : ''}${position.pnl.toFixed(2)}
+                      </div>
+                      <div className={`text-xs ${
+                        position.pnl >= 0 ? 'text-green-500' : 'text-red-500'
+                      }`}>
+                        {((position.pnl / (position.longSize + position.shortSize)) * 100).toFixed(2)}%
+                      </div>
+                    </td>
+                    <td className="px-4 py-4 text-right">
+                      <div className="text-sm font-bold text-purple-400">
+                        ${position.fundingEarned.toFixed(2)}
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        {((Date.now() - position.entryTime) / (60 * 60 * 1000)).toFixed(1)}h
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-          <h3 className="text-xl font-bold text-white mb-2">No Positions Yet</h3>
-          <p className="text-gray-400 mb-6 max-w-md mx-auto">
-            Create your first funding position to start earning from funding rates on perpetual contracts.
-          </p>
-        </div>
+        ) : (
+          <div className="text-center py-16">
+            <div className="inline-flex items-center justify-center h-20 w-20 rounded-full bg-gradient-to-br from-emerald-500/20 via-cyan-500/20 to-purple-500/20 mb-4">
+              <ArrowDownUp className="h-10 w-10 text-emerald-400" />
+            </div>
+            <h3 className="text-xl font-bold text-white mb-2">No Active Positions</h3>
+            <p className="text-gray-400 mb-6 max-w-md mx-auto">
+              {strategyEnabled
+                ? 'Waiting for funding rate data and optimal entry opportunities...'
+                : 'Start the auto-arbitrage strategy to begin trading funding rate spreads.'}
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Funding Rate History */}
@@ -1077,13 +1497,12 @@ export default function DalyFunding() {
           <div className="flex items-start gap-3">
             <Layers className="h-5 w-5 text-cyan-500 mt-0.5 flex-shrink-0" />
             <div>
-              <strong className="text-white">Multi-Exchange Coverage:</strong> By monitoring funding rates across
-              Aster DEX, Hyperliquid, and Liquid simultaneously, this strategy identifies the best opportunities
-              regardless of which platform offers the highest rates. Each exchange has unique characteristics:
+              <strong className="text-white">Dual-Exchange Coverage:</strong> By monitoring funding rates across
+              Aster DEX and Hyperliquid simultaneously, this strategy identifies the best 2-way arbitrage opportunities
+              between these two exchanges. Each exchange has unique characteristics:
               <ul className="mt-2 ml-4 space-y-1 list-disc">
-                <li><strong className="text-cyan-400">Aster:</strong> Decentralized perpetuals with up to 125x leverage</li>
-                <li><strong className="text-purple-400">Hyperliquid:</strong> On-chain L1 DEX with CEX-like performance</li>
-                <li><strong className="text-blue-400">Liquid:</strong> Centralized exchange with fiat pairs and deep liquidity</li>
+                <li><strong className="text-cyan-400">Aster:</strong> Decentralized perpetuals with up to 125x leverage, 8-hour funding</li>
+                <li><strong className="text-purple-400">Hyperliquid:</strong> On-chain L1 DEX with CEX-like performance, hourly funding</li>
               </ul>
             </div>
           </div>
@@ -1105,10 +1524,10 @@ export default function DalyFunding() {
           <div className="flex items-start gap-3">
             <Clock className="h-5 w-5 text-blue-500 mt-0.5 flex-shrink-0" />
             <div>
-              <strong className="text-white">WebSocket Real-Time Monitoring:</strong> The strategy uses WebSocket
-              connections to each exchange for instant funding rate updates. Aster provides mark price streams,
-              Hyperliquid broadcasts asset context with funding data, and Liquid streams order book depth. All data
-              is processed in real-time to identify opportunities the moment they arise.
+              <strong className="text-white">Real-Time Data Monitoring:</strong> The strategy uses WebSocket and REST
+              connections to each exchange for instant funding rate updates. Aster provides mark price streams via WebSocket,
+              HyperLiquid and Lighter use REST API polling for funding data. All data is processed in real-time to identify
+              opportunities the moment they arise.
             </div>
           </div>
 
@@ -1141,9 +1560,8 @@ export default function DalyFunding() {
               <AlertCircle className="h-5 w-5 text-blue-400 mt-0.5 flex-shrink-0" />
               <div className="text-xs">
                 <strong className="text-blue-300">Setup Required:</strong> To use this strategy, configure your
-                API keys for Aster, Hyperliquid, and/or Liquid in the Settings page. At minimum, one exchange must
-                be configured. The strategy will automatically connect to all configured exchanges and begin monitoring
-                funding rates.
+                API keys for Aster and/or Hyperliquid in the Settings page (Lighter doesn't require authentication for market data).
+                The strategy will automatically connect to all exchanges and begin monitoring funding rates in real-time.
               </div>
             </div>
           </div>
