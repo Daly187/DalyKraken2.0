@@ -108,7 +108,54 @@ class FundingArbitrageService {
   private rebalanceTimer: NodeJS.Timeout | null = null;
   private lastRebalanceTime: number = 0;
   private rebalanceHistory: RebalanceEvent[] = [];
+  private closedPositions: StrategyPosition[] = []; // Track closed positions for history
   private spreadMonitorInterval: NodeJS.Timeout | null = null;
+
+  constructor() {
+    // Load persisted state on initialization
+    this.loadState();
+  }
+
+  /**
+   * Save state to localStorage
+   */
+  private saveState(): void {
+    const state = {
+      config: this.config,
+      positions: Array.from(this.positions.entries()),
+      lastRebalanceTime: this.lastRebalanceTime,
+      rebalanceHistory: this.rebalanceHistory,
+      closedPositions: this.closedPositions,
+    };
+    localStorage.setItem('arbitrage_strategy_state', JSON.stringify(state));
+  }
+
+  /**
+   * Load state from localStorage
+   */
+  private loadState(): void {
+    try {
+      const saved = localStorage.getItem('arbitrage_strategy_state');
+      if (saved) {
+        const state = JSON.parse(saved);
+        this.config = state.config;
+        this.positions = new Map(state.positions);
+        this.lastRebalanceTime = state.lastRebalanceTime;
+        this.rebalanceHistory = state.rebalanceHistory || [];
+        this.closedPositions = state.closedPositions || [];
+        console.log('[Arbitrage] State restored from localStorage');
+      }
+    } catch (error) {
+      console.error('[Arbitrage] Error loading state:', error);
+    }
+  }
+
+  /**
+   * Clear persisted state
+   */
+  private clearState(): void {
+    localStorage.removeItem('arbitrage_strategy_state');
+  }
 
   /**
    * Calculate funding spread between two exchanges for a canonical symbol
@@ -264,6 +311,9 @@ class FundingArbitrageService {
     console.log(`  Long: ${spread.longExchange} @ $${position.longEntryPrice.toFixed(2)} (Order: ${tradeResult.longOrder.orderId})`);
     console.log(`  Short: ${spread.shortExchange} @ $${position.shortEntryPrice.toFixed(2)} (Order: ${tradeResult.shortOrder.orderId})`);
 
+    // Save state
+    this.saveState();
+
     // Send Telegram notification
     await telegramNotificationService.notifyPositionOpened(
       position.canonical,
@@ -351,7 +401,17 @@ class FundingArbitrageService {
     );
 
     // Keep position in history but remove from active
+    this.closedPositions.unshift(position); // Add to beginning of closed positions
+
+    // Keep only last 50 closed positions
+    if (this.closedPositions.length > 50) {
+      this.closedPositions = this.closedPositions.slice(0, 50);
+    }
+
     this.positions.delete(canonical);
+
+    // Save state
+    this.saveState();
   }
 
   /**
@@ -394,6 +454,9 @@ class FundingArbitrageService {
 
     // Total P&L = long P&L + short P&L + funding earned
     position.pnl = longPnl + shortPnl + position.fundingEarned;
+
+    // Save state periodically
+    this.saveState();
   }
 
   /**
@@ -630,6 +693,7 @@ class FundingArbitrageService {
       ...updates,
     };
     console.log(`[Arbitrage] Config updated:`, updates);
+    this.saveState();
   }
 
   /**
@@ -647,10 +711,47 @@ class FundingArbitrageService {
   }
 
   /**
+   * Get closed positions (history)
+   */
+  getClosedPositions(): StrategyPosition[] {
+    return [...this.closedPositions];
+  }
+
+  /**
    * Manually close a position
    */
   async manualClose(canonical: string): Promise<void> {
     await this.closePosition(canonical, 'manual');
+  }
+
+  /**
+   * Resume strategy after page reload
+   */
+  async resume(
+    asterRates: Map<string, FundingRate>,
+    hlRates: Map<string, FundingRate>
+  ): Promise<void> {
+    if (!this.config.enabled) {
+      console.log('[Arbitrage] Strategy not enabled, skipping resume');
+      return;
+    }
+
+    console.log('[Arbitrage] Resuming strategy after page reload...');
+
+    // Set exchange service paper mode
+    exchangeTradeService.setPaperMode(this.config.paperMode);
+
+    // Schedule rebalancing every 4 hours
+    this.rebalanceTimer = setInterval(() => {
+      this.rebalance(asterRates, hlRates);
+    }, this.config.rebalanceInterval);
+
+    // Monitor spreads every 10 seconds for negative exits
+    this.spreadMonitorInterval = setInterval(() => {
+      this.monitorSpreadsForExit();
+    }, 10000);
+
+    console.log('[Arbitrage] Strategy resumed successfully');
   }
 }
 

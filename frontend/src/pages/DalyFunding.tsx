@@ -18,6 +18,7 @@ import {
   RefreshCw,
   ChevronDown,
   ChevronRight,
+  History as HistoryIcon,
 } from 'lucide-react';
 import { multiExchangeService, FundingRate, FundingPosition } from '@/services/multiExchangeService';
 import { MatchedPair } from '@/services/symbolMappingEngine';
@@ -36,6 +37,8 @@ export default function DalyFunding() {
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [viewMode, setViewMode] = useState<'all' | 'arbitrage' | 'diagnostics'>('arbitrage');
   const [fundingRatesCollapsed, setFundingRatesCollapsed] = useState(false);
+  const [activePositionsCollapsed, setActivePositionsCollapsed] = useState(false);
+  const [fundingHistoryCollapsed, setFundingHistoryCollapsed] = useState(false);
 
   // Auto-Strategy State
   const [strategyEnabled, setStrategyEnabled] = useState(false);
@@ -46,6 +49,7 @@ export default function DalyFunding() {
   const [excludeInput, setExcludeInput] = useState('');
   const [top5Spreads, setTop5Spreads] = useState<FundingSpread[]>([]);
   const [strategyPositions, setStrategyPositions] = useState<StrategyPosition[]>([]);
+  const [closedPositions, setClosedPositions] = useState<StrategyPosition[]>([]);
   const [nextRebalanceTime, setNextRebalanceTime] = useState(0);
   const [asterWallet, setAsterWallet] = useState('');
   const [hyperliquidWallet, setHyperliquidWallet] = useState('');
@@ -320,6 +324,10 @@ export default function DalyFunding() {
       setStrategyPositions(status.positions);
       setNextRebalanceTime(status.nextRebalanceTime);
       setStrategyEnabled(status.enabled);
+
+      // Update closed positions
+      const closed = fundingArbitrageService.getClosedPositions();
+      setClosedPositions(closed);
     };
 
     // Update immediately
@@ -330,6 +338,18 @@ export default function DalyFunding() {
 
     return () => clearInterval(interval);
   }, []);
+
+  // Resume strategy on page load if it was previously running
+  useEffect(() => {
+    if (!isConnected) return;
+
+    const status = fundingArbitrageService.getStatus();
+    if (status.enabled) {
+      console.log('[DalyFunding] Resuming strategy from previous session...');
+      const { aster: asterRates, hyperliquid: hlRates } = multiExchangeService.getFundingRatesByExchange();
+      fundingArbitrageService.resume(asterRates, hlRates);
+    }
+  }, [isConnected]);
 
   // Connect to WebSocket feeds on mount
   useEffect(() => {
@@ -1597,15 +1617,20 @@ export default function DalyFunding() {
 
       {/* Active Positions */}
       <div className="card">
-        <div className="flex justify-between items-center mb-4">
-          <div>
-            <h2 className="text-xl font-bold flex items-center gap-2">
-              <ArrowDownUp className="h-6 w-6 text-primary-400" />
-              Active Arbitrage Positions
-            </h2>
-            <p className="text-xs text-gray-500 mt-1">
-              Currently earning from funding rate spreads
-            </p>
+        <div className="flex justify-between items-center mb-4 cursor-pointer" onClick={() => setActivePositionsCollapsed(!activePositionsCollapsed)}>
+          <div className="flex items-center gap-3">
+            <div className="transition-transform duration-200" style={{ transform: activePositionsCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)' }}>
+              <ChevronDown className="h-5 w-5 text-gray-400" />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold flex items-center gap-2">
+                <ArrowDownUp className="h-6 w-6 text-primary-400" />
+                Active Arbitrage Positions
+              </h2>
+              <p className="text-xs text-gray-500 mt-1">
+                Currently earning from funding rate spreads
+              </p>
+            </div>
           </div>
           {strategyPositions.length > 0 && (
             <div className="flex items-center gap-2">
@@ -1619,7 +1644,7 @@ export default function DalyFunding() {
           )}
         </div>
 
-        {strategyPositions.length > 0 ? (
+        {!activePositionsCollapsed && (strategyPositions.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
@@ -1741,27 +1766,121 @@ export default function DalyFunding() {
                 : 'Start the auto-arbitrage strategy to begin trading funding rate spreads.'}
             </p>
           </div>
-        )}
+        ))}
       </div>
 
-      {/* Funding Rate History */}
+      {/* Funding History (Closed Positions) */}
       <div className="card">
-        <div className="flex justify-between items-center mb-4">
-          <div>
-            <h2 className="text-xl font-bold flex items-center gap-2">
-              Funding Rate History
-            </h2>
-            <p className="text-xs text-gray-500 mt-1">
-              Historical funding rates for {selectedPair}
-            </p>
+        <div className="flex justify-between items-center mb-4 cursor-pointer" onClick={() => setFundingHistoryCollapsed(!fundingHistoryCollapsed)}>
+          <div className="flex items-center gap-3">
+            <div className="transition-transform duration-200" style={{ transform: fundingHistoryCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)' }}>
+              <ChevronDown className="h-5 w-5 text-gray-400" />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold flex items-center gap-2">
+                <HistoryIcon className="h-6 w-6 text-purple-400" />
+                Funding History
+              </h2>
+              <p className="text-xs text-gray-500 mt-1">
+                Closed arbitrage positions and their performance
+              </p>
+            </div>
           </div>
+          {closedPositions.length > 0 && (
+            <div className="flex items-center gap-2">
+              <div className="text-right">
+                <div className="text-xs text-gray-400">Total Positions</div>
+                <div className="text-lg font-bold text-purple-400">
+                  {closedPositions.length}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
-        <div className="text-center py-12">
-          <Clock className="h-12 w-12 text-gray-600 mx-auto mb-3" />
-          <p className="text-gray-400">No funding rate data available</p>
-          <p className="text-xs text-gray-500 mt-1">Data will appear once you start tracking positions</p>
-        </div>
+        {!fundingHistoryCollapsed && (closedPositions.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-slate-600/50">
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase">Symbol</th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-400 uppercase">Entry/Exit Spread</th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-400 uppercase">Duration</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase">Position Size</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase">P&L</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase">Funding Earned</th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-400 uppercase">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-700/50">
+                {closedPositions.map((position) => {
+                  const duration = (position.exitTime! - position.entryTime) / (60 * 60 * 1000);
+                  return (
+                    <tr key={position.id} className="hover:bg-slate-700/20 transition-colors">
+                      <td className="px-4 py-4">
+                        <div className="font-bold text-white">{position.canonical}</div>
+                        <div className="text-xs text-gray-500">
+                          Rank #{position.rank} • {position.allocation}%
+                        </div>
+                      </td>
+                      <td className="px-4 py-4 text-center">
+                        <div className="space-y-1">
+                          <div className="text-sm text-gray-300">
+                            Entry: <span className="text-green-400">{position.entrySpread.toFixed(4)}%</span>
+                          </div>
+                          <div className="text-sm text-gray-300">
+                            Exit: <span className={position.spread >= 0 ? 'text-green-400' : 'text-red-400'}>
+                              {position.spread.toFixed(4)}%
+                            </span>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-4 text-center">
+                        <div className="text-sm text-gray-300">{duration.toFixed(1)}h</div>
+                        <div className="text-xs text-gray-500">
+                          {new Date(position.exitTime!).toLocaleDateString()}
+                        </div>
+                      </td>
+                      <td className="px-4 py-4 text-right">
+                        <div className="font-bold text-white">
+                          ${(position.longSize + position.shortSize).toFixed(0)}
+                        </div>
+                      </td>
+                      <td className="px-4 py-4 text-right">
+                        <div className={`text-lg font-bold ${position.pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                          {position.pnl >= 0 ? '+' : ''}${position.pnl.toFixed(2)}
+                        </div>
+                        <div className={`text-xs ${
+                          position.pnl >= 0 ? 'text-green-500' : 'text-red-500'
+                        }`}>
+                          {((position.pnl / (position.longSize + position.shortSize)) * 100).toFixed(2)}%
+                        </div>
+                      </td>
+                      <td className="px-4 py-4 text-right">
+                        <div className="text-sm font-bold text-purple-400">
+                          ${position.fundingEarned.toFixed(2)}
+                        </div>
+                      </td>
+                      <td className="px-4 py-4 text-center">
+                        <div className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium ${
+                          position.spread < 0 ? 'bg-red-500/20 text-red-400' : 'bg-blue-500/20 text-blue-400'
+                        }`}>
+                          {position.spread < 0 ? 'Negative Spread' : 'Rebalanced'}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="text-center py-12">
+            <Clock className="h-12 w-12 text-gray-600 mx-auto mb-3" />
+            <p className="text-gray-400">No closed positions yet</p>
+            <p className="text-xs text-gray-500 mt-1">History will appear once positions are closed</p>
+          </div>
+        ))}
       </div>
 
       {/* Strategy Info */}
