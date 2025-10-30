@@ -5,7 +5,9 @@
       "Bash(GOOGLE_APPLICATION_CREDENTIALS=\"./serviceAccountKey.json\" node -e:*)",
       "Bash(git add:*)",
       "Bash(firebase hosting:channel:deploy:*)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(npm run build:frontend:*)",
+      "Bash(firebase deploy:*)"
     ],
     "deny": [],
     "ask": []

@@ -198,9 +198,10 @@ export default function DalyFunding() {
             const crypto = await import('crypto-js');
             const signature = crypto.default.HmacSHA256(params, asterApiSecret).toString();
 
-            console.log('[DalyFunding] Fetching Aster balance with API key:', asterApiKey.substring(0, 8) + '...');
+            console.log('[DalyFunding] Fetching Aster SPOT balance with API key:', asterApiKey.substring(0, 8) + '...');
 
-            const asterResponse = await fetch(`https://fapi.asterdex.com/fapi/v1/account?${params}&signature=${signature}`, {
+            // Aster Spot API endpoint: https://sapi.asterdex.com/api/v1/account
+            const asterResponse = await fetch(`https://sapi.asterdex.com/api/v1/account?${params}&signature=${signature}`, {
               method: 'GET',
               headers: {
                 'X-MBX-APIKEY': asterApiKey,
@@ -218,32 +219,61 @@ export default function DalyFunding() {
               console.error('[DalyFunding] Aster API error:', errorMsg);
               setAsterBalance(0);
             } else if (asterData) {
-              // Try multiple possible field names for balance
+              // Binance Spot API compatible response parsing
               let balance = 0;
 
-              if (asterData.totalWalletBalance !== undefined) {
+              // Method 1: Sum all balances from balances array (Spot API format)
+              if (asterData.balances && Array.isArray(asterData.balances)) {
+                console.log('[DalyFunding] Found Spot API balances array, calculating total...');
+                balance = asterData.balances.reduce((total: number, asset: any) => {
+                  const free = parseFloat(asset.free || '0');
+                  const locked = parseFloat(asset.locked || '0');
+                  const assetBalance = free + locked;
+                  if (assetBalance > 0) {
+                    console.log(`  - ${asset.asset}: ${assetBalance} (free: ${free}, locked: ${locked})`);
+                  }
+                  return total + assetBalance;
+                }, 0);
+                console.log('[DalyFunding] ✓ Calculated total from Spot balances:', balance);
+              }
+              // Method 2: Check for totalWalletBalance (Futures format fallback)
+              else if (asterData.totalWalletBalance !== undefined) {
                 balance = parseFloat(asterData.totalWalletBalance);
-                console.log('[DalyFunding] Found balance in totalWalletBalance:', balance);
-              } else if (asterData.totalMarginBalance !== undefined) {
+                console.log('[DalyFunding] ✓ Found balance in totalWalletBalance:', balance);
+              }
+              // Method 3: Check for totalMarginBalance
+              else if (asterData.totalMarginBalance !== undefined) {
                 balance = parseFloat(asterData.totalMarginBalance);
-                console.log('[DalyFunding] Found balance in totalMarginBalance:', balance);
-              } else if (asterData.availableBalance !== undefined) {
-                balance = parseFloat(asterData.availableBalance);
-                console.log('[DalyFunding] Found balance in availableBalance:', balance);
-              } else if (asterData.balance !== undefined) {
-                balance = parseFloat(asterData.balance);
-                console.log('[DalyFunding] Found balance in balance:', balance);
-              } else if (asterData.totalBalance !== undefined) {
-                balance = parseFloat(asterData.totalBalance);
-                console.log('[DalyFunding] Found balance in totalBalance:', balance);
-              } else {
-                console.warn('[DalyFunding] Could not find balance field. Available fields:', Object.keys(asterData));
-                setAsterBalanceError(`Balance field not found. Check console for response structure.`);
+                console.log('[DalyFunding] ✓ Found balance in totalMarginBalance:', balance);
+              }
+              // Method 4: Sum all assets (Futures API format)
+              else if (asterData.assets && Array.isArray(asterData.assets)) {
+                console.log('[DalyFunding] Found Futures assets array, calculating total...');
+                balance = asterData.assets.reduce((total: number, asset: any) => {
+                  const walletBalance = parseFloat(asset.walletBalance || asset.marginBalance || '0');
+                  if (walletBalance > 0) {
+                    console.log(`  - ${asset.asset}: ${walletBalance}`);
+                  }
+                  return total + walletBalance;
+                }, 0);
+                console.log('[DalyFunding] ✓ Calculated total from Futures assets:', balance);
+              }
+              // No recognized field found
+              else {
+                console.warn('[DalyFunding] ❌ Could not find balance field.');
+                console.warn('[DalyFunding] Available root fields:', Object.keys(asterData));
+                if (asterData.balances) {
+                  console.warn('[DalyFunding] Balances found:', asterData.balances.slice(0, 3));
+                }
+                setAsterBalanceError(`Balance field not recognized. Check console for API response.`);
               }
 
               setAsterBalance(balance);
               if (balance > 0) {
                 setAsterBalanceError(null);
+                console.log('[DalyFunding] ✓ Balance successfully set to:', balance);
+              } else {
+                console.warn('[DalyFunding] ⚠️ Balance is 0 - this may indicate incorrect field parsing or truly empty account');
               }
             } else {
               setAsterBalanceError('Empty response from API');
