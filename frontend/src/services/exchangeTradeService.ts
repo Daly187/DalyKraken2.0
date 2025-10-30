@@ -27,6 +27,58 @@ export interface ValidationResult {
 }
 
 class ExchangeTradeService {
+  private paperMode: boolean = false;
+  private paperBalances = {
+    aster: 100,
+    hyperliquid: 100,
+  };
+
+  /**
+   * Enable/disable paper trading mode
+   */
+  setPaperMode(enabled: boolean): void {
+    this.paperMode = enabled;
+    if (enabled) {
+      // Reset paper balances
+      this.paperBalances = {
+        aster: 100,
+        hyperliquid: 100,
+      };
+    }
+    console.log(`[ExchangeTradeService] Paper mode ${enabled ? 'ENABLED' : 'DISABLED'}`);
+  }
+
+  /**
+   * Get current trading mode
+   */
+  isPaperMode(): boolean {
+    return this.paperMode;
+  }
+
+  /**
+   * Get paper trading balances
+   */
+  getPaperBalances() {
+    return { ...this.paperBalances };
+  }
+
+  /**
+   * Simulate order execution for paper trading
+   */
+  private simulatePaperOrder(params: OrderParams): OrderResult {
+    console.log(`[PAPER] Simulating ${params.side} order for ${params.symbol}: ${params.size} USD @ ${params.price}`);
+
+    // Check paper balance
+    const exchange = params.symbol.includes('ASTER') ? 'aster' : 'hyperliquid'; // Simplified for now
+
+    return {
+      success: true,
+      orderId: `PAPER-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      price: params.price,
+      size: params.size,
+    };
+  }
+
   /**
    * Validate API keys and balances before trading
    */
@@ -140,6 +192,11 @@ class ExchangeTradeService {
    * Place a limit order on AsterDEX
    */
   async placeAsterOrder(params: OrderParams): Promise<OrderResult> {
+    // Paper trading mode
+    if (this.paperMode) {
+      return this.simulatePaperOrder(params);
+    }
+
     const { symbol, side, size, price } = params;
 
     try {
@@ -211,6 +268,11 @@ class ExchangeTradeService {
    * Place a limit order on HyperLiquid
    */
   async placeHyperliquidOrder(params: OrderParams): Promise<OrderResult> {
+    // Paper trading mode
+    if (this.paperMode) {
+      return this.simulatePaperOrder(params);
+    }
+
     const { symbol, side, size, price } = params;
 
     try {

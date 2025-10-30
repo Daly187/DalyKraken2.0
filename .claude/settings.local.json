@@ -7,7 +7,10 @@
       "Bash(firebase hosting:channel:deploy:*)",
       "Bash(python3:*)",
       "Bash(npm run build:frontend:*)",
-      "Bash(firebase deploy:*)"
+      "Bash(firebase deploy:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nAdd auto-arbitrage strategy with limit order execution and Telegram notifications\n\nFeatures:\n- Delta-neutral funding rate arbitrage across HyperLiquid and AsterDEX\n- Automatic top 5 spread identification and position management\n- Limit orders at same price on both exchanges to eliminate slippage\n- Position allocation: 30%, 30%, 20%, 10%, 10% (Rank 1-5)\n- 4-hour rebalancing with countdown timer\n- Immediate exit on negative spreads\n- Wallet balance display in header\n- Telegram notifications for all trade events\n\nNew files:\n- frontend/src/services/fundingArbitrageService.ts\n- frontend/src/services/exchangeTradeService.ts\n- frontend/src/services/telegramNotificationService.ts\n\nUpdated:\n- frontend/src/pages/DalyFunding.tsx (auto-strategy UI)\n- frontend/src/pages/Settings.tsx (localStorage fallback for API keys)\n\n🤖 Generated with Claude Code\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(npm run build:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nAdd paper trading mode for testing arbitrage strategy\n\nFeatures:\n- Paper/Live mode toggle at top of DalyFunding page\n- Paper mode starts with $100 per exchange ($200 total)\n- All trades simulated in paper mode (no real execution)\n- Live funding rate data with simulated orders\n- Paper balance display in header\n- Mode switch disabled when strategy is running\n- Perfect for testing strategy logic without risk\n\nUpdated files:\n- frontend/src/services/exchangeTradeService.ts (paper mode logic)\n- frontend/src/services/fundingArbitrageService.ts (paper mode config)\n- frontend/src/pages/DalyFunding.tsx (paper mode UI toggle)\n\n🤖 Generated with Claude Code\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")"
     ],
     "deny": [],
     "ask": []

@@ -72,6 +72,7 @@ export interface StrategyPosition {
 
 export interface StrategyConfig {
   enabled: boolean;
+  paperMode: boolean; // Paper trading mode
   totalCapital: number; // Total USD allocated to strategy
   allocations: [30, 30, 20, 10, 10]; // Fixed allocation percentages
   rebalanceInterval: number; // In milliseconds (4 hours = 14400000)
@@ -94,6 +95,7 @@ export interface RebalanceEvent {
 class FundingArbitrageService {
   private config: StrategyConfig = {
     enabled: false,
+    paperMode: false,
     totalCapital: 10000,
     allocations: [30, 30, 20, 10, 10],
     rebalanceInterval: 4 * 60 * 60 * 1000, // 4 hours
@@ -529,8 +531,18 @@ class FundingArbitrageService {
     }
 
     console.log(`[Arbitrage] Starting funding arbitrage strategy with $${this.config.totalCapital} capital`);
+    console.log(`[Arbitrage] Mode: ${this.config.paperMode ? 'PAPER TRADING' : 'LIVE TRADING'}`);
 
     this.config.enabled = true;
+
+    // Set exchange service paper mode
+    exchangeTradeService.setPaperMode(this.config.paperMode);
+
+    // In paper mode, use $100 starting capital (split between exchanges)
+    if (this.config.paperMode) {
+      this.config.totalCapital = 200; // $100 per exchange
+      console.log(`[Arbitrage] Paper mode: Using $200 starting capital ($100 per exchange)`);
+    }
 
     // Send Telegram notification
     await telegramNotificationService.notifyStrategyStarted(this.config.totalCapital);
