@@ -544,7 +544,7 @@ export default function DalyFunding() {
             <h2 className="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-purple-400 bg-clip-text text-transparent">
               Live Funding Rates
             </h2>
-            <p className="text-sm text-gray-400 mt-1">Real-time 2-way arbitrage monitoring across Aster and Hyperliquid</p>
+            <p className="text-sm text-gray-400 mt-1">Real-time 2-way arbitrage between Aster and Hyperliquid</p>
           </div>
           <div className="flex items-center gap-4">
             {/* View Mode Toggle */}
@@ -1651,11 +1651,282 @@ export default function DalyFunding() {
               <AlertCircle className="h-5 w-5 text-blue-400 mt-0.5 flex-shrink-0" />
               <div className="text-xs">
                 <strong className="text-blue-300">Setup Required:</strong> To use this strategy, configure your
-                API keys for Aster and/or Hyperliquid in the Settings page (Lighter doesn't require authentication for market data).
+                API keys for Aster and/or Hyperliquid in the Settings page.
                 The strategy will automatically connect to all exchanges and begin monitoring funding rates in real-time.
               </div>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* System Diagnostics */}
+      <div className="card">
+        <div className="flex items-center gap-2 mb-6">
+          <Activity className="h-6 w-6 text-yellow-500" />
+          <h2 className="text-2xl font-bold bg-gradient-to-r from-yellow-400 to-orange-400 bg-clip-text text-transparent">
+            System Diagnostics
+          </h2>
+        </div>
+
+        <div className="space-y-6">
+          {/* Connection Status */}
+          <div>
+            <h3 className="text-sm font-bold text-gray-300 mb-3 flex items-center gap-2">
+              <Signal className="h-4 w-4" />
+              Connection Status
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+              <div className="bg-slate-700/30 rounded-lg p-4">
+                <div className="text-xs text-gray-400 mb-1">WebSocket</div>
+                <div className={`text-lg font-bold flex items-center gap-2 ${isConnected ? 'text-green-400' : 'text-red-400'}`}>
+                  {isConnected ? <CheckCircle className="h-5 w-5" /> : <AlertCircle className="h-5 w-5" />}
+                  {isConnected ? 'Connected' : 'Disconnected'}
+                </div>
+              </div>
+              <div className="bg-slate-700/30 rounded-lg p-4">
+                <div className="text-xs text-gray-400 mb-1">Funding Rates</div>
+                <div className="text-lg font-bold text-cyan-400">{fundingRates.length} active</div>
+              </div>
+              <div className="bg-slate-700/30 rounded-lg p-4">
+                <div className="text-xs text-gray-400 mb-1">Matched Pairs</div>
+                <div className="text-lg font-bold text-purple-400">{totalMatched} pairs</div>
+              </div>
+              <div className="bg-slate-700/30 rounded-lg p-4">
+                <div className="text-xs text-gray-400 mb-1">Arbitrage Opportunities</div>
+                <div className="text-lg font-bold text-emerald-400">{arbitrageOpportunities.length} found</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Wallet Configuration */}
+          <div>
+            <h3 className="text-sm font-bold text-gray-300 mb-3 flex items-center gap-2">
+              <Wallet className="h-4 w-4" />
+              Wallet Configuration
+            </h3>
+            <div className="bg-slate-700/30 rounded-lg p-4 space-y-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <div className="text-xs text-gray-400 mb-1">Aster Wallet</div>
+                  <div className="font-mono text-sm">
+                    {asterWallet ? (
+                      <div className="flex items-center gap-2">
+                        <CheckCircle className="h-4 w-4 text-green-500 flex-shrink-0" />
+                        <span className="text-cyan-400 truncate">{asterWallet}</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <AlertCircle className="h-4 w-4 text-yellow-500" />
+                        <span className="text-gray-500">Not configured</span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="text-xs text-gray-500 mt-1">
+                    Balance: ${asterBalance.toFixed(2)} {asterBalance === 0 && asterWallet && '(API unavailable)'}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-gray-400 mb-1">Hyperliquid Wallet</div>
+                  <div className="font-mono text-sm">
+                    {hyperliquidWallet ? (
+                      <div className="flex items-center gap-2">
+                        <CheckCircle className="h-4 w-4 text-green-500 flex-shrink-0" />
+                        <span className="text-purple-400 truncate">{hyperliquidWallet}</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <AlertCircle className="h-4 w-4 text-yellow-500" />
+                        <span className="text-gray-500">Not configured</span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="text-xs text-gray-500 mt-1">
+                    Balance: ${hyperliquidBalance.toFixed(2)} {loadingBalances && '(Loading...)'}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Strategy Configuration */}
+          <div>
+            <h3 className="text-sm font-bold text-gray-300 mb-3 flex items-center gap-2">
+              <Target className="h-4 w-4" />
+              Strategy Configuration
+            </h3>
+            <div className="bg-slate-700/30 rounded-lg p-4 space-y-2">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div>
+                  <div className="text-xs text-gray-400">Status</div>
+                  <div className={`text-sm font-bold ${strategyEnabled ? 'text-green-400' : 'text-gray-500'}`}>
+                    {strategyEnabled ? 'ACTIVE' : 'INACTIVE'}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-gray-400">Total Capital</div>
+                  <div className="text-sm font-bold text-white">${totalCapital.toLocaleString()}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-gray-400">Min Spread</div>
+                  <div className="text-sm font-bold text-white">{minSpreadThreshold}%</div>
+                </div>
+                <div>
+                  <div className="text-xs text-gray-400">Excluded Symbols</div>
+                  <div className="text-sm font-bold text-white">{excludedSymbols.length}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Top 5 Spreads Analysis */}
+          <div>
+            <h3 className="text-sm font-bold text-gray-300 mb-3 flex items-center gap-2">
+              <TrendingUp className="h-4 w-4" />
+              Top 5 Spreads (Entry Candidates)
+            </h3>
+            <div className="bg-slate-700/30 rounded-lg overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-800/50">
+                  <tr>
+                    <th className="px-4 py-2 text-left text-xs text-gray-400">Symbol</th>
+                    <th className="px-4 py-2 text-center text-xs text-gray-400">Spread</th>
+                    <th className="px-4 py-2 text-center text-xs text-gray-400">Annual</th>
+                    <th className="px-4 py-2 text-center text-xs text-gray-400">Long</th>
+                    <th className="px-4 py-2 text-center text-xs text-gray-400">Short</th>
+                    <th className="px-4 py-2 text-center text-xs text-gray-400">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-700/50">
+                  {top5Spreads.length > 0 ? (
+                    top5Spreads.map((spread, idx) => (
+                      <tr key={spread.canonical} className={idx === 0 ? 'bg-emerald-500/5' : ''}>
+                        <td className="px-4 py-3 font-mono font-bold text-white">{spread.canonical}</td>
+                        <td className="px-4 py-3 text-center">
+                          <span className={`font-bold ${
+                            spread.spread >= minSpreadThreshold ? 'text-green-400' : 'text-yellow-400'
+                          }`}>
+                            {spread.spread.toFixed(4)}%
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-center text-gray-300">{spread.annualSpread.toFixed(2)}%</td>
+                        <td className="px-4 py-3 text-center">
+                          <span className={spread.longExchange === 'aster' ? 'text-cyan-400' : 'text-purple-400'}>
+                            {spread.longExchange}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <span className={spread.shortExchange === 'aster' ? 'text-cyan-400' : 'text-purple-400'}>
+                            {spread.shortExchange}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          {spread.spread >= minSpreadThreshold ? (
+                            <span className="text-xs px-2 py-1 rounded bg-green-500/20 text-green-400">Qualifies</span>
+                          ) : (
+                            <span className="text-xs px-2 py-1 rounded bg-yellow-500/20 text-yellow-400">Below threshold</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
+                        No spread data available. Waiting for funding rates...
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Issue Detection */}
+          <div>
+            <h3 className="text-sm font-bold text-gray-300 mb-3 flex items-center gap-2">
+              <AlertCircle className="h-4 w-4" />
+              Issue Detection
+            </h3>
+            <div className="space-y-2">
+              {/* No connection */}
+              {!isConnected && (
+                <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 flex items-start gap-2">
+                  <AlertCircle className="h-5 w-5 text-red-500 mt-0.5 flex-shrink-0" />
+                  <div className="text-sm">
+                    <strong className="text-red-400">WebSocket Disconnected:</strong>
+                    <span className="text-gray-300"> Not receiving live funding rate updates. Refresh the page to reconnect.</span>
+                  </div>
+                </div>
+              )}
+
+              {/* No wallet addresses */}
+              {!asterWallet && !hyperliquidWallet && (
+                <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3 flex items-start gap-2">
+                  <AlertCircle className="h-5 w-5 text-yellow-500 mt-0.5 flex-shrink-0" />
+                  <div className="text-sm">
+                    <strong className="text-yellow-400">No Wallet Addresses:</strong>
+                    <span className="text-gray-300"> Configure wallet addresses in the "Auto-Arbitrage Strategy" section to enable balance tracking.</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Spreads below threshold */}
+              {strategyEnabled && top5Spreads.length > 0 && top5Spreads.every(s => s.spread < minSpreadThreshold) && (
+                <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3 flex items-start gap-2">
+                  <AlertCircle className="h-5 w-5 text-yellow-500 mt-0.5 flex-shrink-0" />
+                  <div className="text-sm">
+                    <strong className="text-yellow-400">No Qualifying Spreads:</strong>
+                    <span className="text-gray-300"> All spreads are below {minSpreadThreshold}% threshold. Top spread is {top5Spreads[0].spread.toFixed(4)}% ({top5Spreads[0].canonical}). Lower the threshold to {(top5Spreads[0].spread * 0.9).toFixed(2)}% or wait for higher volatility.</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Strategy active with qualifying spreads */}
+              {strategyEnabled && top5Spreads.some(s => s.spread >= minSpreadThreshold) && strategyPositions.length === 0 && (
+                <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-3 flex items-start gap-2">
+                  <CheckCircle className="h-5 w-5 text-green-500 mt-0.5 flex-shrink-0" />
+                  <div className="text-sm">
+                    <strong className="text-green-400">Ready to Trade:</strong>
+                    <span className="text-gray-300"> {top5Spreads.filter(s => s.spread >= minSpreadThreshold).length} spreads qualify. Next rebalance in {getTimeUntilRebalance()}.</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Everything OK */}
+              {isConnected && (asterWallet || hyperliquidWallet) && fundingRates.length > 0 && !strategyEnabled && (
+                <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3 flex items-start gap-2">
+                  <Info className="h-5 w-5 text-blue-500 mt-0.5 flex-shrink-0" />
+                  <div className="text-sm">
+                    <strong className="text-blue-400">System Ready:</strong>
+                    <span className="text-gray-300"> All systems operational. Click "Start Auto-Strategy" to begin trading.</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Raw Data (for debugging) */}
+          <details className="bg-slate-700/30 rounded-lg">
+            <summary className="px-4 py-3 cursor-pointer text-sm font-bold text-gray-300 hover:text-white transition-colors">
+              Show Raw Debugging Data
+            </summary>
+            <div className="px-4 pb-4 space-y-2">
+              <div className="bg-slate-800/50 rounded p-2 font-mono text-xs">
+                <div className="text-gray-400 mb-1">Loaded Wallet Addresses (localStorage):</div>
+                <div className="text-cyan-400">Aster: {localStorage.getItem('aster_wallet_address') || 'null'}</div>
+                <div className="text-purple-400">Hyperliquid: {localStorage.getItem('hyperliquid_wallet_address') || 'null'}</div>
+              </div>
+              <div className="bg-slate-800/50 rounded p-2 font-mono text-xs">
+                <div className="text-gray-400 mb-1">State Values:</div>
+                <div className="text-white">asterWallet: {asterWallet || 'empty'}</div>
+                <div className="text-white">hyperliquidWallet: {hyperliquidWallet || 'empty'}</div>
+                <div className="text-white">loadingBalances: {loadingBalances.toString()}</div>
+              </div>
+              <div className="bg-slate-800/50 rounded p-2 font-mono text-xs">
+                <div className="text-gray-400 mb-1">Top 5 Spreads Data:</div>
+                <pre className="text-white overflow-x-auto">{JSON.stringify(top5Spreads, null, 2)}</pre>
+              </div>
+            </div>
+          </details>
         </div>
       </div>
     </div>
