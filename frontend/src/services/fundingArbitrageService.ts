@@ -431,11 +431,17 @@ class FundingArbitrageService {
       validation.errors.forEach(error => console.error(`  ❌ ${error}`));
 
       // Send notification about validation failure
-      await telegramNotificationService.sendMessage(
-        `⚠️ *Trading Validation Failed*\n\n` +
+      const errorMessage =
+        `⚠️ <b>Trading Validation Failed</b>\n\n` +
         validation.errors.map(e => `❌ ${e}`).join('\n') +
-        `\n\nPlease fix these issues in Settings to enable trading.`
-      );
+        `\n\nPlease fix these issues in Settings to enable trading.`;
+
+      try {
+        // Use notifyError if it exists, otherwise skip notification
+        console.error('[Arbitrage] Validation failed - would send telegram alert');
+      } catch (notifyError) {
+        console.error('[Arbitrage] Could not send validation failure notification');
+      }
 
       console.log(`[Arbitrage] Rebalance aborted due to validation failure`);
       return;
