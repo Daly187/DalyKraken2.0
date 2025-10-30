@@ -173,9 +173,47 @@ export default function DalyFunding() {
         setHyperliquidBalance(0);
       }
 
-      // AsterDEX balance fetch - API endpoint TBD
-      // Aster doesn't have a public balance API endpoint yet
-      setAsterBalance(0);
+      // AsterDEX balance fetch (requires API keys from localStorage)
+      if (asterWallet) {
+        try {
+          const asterApiKey = localStorage.getItem('aster_api_key');
+          const asterApiSecret = localStorage.getItem('aster_api_secret');
+
+          if (asterApiKey && asterApiSecret) {
+            // Aster uses Binance-compatible API
+            const timestamp = Date.now();
+            const params = `timestamp=${timestamp}`;
+
+            // Create signature (HMAC SHA256)
+            const crypto = await import('crypto-js');
+            const signature = crypto.default.HmacSHA256(params, asterApiSecret).toString();
+
+            const asterResponse = await fetch(`https://fapi.asterdex.com/fapi/v1/account?${params}&signature=${signature}`, {
+              method: 'GET',
+              headers: {
+                'X-MBX-APIKEY': asterApiKey,
+              },
+            });
+
+            const asterData = await asterResponse.json();
+            if (asterData && asterData.totalWalletBalance) {
+              setAsterBalance(parseFloat(asterData.totalWalletBalance));
+              console.log('[DalyFunding] Aster balance:', asterData.totalWalletBalance);
+            } else {
+              console.warn('[DalyFunding] Invalid Aster response:', asterData);
+              setAsterBalance(0);
+            }
+          } else {
+            console.log('[DalyFunding] Aster API keys not found in Settings');
+            setAsterBalance(0);
+          }
+        } catch (asterError) {
+          console.error('[DalyFunding] Error fetching Aster balance:', asterError);
+          setAsterBalance(0);
+        }
+      } else {
+        setAsterBalance(0);
+      }
 
     } catch (error) {
       console.error('[DalyFunding] Error fetching wallet balances:', error);
@@ -1722,7 +1760,9 @@ export default function DalyFunding() {
                     )}
                   </div>
                   <div className="text-xs text-gray-500 mt-1">
-                    Balance: ${asterBalance.toFixed(2)} {asterBalance === 0 && asterWallet && '(API unavailable)'}
+                    Balance: ${asterBalance.toFixed(2)}
+                    {asterBalance === 0 && asterWallet && !localStorage.getItem('aster_api_key') ? ' (Configure API keys in Settings)' :
+                     asterBalance === 0 && asterWallet && localStorage.getItem('aster_api_key') ? ' (Wallet empty or API error)' : ''}
                   </div>
                 </div>
                 <div>
