@@ -317,13 +317,25 @@ export default function Settings() {
     setSaving(true);
 
     try {
+      // Save to localStorage for backward compatibility
       localStorage.setItem('aster_api_key', asterApiKey);
       localStorage.setItem('aster_api_secret', asterApiSecret);
+
+      // Try to save to backend (Firestore), but don't fail if backend is unavailable
+      try {
+        await apiService.saveAsterConfig({
+          apiKey: asterApiKey,
+          apiSecret: asterApiSecret,
+        });
+        console.log('[Settings] Aster config saved to backend');
+      } catch (backendError: any) {
+        console.warn('[Settings] Backend save failed (using localStorage only):', backendError.message);
+      }
 
       addNotification({
         type: 'success',
         title: 'Aster Config Saved',
-        message: 'Aster API credentials have been saved securely',
+        message: 'Aster API credentials have been saved locally',
       });
     } catch (error: any) {
       addNotification({
@@ -349,13 +361,25 @@ export default function Settings() {
     setSaving(true);
 
     try {
+      // Save to localStorage for backward compatibility
       localStorage.setItem('hyperliquid_private_key', hyperliquidPrivateKey);
       localStorage.setItem('hyperliquid_wallet_address', hyperliquidWalletAddress);
+
+      // Try to save to backend (Firestore), but don't fail if backend is unavailable
+      try {
+        await apiService.saveHyperliquidConfig({
+          privateKey: hyperliquidPrivateKey,
+          walletAddress: hyperliquidWalletAddress,
+        });
+        console.log('[Settings] Hyperliquid config saved to backend');
+      } catch (backendError: any) {
+        console.warn('[Settings] Backend save failed (using localStorage only):', backendError.message);
+      }
 
       addNotification({
         type: 'success',
         title: 'Hyperliquid Config Saved',
-        message: 'Hyperliquid API credentials have been saved securely',
+        message: 'Hyperliquid API credentials have been saved locally',
       });
     } catch (error: any) {
       addNotification({
@@ -381,13 +405,25 @@ export default function Settings() {
     setSaving(true);
 
     try {
+      // Save to localStorage for backward compatibility
       localStorage.setItem('liquid_api_token', liquidApiToken);
       localStorage.setItem('liquid_api_secret', liquidApiSecret);
+
+      // Try to save to backend (Firestore), but don't fail if backend is unavailable
+      try {
+        await apiService.saveLiquidConfig({
+          apiToken: liquidApiToken,
+          apiSecret: liquidApiSecret,
+        });
+        console.log('[Settings] Liquid config saved to backend');
+      } catch (backendError: any) {
+        console.warn('[Settings] Backend save failed (using localStorage only):', backendError.message);
+      }
 
       addNotification({
         type: 'success',
         title: 'Liquid Config Saved',
-        message: 'Liquid API credentials have been saved securely',
+        message: 'Liquid API credentials have been saved locally',
       });
     } catch (error: any) {
       addNotification({

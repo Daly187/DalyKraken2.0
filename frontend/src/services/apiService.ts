@@ -428,6 +428,34 @@ class ApiService {
     return this.get('/health');
   }
 
+  // ============================================
+  // MULTI-EXCHANGE API CONFIG METHODS
+  // ============================================
+
+  async getAsterConfig() {
+    return this.get('/settings/aster-config');
+  }
+
+  async saveAsterConfig(config: { apiKey: string; apiSecret: string }) {
+    return this.post('/settings/aster-config', config);
+  }
+
+  async getHyperliquidConfig() {
+    return this.get('/settings/hyperliquid-config');
+  }
+
+  async saveHyperliquidConfig(config: { privateKey: string; walletAddress: string }) {
+    return this.post('/settings/hyperliquid-config', config);
+  }
+
+  async getLiquidConfig() {
+    return this.get('/settings/liquid-config');
+  }
+
+  async saveLiquidConfig(config: { apiToken: string; apiSecret: string }) {
+    return this.post('/settings/liquid-config', config);
+  }
+
   // Cost Basis & Trade History
   async syncTradeHistory(userId?: string) {
     // Get Kraken API keys from localStorage for authentication

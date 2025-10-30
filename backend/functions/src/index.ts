@@ -917,6 +917,252 @@ app.post('/telegram/config', authenticateToken, async (req, res) => {
 });
 
 // ============================================
+// MULTI-EXCHANGE API CONFIG ROUTES (Aster, Hyperliquid, Liquid)
+// ============================================
+
+// Get Aster config
+app.get('/settings/aster-config', authenticateToken, async (req, res) => {
+  try {
+    console.log('[API] Fetching Aster config');
+
+    const doc = await db.collection('exchangeConfigs').doc('aster').get();
+
+    if (!doc.exists) {
+      return res.json({
+        success: true,
+        data: null,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const data = doc.data();
+
+    // Mask the API keys for security
+    const maskedConfig = {
+      ...data,
+      apiKey: data?.apiKey ? maskApiKey(data.apiKey) : null,
+      apiSecret: data?.apiSecret ? '***ENCRYPTED***' : null,
+      hasConfig: true,
+    };
+
+    res.json({
+      success: true,
+      data: maskedConfig,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    console.error('[API] Error fetching Aster config:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+// Save Aster config
+app.post('/settings/aster-config', authenticateToken, async (req, res) => {
+  try {
+    const { apiKey, apiSecret } = req.body;
+
+    if (!apiKey || !apiSecret) {
+      return res.status(400).json({
+        success: false,
+        error: 'API key and secret are required',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    console.log('[API] Saving Aster config');
+
+    // Encrypt keys before storing
+    const encryptedApiKey = encryptKey(apiKey);
+    const encryptedApiSecret = encryptKey(apiSecret);
+
+    await db.collection('exchangeConfigs').doc('aster').set({
+      apiKey: encryptedApiKey,
+      apiSecret: encryptedApiSecret,
+      encrypted: true,
+      updatedAt: new Date().toISOString(),
+    }, { merge: true });
+
+    res.json({
+      success: true,
+      message: 'Aster configuration saved successfully',
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    console.error('[API] Error saving Aster config:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+// Get Hyperliquid config
+app.get('/settings/hyperliquid-config', authenticateToken, async (req, res) => {
+  try {
+    console.log('[API] Fetching Hyperliquid config');
+
+    const doc = await db.collection('exchangeConfigs').doc('hyperliquid').get();
+
+    if (!doc.exists) {
+      return res.json({
+        success: true,
+        data: null,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const data = doc.data();
+
+    // Mask the private key for security
+    const maskedConfig = {
+      ...data,
+      privateKey: data?.privateKey ? '***ENCRYPTED***' : null,
+      walletAddress: data?.walletAddress || null,
+      hasConfig: true,
+    };
+
+    res.json({
+      success: true,
+      data: maskedConfig,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    console.error('[API] Error fetching Hyperliquid config:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+// Save Hyperliquid config
+app.post('/settings/hyperliquid-config', authenticateToken, async (req, res) => {
+  try {
+    const { privateKey, walletAddress } = req.body;
+
+    if (!privateKey || !walletAddress) {
+      return res.status(400).json({
+        success: false,
+        error: 'Private key and wallet address are required',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    console.log('[API] Saving Hyperliquid config');
+
+    // Encrypt private key before storing
+    const encryptedPrivateKey = encryptKey(privateKey);
+
+    await db.collection('exchangeConfigs').doc('hyperliquid').set({
+      privateKey: encryptedPrivateKey,
+      walletAddress,
+      encrypted: true,
+      updatedAt: new Date().toISOString(),
+    }, { merge: true });
+
+    res.json({
+      success: true,
+      message: 'Hyperliquid configuration saved successfully',
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    console.error('[API] Error saving Hyperliquid config:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+// Get Liquid config
+app.get('/settings/liquid-config', authenticateToken, async (req, res) => {
+  try {
+    console.log('[API] Fetching Liquid config');
+
+    const doc = await db.collection('exchangeConfigs').doc('liquid').get();
+
+    if (!doc.exists) {
+      return res.json({
+        success: true,
+        data: null,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const data = doc.data();
+
+    // Mask the API keys for security
+    const maskedConfig = {
+      ...data,
+      apiToken: data?.apiToken ? maskApiKey(data.apiToken) : null,
+      apiSecret: data?.apiSecret ? '***ENCRYPTED***' : null,
+      hasConfig: true,
+    };
+
+    res.json({
+      success: true,
+      data: maskedConfig,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    console.error('[API] Error fetching Liquid config:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+// Save Liquid config
+app.post('/settings/liquid-config', authenticateToken, async (req, res) => {
+  try {
+    const { apiToken, apiSecret } = req.body;
+
+    if (!apiToken || !apiSecret) {
+      return res.status(400).json({
+        success: false,
+        error: 'API token and secret are required',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    console.log('[API] Saving Liquid config');
+
+    // Encrypt keys before storing
+    const encryptedApiToken = encryptKey(apiToken);
+    const encryptedApiSecret = encryptKey(apiSecret);
+
+    await db.collection('exchangeConfigs').doc('liquid').set({
+      apiToken: encryptedApiToken,
+      apiSecret: encryptedApiSecret,
+      encrypted: true,
+      updatedAt: new Date().toISOString(),
+    }, { merge: true });
+
+    res.json({
+      success: true,
+      message: 'Liquid configuration saved successfully',
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    console.error('[API] Error saving Liquid config:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+// ============================================
 // AUDIT ROUTES
 // ============================================
 
