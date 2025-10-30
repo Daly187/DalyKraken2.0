@@ -18,7 +18,124 @@ export interface OrderResult {
   error?: string;
 }
 
+export interface ValidationResult {
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
+  asterBalance?: number;
+  hyperliquidBalance?: number;
+}
+
 class ExchangeTradeService {
+  /**
+   * Validate API keys and balances before trading
+   */
+  async validateTradingReadiness(requiredCapital: number): Promise<ValidationResult> {
+    const errors: string[] = [];
+    const warnings: string[] = [];
+
+    // Check Aster API keys
+    const asterApiKey = localStorage.getItem('aster_api_key');
+    const asterApiSecret = localStorage.getItem('aster_api_secret');
+    if (!asterApiKey || !asterApiSecret) {
+      errors.push('Aster API keys not configured in Settings');
+    }
+
+    // Check Hyperliquid wallet
+    const hyperliquidWallet = localStorage.getItem('hyperliquid_wallet_address');
+    const hyperliquidPrivateKey = localStorage.getItem('hyperliquid_private_key');
+    if (!hyperliquidWallet || !hyperliquidPrivateKey) {
+      errors.push('Hyperliquid wallet not configured in Settings');
+    }
+
+    // If keys are missing, return early
+    if (errors.length > 0) {
+      return {
+        valid: false,
+        errors,
+        warnings,
+      };
+    }
+
+    // Fetch balances from both exchanges
+    let asterBalance = 0;
+    let hyperliquidBalance = 0;
+
+    try {
+      // Fetch Aster balance
+      const timestamp = Date.now();
+      const params = `timestamp=${timestamp}`;
+      const crypto = await import('crypto-js');
+      const signature = crypto.default.HmacSHA256(params, asterApiSecret!).toString();
+
+      const asterResponse = await fetch(`https://fapi.asterdex.com/fapi/v1/account?${params}&signature=${signature}`, {
+        method: 'GET',
+        headers: {
+          'X-MBX-APIKEY': asterApiKey!,
+        },
+      });
+
+      if (asterResponse.ok) {
+        const asterData = await asterResponse.json();
+        asterBalance = parseFloat(asterData.totalWalletBalance || '0');
+      } else {
+        warnings.push('Could not fetch Aster balance - API error');
+      }
+    } catch (error) {
+      warnings.push('Could not fetch Aster balance - network error');
+    }
+
+    try {
+      // Fetch Hyperliquid balance
+      const hlResponse = await fetch('https://api.hyperliquid.xyz/info', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'clearinghouseState',
+          user: hyperliquidWallet
+        }),
+      });
+
+      if (hlResponse.ok) {
+        const hlData = await hlResponse.json();
+        hyperliquidBalance = parseFloat(hlData.marginSummary?.accountValue || '0');
+      } else {
+        warnings.push('Could not fetch Hyperliquid balance - API error');
+      }
+    } catch (error) {
+      warnings.push('Could not fetch Hyperliquid balance - network error');
+    }
+
+    // Check if balances are sufficient
+    // Need at least 50% of required capital on each exchange
+    const requiredPerExchange = requiredCapital / 2;
+
+    if (asterBalance < requiredPerExchange) {
+      errors.push(`Insufficient Aster balance: $${asterBalance.toFixed(2)} (need $${requiredPerExchange.toFixed(2)})`);
+    }
+
+    if (hyperliquidBalance < requiredPerExchange) {
+      errors.push(`Insufficient Hyperliquid balance: $${hyperliquidBalance.toFixed(2)} (need $${requiredPerExchange.toFixed(2)})`);
+    }
+
+    // Warning if balances are barely sufficient (within 10% margin)
+    if (asterBalance >= requiredPerExchange && asterBalance < requiredPerExchange * 1.1) {
+      warnings.push(`Low Aster balance: $${asterBalance.toFixed(2)} (close to minimum)`);
+    }
+
+    if (hyperliquidBalance >= requiredPerExchange && hyperliquidBalance < requiredPerExchange * 1.1) {
+      warnings.push(`Low Hyperliquid balance: $${hyperliquidBalance.toFixed(2)} (close to minimum)`);
+    }
+
+    return {
+      valid: errors.length === 0,
+      errors,
+      warnings,
+      asterBalance,
+      hyperliquidBalance,
+    };
+  }
+
   /**
    * Place a limit order on AsterDEX
    */

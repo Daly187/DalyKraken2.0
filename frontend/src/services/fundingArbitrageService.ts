@@ -422,6 +422,35 @@ class FundingArbitrageService {
   ): Promise<void> {
     console.log(`[Arbitrage] Starting rebalance...`);
 
+    // PRE-TRADE VALIDATION: Check API keys and balances
+    console.log(`[Arbitrage] Validating trading readiness...`);
+    const validation = await exchangeTradeService.validateTradingReadiness(this.config.totalCapital);
+
+    if (!validation.valid) {
+      console.error(`[Arbitrage] Trading validation failed:`);
+      validation.errors.forEach(error => console.error(`  ❌ ${error}`));
+
+      // Send notification about validation failure
+      await telegramNotificationService.sendMessage(
+        `⚠️ *Trading Validation Failed*\n\n` +
+        validation.errors.map(e => `❌ ${e}`).join('\n') +
+        `\n\nPlease fix these issues in Settings to enable trading.`
+      );
+
+      console.log(`[Arbitrage] Rebalance aborted due to validation failure`);
+      return;
+    }
+
+    // Log any warnings
+    if (validation.warnings.length > 0) {
+      console.warn(`[Arbitrage] Trading warnings:`);
+      validation.warnings.forEach(warning => console.warn(`  ⚠️ ${warning}`));
+    }
+
+    console.log(`[Arbitrage] Validation passed! Balances:`);
+    console.log(`  Aster: $${validation.asterBalance?.toFixed(2)}`);
+    console.log(`  Hyperliquid: $${validation.hyperliquidBalance?.toFixed(2)}`);
+
     const top5 = this.getTop5Spreads(asterRates, hlRates);
     const top5Symbols = new Set(top5.map(s => s.canonical));
 
