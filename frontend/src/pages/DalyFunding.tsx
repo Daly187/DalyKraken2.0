@@ -53,6 +53,8 @@ export default function DalyFunding() {
   const [asterBalance, setAsterBalance] = useState(0);
   const [hyperliquidBalance, setHyperliquidBalance] = useState(0);
   const [loadingBalances, setLoadingBalances] = useState(false);
+  const [asterBalanceError, setAsterBalanceError] = useState<string | null>(null);
+  const [hyperliquidBalanceError, setHyperliquidBalanceError] = useState<string | null>(null);
 
   // Legacy Strategy Configuration (keep for backward compatibility)
   const [positionSize, setPositionSize] = useState(100);
@@ -177,12 +179,17 @@ export default function DalyFunding() {
       }
 
       // AsterDEX balance fetch (requires API keys from localStorage)
+      setAsterBalanceError(null); // Clear previous error
       if (asterWallet) {
         try {
           const asterApiKey = localStorage.getItem('aster_api_key');
           const asterApiSecret = localStorage.getItem('aster_api_secret');
 
-          if (asterApiKey && asterApiSecret) {
+          if (!asterApiKey || !asterApiSecret) {
+            setAsterBalanceError('API keys not configured in Settings');
+            console.log('[DalyFunding] Aster API keys not found in Settings');
+            setAsterBalance(0);
+          } else {
             // Aster uses Binance-compatible API
             const timestamp = Date.now();
             const params = `timestamp=${timestamp}`;
@@ -190,6 +197,8 @@ export default function DalyFunding() {
             // Create signature (HMAC SHA256)
             const crypto = await import('crypto-js');
             const signature = crypto.default.HmacSHA256(params, asterApiSecret).toString();
+
+            console.log('[DalyFunding] Fetching Aster balance with API key:', asterApiKey.substring(0, 8) + '...');
 
             const asterResponse = await fetch(`https://fapi.asterdex.com/fapi/v1/account?${params}&signature=${signature}`, {
               method: 'GET',
@@ -199,22 +208,32 @@ export default function DalyFunding() {
             });
 
             const asterData = await asterResponse.json();
-            if (asterData && asterData.totalWalletBalance) {
+
+            console.log('[DalyFunding] Aster API Response:', asterResponse.status, asterData);
+
+            if (!asterResponse.ok) {
+              const errorMsg = asterData.msg || asterData.message || `HTTP ${asterResponse.status}`;
+              setAsterBalanceError(`API Error: ${errorMsg}`);
+              console.error('[DalyFunding] Aster API error:', errorMsg);
+              setAsterBalance(0);
+            } else if (asterData && asterData.totalWalletBalance !== undefined) {
               setAsterBalance(parseFloat(asterData.totalWalletBalance));
+              setAsterBalanceError(null);
               console.log('[DalyFunding] Aster balance:', asterData.totalWalletBalance);
             } else {
+              setAsterBalanceError('Invalid response format from API');
               console.warn('[DalyFunding] Invalid Aster response:', asterData);
               setAsterBalance(0);
             }
-          } else {
-            console.log('[DalyFunding] Aster API keys not found in Settings');
-            setAsterBalance(0);
           }
-        } catch (asterError) {
+        } catch (asterError: any) {
+          const errorMsg = asterError.message || 'Network error';
+          setAsterBalanceError(errorMsg);
           console.error('[DalyFunding] Error fetching Aster balance:', asterError);
           setAsterBalance(0);
         }
       } else {
+        setAsterBalanceError('Wallet address not configured');
         setAsterBalance(0);
       }
 
@@ -1779,8 +1798,12 @@ export default function DalyFunding() {
                   </div>
                   <div className="text-xs text-gray-500 mt-1">
                     Balance: ${asterBalance.toFixed(2)}
-                    {asterBalance === 0 && asterWallet && !localStorage.getItem('aster_api_key') ? ' (Configure API keys in Settings)' :
-                     asterBalance === 0 && asterWallet && localStorage.getItem('aster_api_key') ? ' (Wallet empty or API error)' : ''}
+                    {asterBalanceError && (
+                      <div className="text-red-400 mt-1 flex items-center gap-1">
+                        <AlertCircle className="h-3 w-3" />
+                        {asterBalanceError}
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div>
@@ -1975,10 +1998,26 @@ export default function DalyFunding() {
                 <div className="text-purple-400">Hyperliquid: {localStorage.getItem('hyperliquid_wallet_address') || 'null'}</div>
               </div>
               <div className="bg-slate-800/50 rounded p-2 font-mono text-xs">
+                <div className="text-gray-400 mb-1">Aster API Configuration:</div>
+                <div className="text-white">API Key: {localStorage.getItem('aster_api_key') ? localStorage.getItem('aster_api_key')!.substring(0, 12) + '...' : 'not set'}</div>
+                <div className="text-white">API Secret: {localStorage.getItem('aster_api_secret') ? '***' + localStorage.getItem('aster_api_secret')!.slice(-4) : 'not set'}</div>
+                {asterBalanceError && (
+                  <div className="text-red-400 mt-2">Error: {asterBalanceError}</div>
+                )}
+                <button
+                  onClick={fetchWalletBalances}
+                  className="mt-2 px-3 py-1 bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-400 rounded text-xs font-bold transition-colors"
+                >
+                  🔄 Test Connection
+                </button>
+              </div>
+              <div className="bg-slate-800/50 rounded p-2 font-mono text-xs">
                 <div className="text-gray-400 mb-1">State Values:</div>
                 <div className="text-white">asterWallet: {asterWallet || 'empty'}</div>
                 <div className="text-white">hyperliquidWallet: {hyperliquidWallet || 'empty'}</div>
                 <div className="text-white">loadingBalances: {loadingBalances.toString()}</div>
+                <div className="text-white">asterBalance: ${asterBalance.toFixed(2)}</div>
+                <div className="text-white">hyperliquidBalance: ${hyperliquidBalance.toFixed(2)}</div>
               </div>
               <div className="bg-slate-800/50 rounded p-2 font-mono text-xs">
                 <div className="text-gray-400 mb-1">Top 5 Spreads Data:</div>
