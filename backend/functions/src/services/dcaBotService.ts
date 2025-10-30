@@ -468,115 +468,37 @@ export class DCABotService {
       const ticker = await krakenService.getTicker(bot.symbol);
       const currentPrice = ticker.price;
 
-      // Get precision requirements and base asset code from Kraken
-      let volumePrecision = 8; // Default precision
-      let baseAssetCode = bot.symbol.split('/')[0]; // e.g., "ADA" from "ADA/USD"
-
-      try {
-        const pairInfo = await krakenService.getAssetPairs(bot.symbol);
-        volumePrecision = pairInfo.lot_decimals;
-        baseAssetCode = pairInfo.base; // Use Kraken's naming
-        console.log(`[DCABotService] ${bot.symbol}: base=${baseAssetCode}, lot_decimals=${volumePrecision}, ordermin=${pairInfo.ordermin}`);
-      } catch (error: any) {
-        console.warn(`[DCABotService] Could not fetch pair info, using defaults:`, error.message);
-      }
-
-      // CRITICAL: Fetch ACTUAL balance from Kraken - we must sell the correct amount
-      // Try REST API first, fallback to WebSocket cache if rate limited
-      console.log(`[DCABotService] Fetching actual Kraken balance for ${baseAssetCode}...`);
-
-      let balances: any = {};
-      let balanceSource = 'rest_api';
-
-      try {
-        balances = await krakenService.getBalance();
-      } catch (error: any) {
-        // If rate limited, try WebSocket cache fallback
-        if (error.message?.includes('Temporary lockout') || error.message?.includes('Rate limit')) {
-          console.warn(`[DCABotService] REST API rate limited, trying WebSocket cache...`);
-
-          // Import WebSocket service dynamically to avoid circular dependency
-          const { KrakenWebSocketService } = await import('./krakenWebSocketService.js');
-          const cachedBalances = await KrakenWebSocketService.getCachedBalances();
-
-          if (Object.keys(cachedBalances).length > 0) {
-            balances = cachedBalances;
-            balanceSource = 'websocket_cache';
-            console.log(`[DCABotService] Using WebSocket cached balances (${Object.keys(cachedBalances).length} assets)`);
-          } else {
-            console.error(`[DCABotService] ⚠️  No cached balances available - will retry exit on next run`);
-            await this.logExecution({
-              id: `${bot.id}_exec_${Date.now()}`,
-              botId: bot.id,
-              action: 'exit',
-              symbol: bot.symbol,
-              price: currentPrice,
-              quantity: 0,
-              amount: 0,
-              reason: `Exit delayed: Kraken API rate limit and no cached balance available`,
-              techScore: bot.techScore,
-              trendScore: bot.trendScore,
-              timestamp: new Date().toISOString(),
-              success: false,
-            });
-            return { success: false, error: 'Kraken API rate limit and no cache' };
-          }
-        } else {
-          throw error;
-        }
-      }
-
-      // Try multiple asset code variations
-      const possibleCodes = [
-        baseAssetCode,
-        baseAssetCode.replace(/^X/, ''),
-        baseAssetCode.replace(/^Z/, ''),
-        bot.symbol.split('/')[0],
-      ];
+      // Get ACTUAL Kraken balance for this asset (what portfolio page shows)
+      // Extract asset from pair (e.g., "BCH/USD" -> "BCH")
+      const asset = bot.symbol.split('/')[0];
 
       let krakenBalance = 0;
-      let foundAssetCode = '';
+      try {
+        // Use KrakenService to get actual account balance
+        const balances = await krakenService.getBalance();
+        console.log(`[DCABotService] Kraken balance response:`, balances);
 
-      for (const code of possibleCodes) {
-        const balance = parseFloat(String(balances[code] || 0));
-        if (balance > 0) {
-          krakenBalance = balance;
-          foundAssetCode = code;
-          break;
-        }
-      }
+        // Try exact match first (e.g., "BCH")
+        krakenBalance = balances[asset] || 0;
 
-      console.log(`[DCABotService] Kraken balance (${balanceSource}): tried=${possibleCodes.join(',')} found=${foundAssetCode} balance=${krakenBalance}`);
+        // If not found, try common Kraken prefixes (e.g., "XBCH", "XXBT" for BTC)
+        if (krakenBalance === 0) {
+          const altAsset1 = `X${asset}`;
+          const altAsset2 = `XX${asset}`;
+          const altAsset3 = `Z${asset}`; // For fiat like ZUSD
 
-      // NEW: If we got 0 balance from REST API, try cache as fallback before giving up
-      if (krakenBalance === 0 && balanceSource === 'rest_api') {
-        console.warn(`[DCABotService] Got 0 balance from REST API, trying WebSocket cache fallback...`);
+          krakenBalance = balances[altAsset1] || balances[altAsset2] || balances[altAsset3] || 0;
 
-        // Import WebSocket service dynamically to avoid circular dependency
-        const { KrakenWebSocketService } = await import('./krakenWebSocketService.js');
-        const cachedBalances = await KrakenWebSocketService.getCachedBalances();
-
-        if (Object.keys(cachedBalances).length > 0) {
-          console.log(`[DCABotService] Cache has ${Object.keys(cachedBalances).length} assets`);
-
-          // Try the same asset code variations with cached balances
-          for (const code of possibleCodes) {
-            const balance = parseFloat(String(cachedBalances[code] || 0));
-            if (balance > 0) {
-              krakenBalance = balance;
-              foundAssetCode = code;
-              balanceSource = 'websocket_cache';
-              console.log(`[DCABotService] ✅ Found balance in cache: ${code} = ${balance}`);
-              break;
-            }
+          if (krakenBalance > 0) {
+            console.log(`[DCABotService] Found ${asset} balance under alternate name: ${krakenBalance}`);
           }
-        } else {
-          console.warn(`[DCABotService] Cache is empty, cannot use fallback`);
         }
-      }
 
-      if (krakenBalance === 0) {
-        console.error(`[DCABotService] ⚠️  No Kraken balance for ${bot.symbol} - position may have been sold manually`);
+        console.log(`[DCABotService] ${bot.symbol} Kraken balance: ${krakenBalance} ${asset}`);
+      } catch (error: any) {
+        console.error(`[DCABotService] ❌ Failed to get Kraken balance for ${asset}:`, error.message);
+
+        // If we can't get Kraken balance, log and skip this exit attempt
         await this.logExecution({
           id: `${bot.id}_exec_${Date.now()}`,
           botId: bot.id,
@@ -585,13 +507,44 @@ export class DCABotService {
           price: currentPrice,
           quantity: 0,
           amount: 0,
-          reason: `Exit skipped: No Kraken balance (sold manually?)`,
+          reason: `Exit skipped: Failed to fetch Kraken balance - ${error.message}`,
           techScore: bot.techScore,
           trendScore: bot.trendScore,
           timestamp: new Date().toISOString(),
           success: false,
         });
-        return { success: false, error: 'No Kraken balance' };
+
+        return { success: false, error: `Failed to get Kraken balance: ${error.message}` };
+      }
+
+      if (krakenBalance === 0) {
+        console.error(`[DCABotService] ⚠️  No Kraken balance for ${asset} - balance is 0`);
+        await this.logExecution({
+          id: `${bot.id}_exec_${Date.now()}`,
+          botId: bot.id,
+          action: 'exit',
+          symbol: bot.symbol,
+          price: currentPrice,
+          quantity: 0,
+          amount: 0,
+          reason: `Exit skipped: Kraken balance is 0`,
+          techScore: bot.techScore,
+          trendScore: bot.trendScore,
+          timestamp: new Date().toISOString(),
+          success: false,
+        });
+        return { success: false, error: 'Kraken balance is 0' };
+      }
+
+      // Get precision requirements from Kraken
+      let volumePrecision = 8; // Default precision
+
+      try {
+        const pairInfo = await krakenService.getAssetPairs(bot.symbol);
+        volumePrecision = pairInfo.lot_decimals;
+        console.log(`[DCABotService] ${bot.symbol}: lot_decimals=${volumePrecision}, ordermin=${pairInfo.ordermin}`);
+      } catch (error: any) {
+        console.warn(`[DCABotService] Could not fetch pair info, using defaults:`, error.message);
       }
 
       let actualQuantity = krakenBalance;
@@ -601,7 +554,7 @@ export class DCABotService {
       const quantityBeforePercentage = actualQuantity;
       actualQuantity = actualQuantity * (exitPercentage / 100);
 
-      console.log(`[DCABotService] Applying ${exitPercentage}% exit: ${quantityBeforePercentage.toFixed(volumePrecision)} -> ${actualQuantity.toFixed(volumePrecision)} (keeping ${100 - exitPercentage}%)`);
+      console.log(`[DCABotService] Applying ${exitPercentage}% exit: ${quantityBeforePercentage.toFixed(volumePrecision)} ${asset} -> ${actualQuantity.toFixed(volumePrecision)} ${asset} (keeping ${100 - exitPercentage}%)`);
 
       // Round to correct precision (CRITICAL: must match lot_decimals)
       actualQuantity = parseFloat(actualQuantity.toFixed(volumePrecision));
