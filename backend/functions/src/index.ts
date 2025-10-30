@@ -1163,6 +1163,179 @@ app.post('/settings/liquid-config', authenticateToken, async (req, res) => {
 });
 
 // ============================================
+// FUNDING ARBITRAGE POSITIONS ROUTES
+// ============================================
+
+// Get all funding positions for a user
+app.get('/funding/positions', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user!.userId;
+    const status = req.query.status as string; // 'open', 'closed', or undefined for all
+    const limit = parseInt(req.query.limit as string) || 50;
+
+    console.log(`[API] Fetching funding positions for user ${userId}, status: ${status || 'all'}`);
+
+    let query = db.collection('fundingPositions').where('userId', '==', userId);
+
+    if (status) {
+      query = query.where('status', '==', status);
+    }
+
+    const snapshot = await query.orderBy('createdAt', 'desc').limit(limit).get();
+
+    const positions = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
+
+    res.json({
+      success: true,
+      data: positions,
+      count: positions.length,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    console.error('[API] Error fetching funding positions:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+// Create a new funding position
+app.post('/funding/positions', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user!.userId;
+    const position = req.body;
+
+    console.log(`[API] Creating funding position for user ${userId}:`, position.symbol);
+
+    const newPosition = {
+      ...position,
+      userId,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    const docRef = await db.collection('fundingPositions').add(newPosition);
+
+    console.log(`[API] Funding position created with ID: ${docRef.id}`);
+
+    res.json({
+      success: true,
+      data: {
+        id: docRef.id,
+        ...newPosition,
+      },
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    console.error('[API] Error creating funding position:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+// Update a funding position
+app.put('/funding/positions/:id', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user!.userId;
+    const positionId = req.params.id;
+    const updates = req.body;
+
+    console.log(`[API] Updating funding position ${positionId} for user ${userId}`);
+
+    // Verify ownership
+    const docRef = db.collection('fundingPositions').doc(positionId);
+    const doc = await docRef.get();
+
+    if (!doc.exists) {
+      return res.status(404).json({
+        success: false,
+        error: 'Position not found',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const position = doc.data();
+    if (position?.userId !== userId) {
+      return res.status(403).json({
+        success: false,
+        error: 'Unauthorized to update this position',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    await docRef.update({
+      ...updates,
+      updatedAt: Date.now(),
+    });
+
+    res.json({
+      success: true,
+      message: 'Position updated successfully',
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    console.error('[API] Error updating funding position:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+// Get position performance summary
+app.get('/funding/performance', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user!.userId;
+
+    console.log(`[API] Fetching funding performance for user ${userId}`);
+
+    const snapshot = await db.collection('fundingPositions')
+      .where('userId', '==', userId)
+      .get();
+
+    const positions = snapshot.docs.map(doc => doc.data());
+
+    const summary = {
+      totalPositions: positions.length,
+      openPositions: positions.filter(p => p.status === 'open').length,
+      closedPositions: positions.filter(p => p.status === 'closed').length,
+      totalFundingEarned: positions.reduce((sum, p) => sum + (p.fundingEarned || 0), 0),
+      totalRealizedPnL: positions.reduce((sum, p) => sum + (p.realizedPnL || 0), 0),
+      totalUnrealizedPnL: positions.reduce((sum, p) => sum + (p.unrealizedPnL || 0), 0),
+      averageFundingRate: positions.length > 0
+        ? positions.reduce((sum, p) => sum + (p.currentFundingRate || 0), 0) / positions.length
+        : 0,
+      byExchange: {
+        aster: positions.filter(p => p.exchange === 'aster').length,
+        hyperliquid: positions.filter(p => p.exchange === 'hyperliquid').length,
+      },
+    };
+
+    res.json({
+      success: true,
+      data: summary,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    console.error('[API] Error fetching funding performance:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+// ============================================
 // AUDIT ROUTES
 // ============================================
 

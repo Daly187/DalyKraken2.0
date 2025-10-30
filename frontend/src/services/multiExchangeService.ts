@@ -1,13 +1,16 @@
 /**
- * Multi-Exchange Service for Aster, Hyperliquid, and Liquid
- * Handles WebSocket connections, funding rate monitoring, and trade execution
+ * Multi-Exchange Service for Aster, Hyperliquid, and Lighter
+ * Handles WebSocket connections, funding rate monitoring, and three-way arbitrage
  */
 
 import { symbolMappingEngine, MatchedPair, AssetInfo } from './symbolMappingEngine';
+import { unifiedSymbolMapper, type ThreeWayArbitrageOpportunity } from './unifiedSymbolMapping';
+import { lighterService, type LighterFundingData } from './lighterService';
+import { threeWayArbitrageService } from './threeWayArbitrageService';
 
 export interface FundingRate {
   symbol: string;
-  exchange: 'aster' | 'hyperliquid' | 'liquid';
+  exchange: 'aster' | 'hyperliquid' | 'lighter';
   rate: number;
   timestamp: number;
   nextFundingTime: number;
@@ -27,7 +30,7 @@ export interface LiquidityCheck {
 
 export interface FundingPosition {
   id: string;
-  exchange: 'aster' | 'hyperliquid' | 'liquid';
+  exchange: 'aster' | 'hyperliquid' | 'lighter';
   symbol: string;
   side: 'long' | 'short';
   size: number;
@@ -58,11 +61,12 @@ class MultiExchangeService {
   private reconnectIntervals: Map<string, NodeJS.Timeout> = new Map();
   private fundingCallbacks: Set<(funding: FundingRate) => void> = new Set();
   private liquidityCallbacks: Set<(liquidity: LiquidityCheck) => void> = new Set();
+  private lighterInitialized: boolean = false;
 
   /**
    * Get API credentials from localStorage
    */
-  private getCredentials(exchange: 'aster' | 'hyperliquid' | 'liquid') {
+  private getCredentials(exchange: 'aster' | 'hyperliquid' | 'lighter') {
     switch (exchange) {
       case 'aster':
         return {
@@ -74,10 +78,11 @@ class MultiExchangeService {
           privateKey: localStorage.getItem('hyperliquid_private_key') || '',
           walletAddress: localStorage.getItem('hyperliquid_wallet_address') || '',
         };
-      case 'liquid':
+      case 'lighter':
         return {
-          apiToken: localStorage.getItem('liquid_api_token') || '',
-          apiSecret: localStorage.getItem('liquid_api_secret') || '',
+          // Lighter doesn't require authentication for market data
+          apiKey: localStorage.getItem('lighter_api_key') || '',
+          apiSecret: localStorage.getItem('lighter_api_secret') || '',
         };
     }
   }
@@ -282,6 +287,64 @@ class MultiExchangeService {
   }
 
   /**
+   * Connect to Lighter for funding rates using REST API
+   * Note: Lighter funding is paid HOURLY
+   * Uses REST API polling instead of WebSocket
+   */
+  async connectLighter() {
+    console.log(`[Lighter] Initializing funding rate polling...`);
+
+    try {
+      // Initialize Lighter service (fetch markets)
+      if (!this.lighterInitialized) {
+        await lighterService.initialize();
+        this.lighterInitialized = true;
+      }
+
+      // Fetch funding rates immediately
+      await this.fetchLighterFunding();
+
+      // Poll every 60 seconds for updates (funding paid hourly)
+      const pollInterval = setInterval(() => {
+        this.fetchLighterFunding();
+      }, 60000);
+
+      this.reconnectIntervals.set('lighter', pollInterval as any);
+      console.log(`[Lighter] Polling started - updating every 60 seconds`);
+    } catch (error) {
+      console.error('[Lighter] Initialization error:', error);
+    }
+  }
+
+  /**
+   * Fetch current funding rates from Lighter REST API
+   */
+  private async fetchLighterFunding() {
+    try {
+      const fundingRates = await lighterService.getAllFundingRates();
+
+      fundingRates.forEach((funding: LighterFundingData, symbol: string) => {
+        const fundingRate: FundingRate = {
+          symbol: symbol,
+          exchange: 'lighter',
+          rate: funding.fundingRate * 100, // Convert to percentage
+          timestamp: funding.timestamp,
+          nextFundingTime: funding.nextFundingTime,
+          markPrice: funding.markPrice,
+        };
+
+        this.fundingRates.set(`lighter-${symbol}`, fundingRate);
+        this.fundingCallbacks.forEach(cb => cb(fundingRate));
+      });
+
+      console.log(`[Lighter] Updated funding rates for ${fundingRates.size} assets`);
+
+    } catch (error) {
+      console.error('[Lighter] Error fetching funding rates:', error);
+    }
+  }
+
+  /**
    * OLD WebSocket implementation (kept for reference)
    */
   private connectHyperliquidWebSocket_OLD(symbols: string[]) {
@@ -344,80 +407,12 @@ class MultiExchangeService {
     this.wsConnections.set('hyperliquid', ws);
   }
 
-  /**
-   * Connect to Liquid WebSocket for market data
-   */
-  connectLiquid(symbols: string[]) {
-    const credentials = this.getCredentials('liquid');
-    if (!credentials.apiToken || !credentials.apiSecret) {
-      console.warn('[MultiExchange] Liquid credentials not configured');
-      return;
-    }
-
-    const ws = new WebSocket(
-      'wss://tap.liquid.com/app/LiquidTapClient?protocol=7&client=js&version=4.4.0&flash=false'
-    );
-
-    ws.onopen = () => {
-      console.log('[Liquid] WebSocket connected');
-
-      // Subscribe to order books for each symbol
-      symbols.forEach(symbol => {
-        const pair = symbol.toLowerCase().replace('/', '');
-
-        ws.send(JSON.stringify({
-          event: 'pusher:subscribe',
-          data: { channel: `price_ladders_cash_${pair}_buy` },
-        }));
-
-        ws.send(JSON.stringify({
-          event: 'pusher:subscribe',
-          data: { channel: `price_ladders_cash_${pair}_sell` },
-        }));
-
-        ws.send(JSON.stringify({
-          event: 'pusher:subscribe',
-          data: { channel: `executions_cash_${pair}` },
-        }));
-      });
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-
-        // Liquid uses Pusher protocol - handle order book and trade updates
-        if (data.event === 'updated') {
-          console.log('[Liquid] Market data update:', data.channel);
-        }
-      } catch (error) {
-        console.error('[Liquid] Error parsing message:', error);
-      }
-    };
-
-    ws.onerror = (error) => {
-      console.error('[Liquid] WebSocket error:', error);
-    };
-
-    ws.onclose = () => {
-      console.log('[Liquid] WebSocket closed, reconnecting...');
-      this.wsConnections.delete('liquid');
-
-      const reconnect = setTimeout(() => {
-        this.connectLiquid(symbols);
-      }, 5000);
-
-      this.reconnectIntervals.set('liquid', reconnect);
-    };
-
-    this.wsConnections.set('liquid', ws);
-  }
 
   /**
    * Check liquidity before executing trade
    */
   async checkLiquidity(
-    exchange: 'aster' | 'hyperliquid' | 'liquid',
+    exchange: 'aster' | 'hyperliquid' | 'lighter',
     symbol: string,
     config: ExchangeConfig
   ): Promise<LiquidityCheck> {
@@ -442,7 +437,7 @@ class MultiExchangeService {
   /**
    * Get current funding rate for a symbol on an exchange
    */
-  getFundingRate(exchange: 'aster' | 'hyperliquid' | 'liquid', symbol: string): FundingRate | null {
+  getFundingRate(exchange: 'aster' | 'hyperliquid' | 'lighter', symbol: string): FundingRate | null {
     return this.fundingRates.get(`${exchange}-${symbol}`) || null;
   }
 
@@ -487,19 +482,15 @@ class MultiExchangeService {
   /**
    * Connect to all configured exchanges
    */
-  connectAll(symbols?: string[]) {
-    const liquidCreds = this.getCredentials('liquid');
-
+  async connectAll(symbols?: string[]) {
     // AsterDEX: Always connect, auto-discover all perpetuals if no symbols provided
     this.connectAster(symbols);
 
     // HyperLiquid: Always connect (public market data doesn't require auth)
     this.connectHyperliquid(symbols || []);
 
-    // Liquid: Requires credentials
-    if (liquidCreds.apiToken && liquidCreds.apiSecret) {
-      this.connectLiquid(symbols || []);
-    }
+    // Lighter: Always connect (public market data doesn't require auth)
+    await this.connectLighter();
   }
 
   /**
@@ -533,17 +524,21 @@ class MultiExchangeService {
       const matched = symbolMappingEngine.matchAssets(asterAssets, hlAssets);
       const matchedCanonicals = new Set(matched.filter(p => p.aster && p.hyperliquid).map(p => p.canonical));
 
-      const asterUnmapped = asterAssets
-        .map(a => ({ symbol: a.symbol, ...symbolMappingEngine.normalizeSymbol(a.symbol) }))
-        .filter(a => !a.canonical || !matchedCanonicals.has(a.canonical));
+      const asterNormalized = asterAssets.map(a => ({ symbol: a.symbol, ...symbolMappingEngine.normalizeSymbol(a.symbol) }));
+      const hlNormalized = hlAssets.map(a => ({ symbol: a.symbol, ...symbolMappingEngine.normalizeSymbol(a.symbol) }));
 
-      const hlUnmapped = hlAssets
-        .map(a => ({ symbol: a.symbol, ...symbolMappingEngine.normalizeSymbol(a.symbol) }))
-        .filter(a => !a.canonical || !matchedCanonicals.has(a.canonical));
+      const asterFailedNormalization = asterNormalized.filter(a => !a.canonical);
+      const hlFailedNormalization = hlNormalized.filter(a => !a.canonical);
 
-      console.log(`[Unmatched] AsterDEX: ${asterUnmapped.length}, HyperLiquid: ${hlUnmapped.length}`);
-      console.log('[Sample Unmapped AsterDEX]:', asterUnmapped.slice(0, 20).map(a => a.symbol).join(', '));
-      console.log('[Sample Unmapped HyperLiquid]:', hlUnmapped.slice(0, 20).map(a => a.symbol).join(', '));
+      const asterOnlyOneExchange = asterNormalized.filter(a => a.canonical && !matchedCanonicals.has(a.canonical));
+      const hlOnlyOneExchange = hlNormalized.filter(a => a.canonical && !matchedCanonicals.has(a.canonical));
+
+      console.log(`[Failed Normalization] AsterDEX: ${asterFailedNormalization.length}, HyperLiquid: ${hlFailedNormalization.length}`);
+      console.log(`[Only On One Exchange] AsterDEX: ${asterOnlyOneExchange.length}, HyperLiquid: ${hlOnlyOneExchange.length}`);
+      console.log('[Sample Failed Norm AsterDEX]:', asterFailedNormalization.slice(0, 10).map(a => a.symbol).join(', '));
+      console.log('[Sample Failed Norm HyperLiquid]:', hlFailedNormalization.slice(0, 10).map(a => a.symbol).join(', '));
+      console.log('[Sample AsterDEX Only]:', asterOnlyOneExchange.slice(0, 10).map(a => `${a.symbol}→${a.canonical}`).join(', '));
+      console.log('[Sample HyperLiquid Only]:', hlOnlyOneExchange.slice(0, 10).map(a => `${a.symbol}→${a.canonical}`).join(', '));
     }
 
     return symbolMappingEngine.matchAssets(asterAssets, hlAssets);
@@ -573,6 +568,106 @@ class MultiExchangeService {
       asterOnly: allPairs.filter(pair => pair.aster && !pair.hyperliquid),
       hyperliquidOnly: allPairs.filter(pair => pair.hyperliquid && !pair.aster),
     };
+  }
+
+  /**
+   * Get three-way arbitrage opportunities using unified symbol mapping
+   */
+  getThreeWayArbitrageOpportunities(): ThreeWayArbitrageOpportunity[] {
+    // Organize funding rates by exchange
+    const asterRates = new Map<string, any>();
+    const hlRates = new Map<string, any>();
+    const lighterRates = new Map<string, any>();
+
+    this.fundingRates.forEach((rate) => {
+      const rateData = {
+        fundingRate: rate.rate / 100, // Convert back from percentage
+        markPrice: rate.markPrice,
+        indexPrice: rate.markPrice, // Use mark price as index if not available
+        nextFundingTime: rate.nextFundingTime,
+      };
+
+      if (rate.exchange === 'aster') {
+        asterRates.set(rate.symbol, rateData);
+      } else if (rate.exchange === 'hyperliquid') {
+        // Convert HyperLiquid symbol format (BTCUSDT) to just asset name (BTC)
+        const assetName = rate.symbol.replace('USDT', '');
+        hlRates.set(assetName, {
+          ...rateData,
+          funding_rate: rateData.fundingRate,
+          mark_price: rateData.markPrice,
+          index_price: rateData.indexPrice,
+          next_funding_time: rateData.nextFundingTime,
+        });
+      } else if (rate.exchange === 'lighter') {
+        lighterRates.set(rate.symbol, rateData);
+      }
+    });
+
+    // Analyze opportunities using the three-way arbitrage service
+    const opportunities = threeWayArbitrageService.analyzeOpportunities(
+      asterRates,
+      hlRates,
+      lighterRates
+    );
+
+    console.log(`[Three-Way Arbitrage] Found ${opportunities.length} opportunities`);
+
+    // Log sample of opportunities
+    if (opportunities.length > 0) {
+      const top5 = opportunities.slice(0, 5);
+      console.log('[Top 5 Opportunities]:');
+      top5.forEach(opp => {
+        if (opp.bestOpportunity) {
+          console.log(`  ${opp.canonical}: ${opp.bestOpportunity.longExchange} (long) vs ${opp.bestOpportunity.shortExchange} (short) = ${opp.bestOpportunity.spreadApr.toFixed(2)}% APR`);
+        }
+      });
+    }
+
+    return opportunities;
+  }
+
+  /**
+   * Get three-way arbitrage metrics
+   */
+  getThreeWayArbitrageMetrics() {
+    const opportunities = this.getThreeWayArbitrageOpportunities();
+    return threeWayArbitrageService.getMetrics(opportunities);
+  }
+
+  /**
+   * Filter three-way opportunities by minimum spread
+   */
+  filterThreeWayBySpread(minAprSpread: number = 5): ThreeWayArbitrageOpportunity[] {
+    const opportunities = this.getThreeWayArbitrageOpportunities();
+    return threeWayArbitrageService.filterByMinSpread(opportunities, minAprSpread);
+  }
+
+  /**
+   * Get funding rates organized by exchange for three-way analysis
+   */
+  getFundingRatesByExchange(): {
+    aster: Map<string, FundingRate>;
+    hyperliquid: Map<string, FundingRate>;
+    lighter: Map<string, FundingRate>;
+  } {
+    const byExchange = {
+      aster: new Map<string, FundingRate>(),
+      hyperliquid: new Map<string, FundingRate>(),
+      lighter: new Map<string, FundingRate>(),
+    };
+
+    this.fundingRates.forEach((rate) => {
+      if (rate.exchange === 'aster') {
+        byExchange.aster.set(rate.symbol, rate);
+      } else if (rate.exchange === 'hyperliquid') {
+        byExchange.hyperliquid.set(rate.symbol, rate);
+      } else if (rate.exchange === 'lighter') {
+        byExchange.lighter.set(rate.symbol, rate);
+      }
+    });
+
+    return byExchange;
   }
 }
 

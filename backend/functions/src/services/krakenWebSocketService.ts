@@ -219,14 +219,25 @@ export class KrakenWebSocketService {
    * Get cached balances from Firestore
    */
   static async getCachedBalances(): Promise<{ [key: string]: number }> {
-    const db = admin.firestore();
-    const cacheDoc = await db.collection('krakenBalanceCache').doc('latest').get();
+    try {
+      // Ensure admin is initialized (it might not be if dynamically imported)
+      if (!admin.apps?.length) {
+        console.warn('[KrakenWS] Admin not initialized in getCachedBalances, returning empty cache');
+        return {};
+      }
 
-    if (!cacheDoc.exists) {
+      const db = admin.firestore();
+      const cacheDoc = await db.collection('krakenBalanceCache').doc('latest').get();
+
+      if (!cacheDoc.exists) {
+        return {};
+      }
+
+      const data = cacheDoc.data();
+      return data?.balances || {};
+    } catch (error: any) {
+      console.error('[KrakenWS] Error getting cached balances:', error.message);
       return {};
     }
-
-    const data = cacheDoc.data();
-    return data?.balances || {};
   }
 }

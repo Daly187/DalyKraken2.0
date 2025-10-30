@@ -379,10 +379,13 @@ export default function DalyFunding() {
     localStorage.setItem('aster_wallet_address', asterWallet);
     localStorage.setItem('hyperliquid_wallet_address', hyperliquidWallet);
 
+    // Immediately fetch balances after saving
+    fetchWalletBalances();
+
     addNotification({
       type: 'success',
       title: 'Wallets Saved',
-      message: 'Wallet addresses have been saved',
+      message: 'Wallet addresses have been saved. Fetching balances...',
     });
   };
 
@@ -1087,6 +1090,94 @@ export default function DalyFunding() {
         </div>
 
         <div className="space-y-6">
+          {/* API Connection & Diagnostics Status */}
+          <div className="bg-slate-800/50 border border-slate-600/50 rounded-lg p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <Signal className="h-5 w-5 text-cyan-400" />
+              <h3 className="text-lg font-bold text-white">API Connection Status</h3>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* WebSocket Status */}
+              <div className="bg-slate-700/30 rounded-lg p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs text-gray-400">WebSocket</span>
+                  {isConnected ? (
+                    <CheckCircle className="h-4 w-4 text-green-500" />
+                  ) : (
+                    <AlertCircle className="h-4 w-4 text-red-500" />
+                  )}
+                </div>
+                <div className={`text-sm font-bold ${isConnected ? 'text-green-400' : 'text-red-400'}`}>
+                  {isConnected ? 'Connected' : 'Disconnected'}
+                </div>
+              </div>
+
+              {/* Aster Balance */}
+              <div className="bg-slate-700/30 rounded-lg p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs text-gray-400">Aster Balance</span>
+                  {asterWallet ? (
+                    <CheckCircle className="h-4 w-4 text-cyan-500" />
+                  ) : (
+                    <AlertCircle className="h-4 w-4 text-yellow-500" />
+                  )}
+                </div>
+                <div className="text-sm font-bold text-cyan-400">
+                  {asterWallet ? `$${asterBalance.toFixed(2)}` : 'No wallet'}
+                </div>
+              </div>
+
+              {/* Hyperliquid Balance */}
+              <div className="bg-slate-700/30 rounded-lg p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs text-gray-400">Hyperliquid Balance</span>
+                  {hyperliquidWallet ? (
+                    <CheckCircle className="h-4 w-4 text-purple-500" />
+                  ) : (
+                    <AlertCircle className="h-4 w-4 text-yellow-500" />
+                  )}
+                </div>
+                <div className="text-sm font-bold text-purple-400">
+                  {hyperliquidWallet ? `$${hyperliquidBalance.toFixed(2)}` : 'No wallet'}
+                </div>
+              </div>
+
+              {/* Top Spread */}
+              <div className="bg-slate-700/30 rounded-lg p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs text-gray-400">Top Spread</span>
+                  {top5Spreads.length > 0 ? (
+                    <TrendingUp className="h-4 w-4 text-emerald-500" />
+                  ) : (
+                    <AlertCircle className="h-4 w-4 text-gray-500" />
+                  )}
+                </div>
+                <div className={`text-sm font-bold ${
+                  top5Spreads.length > 0 && top5Spreads[0].spread >= minSpreadThreshold
+                    ? 'text-emerald-400'
+                    : 'text-yellow-400'
+                }`}>
+                  {top5Spreads.length > 0 ? `${top5Spreads[0].spread.toFixed(4)}%` : 'No data'}
+                </div>
+                {top5Spreads.length > 0 && (
+                  <div className="text-xs text-gray-500 mt-1">{top5Spreads[0].canonical}</div>
+                )}
+              </div>
+            </div>
+
+            {/* Warning if no qualifying spreads */}
+            {top5Spreads.length > 0 && top5Spreads.every(s => s.spread < minSpreadThreshold) && (
+              <div className="mt-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3 flex items-start gap-2">
+                <AlertCircle className="h-5 w-5 text-yellow-500 mt-0.5 flex-shrink-0" />
+                <div className="text-sm text-yellow-300">
+                  <strong>No spreads meet threshold:</strong> All current spreads are below {minSpreadThreshold}%.
+                  Top spread is {top5Spreads[0].spread.toFixed(4)}% ({top5Spreads[0].canonical}).
+                  Consider lowering the threshold or waiting for better opportunities.
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Strategy Status Overview */}
           {strategyEnabled && (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

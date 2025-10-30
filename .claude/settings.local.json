@@ -1,30 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npm run build:frontend:*)",
-      "Bash(firebase deploy:*)",
-      "Bash(git push:*)",
-      "Bash(npm run build:*)",
-      "Bash(npx tsc:*)",
-      "Bash(git add:*)",
-      "Bash(git commit:*)",
-      "Bash(git log:*)",
-      "Bash(git commit -m \"$(cat <<''EOF''\nEnhance Settings page with tabbed layout and collapsible API sections\n\n- Add tabbed navigation with API Keys and Themes pages\n- Implement collapsible dropdowns for each API section\n- Add active/inactive status indicators for all APIs\n- Improve organization and UX of settings interface\n- Maintain all existing functionality\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
-      "Bash(npm run:*)",
-      "Bash(cat:*)",
-      "Bash(firebase functions:list:*)",
-      "Bash(firebase functions:log:*)",
-      "Bash(node clear-failed-keys.mjs:*)",
-      "Bash(GOOGLE_APPLICATION_CREDENTIALS=\"\" node:*)",
-      "Bash(curl:*)",
-      "Bash(node test-sell-order.mjs:*)",
-      "Bash(node:*)",
-      "Read(//Users/Daly/Desktop/DalyDough/**)",
       "Bash(GOOGLE_APPLICATION_CREDENTIALS=\"./serviceAccountKey.json\" node:*)",
-      "Bash(TZ='America/New_York' date:*)",
-      "Bash(firebase functions:config:get:*)",
-      "Bash(GOOGLE_APPLICATION_CREDENTIALS=\"./backend/functions/serviceAccountKey.json\" node:*)",
-      "Bash(npm install:*)"
+      "Bash(GOOGLE_APPLICATION_CREDENTIALS=\"./serviceAccountKey.json\" node -e:*)",
+      "Bash(git add:*)"
     ],
     "deny": [],
     "ask": []
