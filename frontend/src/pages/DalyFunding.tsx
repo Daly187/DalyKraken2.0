@@ -16,6 +16,8 @@ import {
   Signal,
   Layers,
   RefreshCw,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
 import { multiExchangeService, FundingRate, FundingPosition } from '@/services/multiExchangeService';
 import { MatchedPair } from '@/services/symbolMappingEngine';
@@ -33,6 +35,7 @@ export default function DalyFunding() {
   const [sortBy, setSortBy] = useState<'rate' | 'symbol' | 'markPrice'>('rate');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [viewMode, setViewMode] = useState<'all' | 'arbitrage' | 'diagnostics'>('arbitrage');
+  const [fundingRatesCollapsed, setFundingRatesCollapsed] = useState(false);
 
   // Auto-Strategy State
   const [strategyEnabled, setStrategyEnabled] = useState(false);
@@ -578,15 +581,29 @@ export default function DalyFunding() {
       {/* Live Funding Rates Monitor */}
       <div className="card">
         <div className="flex items-center justify-between mb-6">
-          <div>
-            <h2 className="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-purple-400 bg-clip-text text-transparent">
-              Live Funding Rates
-            </h2>
-            <p className="text-sm text-gray-400 mt-1">Real-time 2-way arbitrage between Aster and Hyperliquid</p>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setFundingRatesCollapsed(!fundingRatesCollapsed)}
+              className="p-2 hover:bg-slate-700/50 rounded-lg transition-colors"
+              aria-label={fundingRatesCollapsed ? "Expand section" : "Collapse section"}
+            >
+              {fundingRatesCollapsed ? (
+                <ChevronRight className="h-5 w-5 text-gray-400" />
+              ) : (
+                <ChevronDown className="h-5 w-5 text-gray-400" />
+              )}
+            </button>
+            <div>
+              <h2 className="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-purple-400 bg-clip-text text-transparent">
+                Live Funding Rates
+              </h2>
+              <p className="text-sm text-gray-400 mt-1">Real-time 2-way arbitrage between Aster and Hyperliquid</p>
+            </div>
           </div>
-          <div className="flex items-center gap-4">
-            {/* View Mode Toggle */}
-            <div className="flex gap-2 border-r border-slate-600/50 pr-4">
+          {!fundingRatesCollapsed && (
+            <div className="flex items-center gap-4">
+              {/* View Mode Toggle */}
+              <div className="flex gap-2 border-r border-slate-600/50 pr-4">
               <button
                 onClick={() => setViewMode('arbitrage')}
                 className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${
@@ -657,10 +674,11 @@ export default function DalyFunding() {
                 </button>
               </div>
             )}
-          </div>
+            </div>
+          )}
         </div>
 
-        {viewMode === 'arbitrage' ? (
+        {!fundingRatesCollapsed && (viewMode === 'arbitrage' ? (
           // Arbitrage Opportunities View
           arbitrageOpportunities.length > 0 ? (
             <div className="overflow-x-auto">
@@ -1100,7 +1118,7 @@ export default function DalyFunding() {
               </p>
             </div>
           )
-        )}
+        ))}
       </div>
 
       {/* Auto-Arbitrage Strategy Configuration */}
