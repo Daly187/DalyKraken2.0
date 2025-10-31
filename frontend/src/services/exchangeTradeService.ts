@@ -86,7 +86,19 @@ class ExchangeTradeService {
     const errors: string[] = [];
     const warnings: string[] = [];
 
-    // Check Aster API keys
+    // In paper mode, skip API key validation and use paper balances
+    if (this.paperMode) {
+      console.log('[ExchangeTradeService] Paper mode - skipping API validation');
+      return {
+        valid: true,
+        errors: [],
+        warnings: ['Running in PAPER MODE - no real trades will be executed'],
+        asterBalance: this.paperBalances.aster,
+        hyperliquidBalance: this.paperBalances.hyperliquid,
+      };
+    }
+
+    // LIVE MODE: Check Aster API keys
     const asterApiKey = localStorage.getItem('aster_api_key');
     const asterApiSecret = localStorage.getItem('aster_api_secret');
     if (!asterApiKey || !asterApiSecret) {
