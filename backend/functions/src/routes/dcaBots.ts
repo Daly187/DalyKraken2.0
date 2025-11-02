@@ -552,6 +552,144 @@ export function createDCABotsRouter(db: Firestore): Router {
   });
 
   /**
+   * POST /dca-bots/:id/retry-exit
+   * Retry a failed exit attempt - clears failure state and attempts exit again
+   */
+  router.post('/:id/retry-exit', async (req, res) => {
+    try {
+      const botId = req.params.id;
+      const userId = req.user!.userId;
+
+      console.log(`[DCABots API] Exit retry requested for bot ${botId} by user ${userId}`);
+
+      // Get bot and verify ownership
+      const botDoc = await db.collection('dcaBots').doc(botId).get();
+
+      if (!botDoc.exists) {
+        return res.status(404).json({
+          success: false,
+          error: 'Bot not found',
+        });
+      }
+
+      const botData = botDoc.data() as DCABotConfig;
+      if (botData.userId !== userId) {
+        return res.status(403).json({
+          success: false,
+          error: 'Access denied',
+        });
+      }
+
+      // Check if bot is in exit_failed state
+      if (botData.status !== 'exit_failed') {
+        return res.status(400).json({
+          success: false,
+          error: `Bot is not in failed state. Current status: ${botData.status}`,
+        });
+      }
+
+      // Get Kraken credentials from headers
+      const krakenApiKey = req.headers['x-kraken-api-key'] as string;
+      const krakenApiSecret = req.headers['x-kraken-api-secret'] as string;
+
+      if (!krakenApiKey || !krakenApiSecret) {
+        return res.status(401).json({
+          success: false,
+          error: 'Kraken API credentials required in headers',
+        });
+      }
+
+      console.log(`[DCABots API] Clearing failure state and retrying exit for bot ${botId}`);
+      console.log(`[DCABots API] Previous failure: ${botData.exitFailureReason}`);
+      console.log(`[DCABots API] Exit attempts: ${botData.exitAttempts || 0}`);
+
+      // Create KrakenService
+      const krakenService = new KrakenService(krakenApiKey, krakenApiSecret);
+
+      // Get bot with live data
+      const bot = await dcaBotService.getBotById(botId, krakenService);
+
+      if (!bot) {
+        return res.status(404).json({
+          success: false,
+          error: 'Bot not found',
+        });
+      }
+
+      // Check if bot still has positions
+      if (bot.currentEntryCount === 0) {
+        // No positions - mark as completed and clear failure state
+        await db.collection('dcaBots').doc(botId).update({
+          status: 'completed',
+          exitFailureReason: null,
+          exitFailureTime: null,
+          updatedAt: new Date().toISOString(),
+        });
+
+        return res.json({
+          success: true,
+          message: 'Bot has no positions - marked as completed',
+          bot: await dcaBotService.getBotById(botId, krakenService),
+        });
+      }
+
+      // Clear failure state and set to active before retry
+      await db.collection('dcaBots').doc(botId).update({
+        status: 'active',
+        exitFailureReason: null,
+        exitFailureTime: null,
+        updatedAt: new Date().toISOString(),
+      });
+
+      console.log(`[DCABots API] Failure state cleared, attempting exit retry...`);
+
+      // Execute exit
+      const result = await dcaBotService.executeExit(bot, krakenService);
+
+      if (result.success) {
+        console.log(`[DCABots API] Exit retry successful for bot ${botId}`);
+
+        // Get updated bot data
+        const updatedBot = await dcaBotService.getBotById(botId, krakenService);
+
+        res.json({
+          success: true,
+          message: 'Exit retry successful - order queued for execution',
+          bot: updatedBot,
+          exitDetails: {
+            entriesExited: bot.currentEntryCount,
+            totalInvested: bot.totalInvested,
+            unrealizedPnL: bot.unrealizedPnL,
+            unrealizedPnLPercent: bot.unrealizedPnLPercent,
+          },
+        });
+      } else {
+        console.error(`[DCABots API] Exit retry failed for bot ${botId}:`, result.error);
+
+        // Set back to exit_failed with new error
+        await db.collection('dcaBots').doc(botId).update({
+          status: 'exit_failed',
+          exitFailureReason: result.error,
+          exitFailureTime: new Date().toISOString(),
+          lastExitAttempt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+
+        res.status(500).json({
+          success: false,
+          error: result.error || 'Failed to retry exit',
+        });
+      }
+    } catch (error: any) {
+      console.error('[DCABots API] Error retrying exit:', error);
+      res.status(500).json({
+        success: false,
+        error: error.message,
+      });
+    }
+  });
+
+  /**
    * POST /dca-bots/trigger
    * Manually trigger bot processing for all user's active bots
    */

@@ -703,17 +703,22 @@ export class OrderExecutorService {
 
       // Only reset if bot is stuck in 'exiting' status
       if (bot.status === 'exiting') {
-        console.log(`[OrderExecutor] Bot ${order.botId} is stuck in 'exiting' status. Resetting to 'active' to allow manual intervention.`);
+        console.log(`[OrderExecutor] Bot ${order.botId} exit failed. Setting to 'exit_failed' with diagnostic info.`);
 
-        // Reset bot to active status so user can manually retry or modify
+        // Increment exit attempts counter
+        const exitAttempts = (bot.exitAttempts || 0) + 1;
+
+        // Set bot to exit_failed status with detailed diagnostic information
         await db.collection('dcaBots').doc(order.botId).update({
-          status: 'active',
+          status: 'exit_failed',
+          exitFailureReason: error,
+          exitFailureTime: new Date().toISOString(),
+          exitAttempts: exitAttempts,
+          lastExitAttempt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
-          lastFailedExitReason: error,
-          lastFailedExitTime: new Date().toISOString(),
         });
 
-        console.log(`[OrderExecutor] ✅ Bot ${order.botId} reset to 'active' after failed exit. User can now manually intervene.`);
+        console.log(`[OrderExecutor] ✅ Bot ${order.botId} set to 'exit_failed' (attempt ${exitAttempts}). UI will show diagnostic info.`);
 
         // Log the failed exit in bot executions
         await db.collection('botExecutions').add({

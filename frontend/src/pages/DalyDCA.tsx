@@ -1472,6 +1472,60 @@ export default function DalyDCA() {
                     <p className={`text-xs mt-2 ${nextAction.color}`}>
                       {nextAction.message}
                     </p>
+
+                    {/* Exit Failure Diagnostic - Only show if status is exit_failed */}
+                    {bot.status === 'exit_failed' && bot.exitFailureReason && (
+                      <div className="mt-3 p-3 bg-red-900/20 border border-red-500/30 rounded">
+                        <div className="flex items-start gap-2">
+                          <AlertTriangle className="h-5 w-5 text-red-400 flex-shrink-0 mt-0.5" />
+                          <div className="flex-1">
+                            <h4 className="text-sm font-semibold text-red-400 mb-1">Exit Order Failed</h4>
+                            <p className="text-xs text-red-300 mb-2">{bot.exitFailureReason}</p>
+                            <div className="flex items-center gap-4 text-xs text-gray-400 mb-3">
+                              {bot.exitFailureTime && (
+                                <span className="flex items-center gap-1">
+                                  <Clock className="h-3 w-3" />
+                                  {new Date(bot.exitFailureTime).toLocaleString()}
+                                </span>
+                              )}
+                              {bot.exitAttempts && (
+                                <span>Attempts: {bot.exitAttempts}</span>
+                              )}
+                            </div>
+                            <button
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                try {
+                                  const response = await fetch(`${config.api.mainUrl}/dca-bots/${bot.id}/retry-exit`, {
+                                    method: 'POST',
+                                    headers: {
+                                      'Content-Type': 'application/json',
+                                      'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                                      'x-kraken-api-key': localStorage.getItem('krakenApiKey') || '',
+                                      'x-kraken-api-secret': localStorage.getItem('krakenApiSecret') || '',
+                                    },
+                                  });
+
+                                  if (response.ok) {
+                                    fetchDCABots();
+                                    alert('Exit retry initiated successfully');
+                                  } else {
+                                    const error = await response.json();
+                                    alert(`Retry failed: ${error.error}`);
+                                  }
+                                } catch (error: any) {
+                                  alert(`Error: ${error.message}`);
+                                }
+                              }}
+                              className="btn btn-sm bg-red-600 hover:bg-red-700 text-white flex items-center gap-1"
+                            >
+                              <RefreshCw className="h-3 w-3" />
+                              Retry Exit
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {/* Expanded Details */}

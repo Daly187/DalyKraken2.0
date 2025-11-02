@@ -196,7 +196,7 @@ export interface DCABotConfig {
   supportResistanceEnabled: boolean; // Default false
   reEntryDelay: number; // Default 888 minutes
   trendAlignmentEnabled: boolean; // Default true
-  status: 'active' | 'paused' | 'completed' | 'stopped' | 'exiting';
+  status: 'active' | 'paused' | 'completed' | 'stopped' | 'exiting' | 'exit_pending' | 'exit_failed';
   createdAt: string;
   updatedAt: string;
   // Cycle tracking fields
@@ -204,6 +204,11 @@ export interface DCABotConfig {
   cycleStartTime?: string;
   cycleNumber?: number;
   previousCycles?: TradeCycle[];
+  // Exit failure tracking
+  exitFailureReason?: string;
+  exitFailureTime?: string;
+  exitAttempts?: number;
+  lastExitAttempt?: string;
 }
 
 // Live DCA Bot (active bot with execution data)
