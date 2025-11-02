@@ -12,7 +12,10 @@
       "Bash(npm run build:*)",
       "Bash(git commit -m \"$(cat <<''EOF''\nAdd paper trading mode for testing arbitrage strategy\n\nFeatures:\n- Paper/Live mode toggle at top of DalyFunding page\n- Paper mode starts with $100 per exchange ($200 total)\n- All trades simulated in paper mode (no real execution)\n- Live funding rate data with simulated orders\n- Paper balance display in header\n- Mode switch disabled when strategy is running\n- Perfect for testing strategy logic without risk\n\nUpdated files:\n- frontend/src/services/exchangeTradeService.ts (paper mode logic)\n- frontend/src/services/fundingArbitrageService.ts (paper mode config)\n- frontend/src/pages/DalyFunding.tsx (paper mode UI toggle)\n\n🤖 Generated with Claude Code\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
       "Bash(git log -3 --format='%h %s')",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(git mv:*)",
+      "Bash(git rm:*)",
+      "Bash(tree:*)"
     ],
     "deny": [],
     "ask": []

@@ -56,3 +56,4 @@ backend/functions/lib/
 serviceAccountKey.json
 **/serviceAccountKey.json
 historical-bots.json
+firebase-debug.log
