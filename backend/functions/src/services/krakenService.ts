@@ -299,7 +299,7 @@ export class KrakenService {
    * @param apiKey - Optional API key override
    * @param apiSecret - Optional API secret override
    */
-  async getBalance(apiKey?: string, apiSecret?: string): Promise<Record<string, number>> {
+  async getBalance(apiKey?: string, apiSecret?: string): Promise<Record<string, string>> {
     try {
       // If API keys provided, create a new client instance
       const client = (apiKey && apiSecret) ? new KrakenClient(apiKey, apiSecret) : this.client;
@@ -312,9 +312,9 @@ export class KrakenService {
       if (!hasKeys) {
         console.warn('[KrakenService] No API keys configured, returning mock data');
         return {
-          'ZUSD': 10000,
-          'XXBT': 0.5,
-          'XETH': 2.5,
+          'ZUSD': '10000.00',
+          'XXBT': '0.50000000',
+          'XETH': '2.50000000',
         };
       }
 
@@ -538,7 +538,7 @@ export class KrakenService {
 
       // Get actual balance
       const balances = await this.getBalance();
-      const actualBalance = balances[asset] || 0;
+      const actualBalance = parseFloat(balances[asset] || '0');
 
       console.log(`[KrakenService] Balance check for ${asset}: actual=${actualBalance}, target=${targetAmount}`);
 

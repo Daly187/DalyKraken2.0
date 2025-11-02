@@ -479,11 +479,34 @@ export class DCABotService {
         console.log(`[DCABotService] Kraken balance response:`, balances);
         console.log(`[DCABotService] Looking for asset: ${asset} (from pair: ${bot.symbol})`);
 
-        // Use the properly mapped asset name
-        // CRITICAL FIX: Parse to number (Kraken returns strings like "0.0000000000")
-        krakenBalance = parseFloat((balances[asset] || 0).toString());
+        // CRITICAL FIX: Try multiple possible asset names (Kraken is inconsistent)
+        // For BCH: try BCH, XBCH, XXBCH etc.
+        const baseAsset = bot.symbol.split('/')[0]; // "BCH" from "BCH/USD"
+        const possibleKeys = [
+          asset,           // Mapped name (e.g., "BCH")
+          baseAsset,       // Display name (e.g., "BCH")
+          `X${baseAsset}`, // Single X prefix (e.g., "XBCH")
+          `XX${baseAsset}`,// Double X prefix (e.g., "XXBCH")
+        ];
 
-        console.log(`[DCABotService] ${bot.symbol} Kraken balance: ${krakenBalance} ${asset}`);
+        let balanceString = '0';
+        let foundKey = '';
+
+        for (const key of possibleKeys) {
+          if (balances[key]) {
+            const balance = parseFloat(balances[key]);
+            if (balance > 0) {
+              balanceString = balances[key];
+              foundKey = key;
+              break;
+            }
+          }
+        }
+
+        // Parse to number (Kraken returns strings like "0.0000000000")
+        krakenBalance = parseFloat(balanceString);
+
+        console.log(`[DCABotService] ${bot.symbol} Kraken balance: ${krakenBalance} ${foundKey || asset} (tried: ${possibleKeys.join(', ')})`);
       } catch (error: any) {
         console.error(`[DCABotService] ❌ Failed to get Kraken balance for ${asset}:`, error.message);
 
