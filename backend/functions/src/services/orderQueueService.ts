@@ -169,6 +169,9 @@ export class OrderQueueService {
     snapshot.forEach((doc) => {
       const order = doc.data() as PendingOrder;
 
+      // CRITICAL FIX: Ensure document ID is set on the order object
+      order.id = doc.id;
+
       // Check if order is ready for retry
       if (order.status === OrderStatus.RETRY && order.nextRetryAt) {
         const retryTime = new Date(order.nextRetryAt);
