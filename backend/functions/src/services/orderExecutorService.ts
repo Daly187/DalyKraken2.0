@@ -478,26 +478,38 @@ export class OrderExecutorService {
         const txid = response.txid[0];
         console.log(`[OrderExecutor] [${execId}] Order placed successfully: ${txid}`);
 
-        // Query the order to get execution details (price and volume)
+        // CRITICAL FIX: Verify order execution (Issue #4 from professional review)
         let executedPrice: string | undefined;
         let executedVolume: string | undefined;
+        let orderStatus: string | undefined;
 
         try {
-          console.log(`[OrderExecutor] [${execId}] Querying order details for ${txid}`);
-          const orderDetails = await krakenService.queryOrders([txid]);
+          console.log(`[OrderExecutor] [${execId}] Verifying order execution for ${txid}...`);
 
-          if (orderDetails && orderDetails[txid]) {
-            const orderInfo = orderDetails[txid];
-            // Market orders: use average price and executed volume
-            executedPrice = orderInfo.price || orderInfo.avg_price;
-            executedVolume = orderInfo.vol_exec || orderInfo.vol;
+          // Use the new checkOrderStatus method with retry logic
+          const statusCheck = await krakenService.checkOrderStatus(txid, 3, 2000);
 
-            console.log(`[OrderExecutor] [${execId}] Order execution details: price=${executedPrice}, volume=${executedVolume}`);
-          } else {
-            console.warn(`[OrderExecutor] [${execId}] Could not fetch order details, will use order parameters as fallback`);
+          orderStatus = statusCheck.status;
+          executedPrice = statusCheck.executedPrice;
+          executedVolume = statusCheck.executedVolume;
+
+          console.log(`[OrderExecutor] [${execId}] Order verification: status=${orderStatus}, price=${executedPrice}, volume=${executedVolume}`);
+
+          // For market orders, verify it actually executed
+          if (orderStatus === 'open' || orderStatus === 'pending') {
+            console.warn(`[OrderExecutor] [${execId}] Market order ${txid} still ${orderStatus} after 6 seconds - may need manual review`);
+            // Still consider it success since order was placed, but log the warning
+          } else if (orderStatus === 'canceled' || orderStatus === 'expired') {
+            console.error(`[OrderExecutor] [${execId}] Order ${txid} was ${orderStatus}!`);
+            this.circuitBreaker.recordFailure(apiKey.id, `Order ${orderStatus}`, execId);
+            return {
+              success: false,
+              error: `Order was ${orderStatus}`,
+              shouldRetry: true,
+            };
           }
         } catch (error: any) {
-          console.warn(`[OrderExecutor] [${execId}] Error querying order details:`, error.message);
+          console.warn(`[OrderExecutor] [${execId}] Error verifying order execution:`, error.message);
           // Continue without execution details - updateBotAfterOrderCompletion will use order params as fallback
         }
 

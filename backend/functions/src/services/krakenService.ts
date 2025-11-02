@@ -9,6 +9,77 @@ import { MarketData } from '../types.js';
 export class KrakenService {
   private client: any;
 
+  // Kraken pair mappings: Display format → Kraken API format
+  // Critical: Kraken uses specific internal pair formats (e.g., XXBTZUSD not BTCUSD)
+  private static readonly PAIR_MAPPINGS: Record<string, string> = {
+    'BTC/USD': 'XXBTZUSD',
+    'ETH/USD': 'XETHZUSD',
+    'XRP/USD': 'XXRPZUSD',
+    'SOL/USD': 'SOLUSD',
+    'ADA/USD': 'ADAUSD',
+    'DOGE/USD': 'XDGUSD',
+    'DOT/USD': 'DOTUSD',
+    'MATIC/USD': 'MATICUSD',
+    'LINK/USD': 'LINKUSD',
+    'UNI/USD': 'UNIUSD',
+    'ATOM/USD': 'ATOMUSD',
+    'LTC/USD': 'XLTCZUSD',
+    'BCH/USD': 'BCHUSD',
+    'XLM/USD': 'XXLMZUSD',
+    'AVAX/USD': 'AVAXUSD',
+    'ALGO/USD': 'ALGOUSD',
+    'TRX/USD': 'TRXUSD',
+    'MANA/USD': 'MANAUSD',
+    'SAND/USD': 'SANDUSD',
+    'APE/USD': 'APEUSD',
+  };
+
+  // Asset precision limits (lot_decimals)
+  private static readonly PRECISION_LIMITS: Record<string, number> = {
+    'XXBT': 8,  // BTC
+    'XBT': 8,
+    'BTC': 8,
+    'XETH': 8,  // ETH
+    'ETH': 8,
+    'XXRP': 6,  // XRP
+    'XRP': 6,
+    'SOL': 8,
+    'ADA': 6,
+    'DOGE': 2,
+    'DOT': 8,
+    'MATIC': 6,
+    'LINK': 8,
+    'UNI': 8,
+    'ATOM': 8,
+    'XLTC': 8,  // LTC
+    'LTC': 8,
+    'BCH': 8,
+    'XXLM': 6,  // XLM
+    'XLM': 6,
+    'AVAX': 8,
+    'ALGO': 6,
+    'TRX': 2,
+    'MANA': 6,
+    'SAND': 6,
+    'APE': 8,
+    'ZUSD': 2,  // USD
+    'USD': 2,
+    'ZEUR': 2,  // EUR
+    'EUR': 2,
+  };
+
+  // Asset name mappings: Display format → Kraken balance format
+  private static readonly ASSET_MAPPINGS: Record<string, string> = {
+    'BTC': 'XXBT',
+    'ETH': 'XETH',
+    'XRP': 'XXRP',
+    'LTC': 'XLTC',
+    'XLM': 'XXLM',
+    'USD': 'ZUSD',
+    'EUR': 'ZEUR',
+    // Others use their display name in balances
+  };
+
   constructor(apiKey?: string, apiSecret?: string) {
     if (apiKey && apiSecret) {
       this.client = new KrakenClient(apiKey, apiSecret);
@@ -19,12 +90,45 @@ export class KrakenService {
   }
 
   /**
+   * Convert display pair format to Kraken API format
+   * CRITICAL: This fixes Issue #1 from the professional review
+   * Example: BTC/USD → XXBTZUSD (not BTCUSD)
+   */
+  private normalizeKrakenPair(pair: string): string {
+    // Check if we have a direct mapping
+    if (KrakenService.PAIR_MAPPINGS[pair]) {
+      return KrakenService.PAIR_MAPPINGS[pair];
+    }
+
+    // Fallback: remove slash (for pairs that don't need special mapping)
+    const fallback = pair.replace('/', '');
+    console.warn(`[KrakenService] No mapping found for pair "${pair}", using fallback: "${fallback}"`);
+    return fallback;
+  }
+
+  /**
+   * Extract base asset from pair and convert to Kraken balance format
+   * Example: BTC/USD → XXBT (for balance lookups)
+   */
+  public static extractKrakenAsset(pair: string): string {
+    const displayAsset = pair.split('/')[0];
+    return KrakenService.ASSET_MAPPINGS[displayAsset] || displayAsset;
+  }
+
+  /**
+   * Get precision for an asset
+   */
+  public static getAssetPrecision(asset: string): number {
+    return KrakenService.PRECISION_LIMITS[asset] || 8; // Default to 8 decimals
+  }
+
+  /**
    * Get current market price for a symbol
    */
   async getTicker(pair: string): Promise<MarketData> {
     try {
-      // Normalize pair format: Remove slash (BTC/USD -> BTCUSD, BCH/USD -> BCHUSD)
-      const normalizedPair = pair.replace('/', '');
+      // Normalize pair format to Kraken API format
+      const normalizedPair = this.normalizeKrakenPair(pair);
 
       const response = await this.client.api('Ticker', { pair: normalizedPair });
       const pairData = response.result[Object.keys(response.result)[0]];
@@ -52,8 +156,8 @@ export class KrakenService {
    */
   async getOHLC(pair: string, interval: number = 60): Promise<any[]> {
     try {
-      // Normalize pair format: Remove slash (BTC/USD -> BTCUSD, BCH/USD -> BCHUSD)
-      const normalizedPair = pair.replace('/', '');
+      // Normalize pair format to Kraken API format
+      const normalizedPair = this.normalizeKrakenPair(pair);
 
       const response = await this.client.api('OHLC', { pair: normalizedPair, interval });
       const pairData = response.result[Object.keys(response.result)[0]];
@@ -75,14 +179,15 @@ export class KrakenService {
     userref?: number
   ): Promise<any> {
     try {
-      // Normalize pair format: Remove slash (BTC/USD -> BTCUSD, BCH/USD -> BCHUSD)
-      const normalizedPair = pair.replace('/', '');
+      // Normalize pair format to Kraken API format
+      const normalizedPair = this.normalizeKrakenPair(pair);
 
       const orderParams: any = {
         pair: normalizedPair,
         type: 'buy',
         ordertype: orderType,
         volume: volume.toString(),
+        oflags: 'fcib',  // Fee in base currency for buys
       };
 
       if (orderType === 'limit' && price) {
@@ -130,16 +235,24 @@ export class KrakenService {
     try {
       console.log(`[KrakenService] SELL ORDER START - Original pair: "${pair}", volume: ${volume}, orderType: ${orderType}`);
 
-      // Normalize pair format: Remove slash (BTC/USD -> BTCUSD, BCH/USD -> BCHUSD)
-      const normalizedPair = pair.replace('/', '');
-      console.log(`[KrakenService] Normalized pair: "${normalizedPair}"`);
+      // CRITICAL FIX: Use proper Kraken pair format (e.g., BTC/USD → XXBTZUSD)
+      const normalizedPair = this.normalizeKrakenPair(pair);
+      console.log(`[KrakenService] Kraken API pair format: "${normalizedPair}"`);
+
+      // Get asset precision and apply it
+      const asset = KrakenService.extractKrakenAsset(pair);
+      const precision = KrakenService.getAssetPrecision(asset);
+      const preciseVolume = parseFloat(volume.toFixed(precision));
+
+      console.log(`[KrakenService] Asset: ${asset}, Precision: ${precision}, Volume: ${volume} → ${preciseVolume}`);
 
       const orderParams: any = {
         pair: normalizedPair,
         type: 'sell',
         ordertype: orderType,
-        volume: volume.toString(),
-        // Note: reduce_only is only valid for leveraged/margin orders, not spot trading
+        volume: preciseVolume.toString(),
+        validate: false,  // Execute immediately (not validation mode)
+        oflags: 'fciq',   // Fee in quote currency (USD) for sells - CRITICAL for proper execution
       };
 
       if (orderType === 'limit' && price) {
@@ -155,7 +268,7 @@ export class KrakenService {
 
       const response = await this.client.api('AddOrder', orderParams);
 
-      console.log(`[KrakenService] SUCCESS - Kraken response:`, JSON.stringify(response));
+      console.log(`[KrakenService] Kraken API Response:`, JSON.stringify(response, null, 2));
 
       if (!response || !response.result) {
         throw new Error('Invalid response from Kraken API - no result field');
@@ -236,8 +349,8 @@ export class KrakenService {
    */
   async getAssetPairs(pair: string): Promise<any> {
     try {
-      // Normalize pair format: Remove slash (BTC/USD -> BTCUSD, BCH/USD -> BCHUSD)
-      const normalizedPair = pair.replace('/', '');
+      // Normalize pair format to Kraken API format
+      const normalizedPair = this.normalizeKrakenPair(pair);
 
       const response = await this.client.api('AssetPairs', { pair: normalizedPair });
 
@@ -407,6 +520,166 @@ export class KrakenService {
     } catch (error) {
       console.error('[KrakenService] Error querying trades:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Get available balance for selling (accounting for holds and fees)
+   * CRITICAL: This fixes Issue #5 from the professional review
+   */
+  async getAvailableBalanceForSell(pair: string, targetAmount: number): Promise<{
+    available: number;
+    actualBalance: number;
+    canSell: boolean;
+    reason?: string;
+  }> {
+    try {
+      const asset = KrakenService.extractKrakenAsset(pair);
+
+      // Get actual balance
+      const balances = await this.getBalance();
+      const actualBalance = balances[asset] || 0;
+
+      console.log(`[KrakenService] Balance check for ${asset}: actual=${actualBalance}, target=${targetAmount}`);
+
+      // Account for 0.2% fee buffer (Kraken's maker/taker fees)
+      const feeBuffer = 0.998; // Keep 0.2% buffer for fees
+      const availableWithFees = actualBalance * feeBuffer;
+
+      // Check if we have enough
+      if (actualBalance === 0) {
+        return {
+          available: 0,
+          actualBalance: 0,
+          canSell: false,
+          reason: `No ${asset} balance available`,
+        };
+      }
+
+      if (availableWithFees < targetAmount) {
+        return {
+          available: availableWithFees,
+          actualBalance,
+          canSell: false,
+          reason: `Insufficient balance: available ${availableWithFees.toFixed(8)} < target ${targetAmount.toFixed(8)}`,
+        };
+      }
+
+      return {
+        available: Math.min(availableWithFees, targetAmount),
+        actualBalance,
+        canSell: true,
+      };
+    } catch (error: any) {
+      console.error('[KrakenService] Error checking available balance:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Check order status and verify execution
+   * CRITICAL: This fixes Issue #4 from the professional review
+   */
+  async checkOrderStatus(orderId: string, maxAttempts: number = 3, delayMs: number = 2000): Promise<{
+    status: 'closed' | 'open' | 'pending' | 'canceled' | 'expired' | 'unknown';
+    executedVolume?: string;
+    executedPrice?: string;
+    error?: string;
+  }> {
+    try {
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        console.log(`[KrakenService] Checking order status (attempt ${attempt}/${maxAttempts}): ${orderId}`);
+
+        // Wait before checking (except first attempt)
+        if (attempt > 1) {
+          await new Promise(resolve => setTimeout(resolve, delayMs));
+        }
+
+        const response = await this.queryOrders([orderId]);
+
+        if (response && response[orderId]) {
+          const order = response[orderId];
+          const status = order.status || 'unknown';
+
+          console.log(`[KrakenService] Order ${orderId} status: ${status}, vol_exec: ${order.vol_exec}`);
+
+          return {
+            status: status as any,
+            executedVolume: order.vol_exec,
+            executedPrice: order.price || order.avg_price,
+          };
+        }
+
+        console.warn(`[KrakenService] Order ${orderId} not found in response, retrying...`);
+      }
+
+      return {
+        status: 'unknown',
+        error: 'Could not retrieve order status after max attempts',
+      };
+    } catch (error: any) {
+      console.error('[KrakenService] Error checking order status:', error);
+      return {
+        status: 'unknown',
+        error: error.message,
+      };
+    }
+  }
+
+  /**
+   * Validate sell order before placement
+   * Combines all critical checks from professional review
+   */
+  async validateSellOrder(pair: string, volume: number): Promise<{
+    valid: boolean;
+    adjustedVolume?: number;
+    error?: string;
+  }> {
+    try {
+      // Check 1: Validate pair format
+      const krakenPair = this.normalizeKrakenPair(pair);
+      if (!krakenPair) {
+        return { valid: false, error: `Invalid pair format: ${pair}` };
+      }
+
+      // Check 2: Get pair info for min order size
+      const pairInfo = await this.getAssetPairs(pair);
+      const minOrderSize = pairInfo.ordermin || 0;
+
+      if (volume < minOrderSize) {
+        return {
+          valid: false,
+          error: `Volume ${volume} below minimum ${minOrderSize} for ${pair}`
+        };
+      }
+
+      // Check 3: Check available balance
+      const balanceCheck = await this.getAvailableBalanceForSell(pair, volume);
+
+      if (!balanceCheck.canSell) {
+        return {
+          valid: false,
+          error: balanceCheck.reason || 'Insufficient balance',
+        };
+      }
+
+      // Check 4: Apply precision
+      const asset = KrakenService.extractKrakenAsset(pair);
+      const precision = KrakenService.getAssetPrecision(asset);
+      const adjustedVolume = parseFloat(balanceCheck.available.toFixed(precision));
+
+      console.log(`[KrakenService] Sell order validation passed: ${pair}, volume: ${adjustedVolume}`);
+
+      return {
+        valid: true,
+        adjustedVolume,
+      };
+    } catch (error: any) {
+      console.error('[KrakenService] Error validating sell order:', error);
+      return {
+        valid: false,
+        error: error.message,
+      };
     }
   }
 

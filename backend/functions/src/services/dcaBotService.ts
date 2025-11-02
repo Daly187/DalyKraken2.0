@@ -468,31 +468,19 @@ export class DCABotService {
       const ticker = await krakenService.getTicker(bot.symbol);
       const currentPrice = ticker.price;
 
-      // Get ACTUAL Kraken balance for this asset (what portfolio page shows)
-      // Extract asset from pair (e.g., "BCH/USD" -> "BCH")
-      const asset = bot.symbol.split('/')[0];
+      // Get ACTUAL Kraken balance for this asset using proper Kraken format
+      // CRITICAL FIX: Use KrakenService.extractKrakenAsset for proper balance lookup
+      const asset = (await import('./krakenService.js')).KrakenService.extractKrakenAsset(bot.symbol);
 
       let krakenBalance = 0;
       try {
         // Use KrakenService to get actual account balance
         const balances = await krakenService.getBalance();
         console.log(`[DCABotService] Kraken balance response:`, balances);
+        console.log(`[DCABotService] Looking for asset: ${asset} (from pair: ${bot.symbol})`);
 
-        // Try exact match first (e.g., "BCH")
+        // Use the properly mapped asset name
         krakenBalance = balances[asset] || 0;
-
-        // If not found, try common Kraken prefixes (e.g., "XBCH", "XXBT" for BTC)
-        if (krakenBalance === 0) {
-          const altAsset1 = `X${asset}`;
-          const altAsset2 = `XX${asset}`;
-          const altAsset3 = `Z${asset}`; // For fiat like ZUSD
-
-          krakenBalance = balances[altAsset1] || balances[altAsset2] || balances[altAsset3] || 0;
-
-          if (krakenBalance > 0) {
-            console.log(`[DCABotService] Found ${asset} balance under alternate name: ${krakenBalance}`);
-          }
-        }
 
         console.log(`[DCABotService] ${bot.symbol} Kraken balance: ${krakenBalance} ${asset}`);
       } catch (error: any) {
