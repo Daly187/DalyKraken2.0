@@ -480,13 +480,17 @@ export class DCABotService {
         console.log(`[DCABotService] Looking for asset: ${asset} (from pair: ${bot.symbol})`);
 
         // CRITICAL FIX: Try multiple possible asset names (Kraken is inconsistent)
-        // For BCH: try BCH, XBCH, XXBCH etc.
+        // For BCH: try BCH, XBCH, XXBCH, BCH.F (flexed), BCH.S (staked), etc.
         const baseAsset = bot.symbol.split('/')[0]; // "BCH" from "BCH/USD"
         const possibleKeys = [
           asset,           // Mapped name (e.g., "BCH")
           baseAsset,       // Display name (e.g., "BCH")
           `X${baseAsset}`, // Single X prefix (e.g., "XBCH")
           `XX${baseAsset}`,// Double X prefix (e.g., "XXBCH")
+          `${baseAsset}.F`, // Flexed staking (e.g., "BCH.F")
+          `${asset}.F`,     // Flexed with mapped name
+          `${baseAsset}.S`, // Staked (e.g., "BCH.S")
+          `${asset}.S`,     // Staked with mapped name
         ];
 
         let balanceString = '0';
