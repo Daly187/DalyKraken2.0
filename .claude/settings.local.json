@@ -15,7 +15,11 @@
       "Bash(git commit:*)",
       "Bash(git mv:*)",
       "Bash(git rm:*)",
-      "Bash(tree:*)"
+      "Bash(tree:*)",
+      "Bash(git remote:*)",
+      "Bash(npm install:*)",
+      "Bash(node utils/testing/check-bch-status.mjs:*)",
+      "Bash(firebase functions:log:*)"
     ],
     "deny": [],
     "ask": []

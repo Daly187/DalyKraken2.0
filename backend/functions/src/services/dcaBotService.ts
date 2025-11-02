@@ -480,7 +480,8 @@ export class DCABotService {
         console.log(`[DCABotService] Looking for asset: ${asset} (from pair: ${bot.symbol})`);
 
         // Use the properly mapped asset name
-        krakenBalance = balances[asset] || 0;
+        // CRITICAL FIX: Parse to number (Kraken returns strings like "0.0000000000")
+        krakenBalance = parseFloat((balances[asset] || 0).toString());
 
         console.log(`[DCABotService] ${bot.symbol} Kraken balance: ${krakenBalance} ${asset}`);
       } catch (error: any) {
