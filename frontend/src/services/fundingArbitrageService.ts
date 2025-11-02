@@ -171,12 +171,23 @@ class FundingArbitrageService {
     const spread = Math.abs(asterRate.rate - hlRate.rate);
 
     // Calculate annualized spread
-    // Aster: 3 payments per day (8hr intervals) = rate * 3 * 365
-    // HyperLiquid: 24 payments per day (hourly) = rate * 24 * 365
-    // Need to normalize to same time period
-    const asterAnnual = asterRate.rate * 3 * 365;
-    const hlAnnual = hlRate.rate * 24 * 365;
-    const annualSpread = Math.abs(asterAnnual - hlAnnual);
+    // CRITICAL FIX: Hyperliquid shows 8-hour rate but pays hourly
+    // Aster: Shows and pays 8-hour rate → 3 payments/day
+    // HyperLiquid: Shows 8-hour rate but pays hourly → need to convert
+
+    // Aster daily payments (8hr rate × 3 payments)
+    const asterDailyPayments = asterRate.rate * 3;
+
+    // Hyperliquid hourly rate = displayed 8hr rate / 8
+    const hlHourlyRate = hlRate.rate / 8;
+    // Hyperliquid daily payments (hourly rate × 24 payments)
+    const hlDailyPayments = hlHourlyRate * 24;
+
+    // Daily spread
+    const dailySpread = Math.abs(asterDailyPayments - hlDailyPayments);
+
+    // Annualized spread
+    const annualSpread = dailySpread * 365;
 
     return {
       canonical: asterRate.symbol, // Assuming both use same canonical format
