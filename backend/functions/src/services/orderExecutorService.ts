@@ -703,22 +703,43 @@ export class OrderExecutorService {
 
       // Only reset if bot is stuck in 'exiting' status
       if (bot.status === 'exiting') {
-        console.log(`[OrderExecutor] Bot ${order.botId} exit failed. Setting to 'exit_failed' with diagnostic info.`);
-
-        // Increment exit attempts counter
+        // Determine if this is a retryable error
+        const isRetryable = this.isRetryableError(error);
         const exitAttempts = (bot.exitAttempts || 0) + 1;
 
-        // Set bot to exit_failed status with detailed diagnostic information
-        await db.collection('dcaBots').doc(order.botId).update({
-          status: 'exit_failed',
-          exitFailureReason: error,
-          exitFailureTime: new Date().toISOString(),
-          exitAttempts: exitAttempts,
-          lastExitAttempt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        });
+        if (isRetryable) {
+          // RETRYABLE ERROR: Keep in 'exiting' status, order queue will auto-retry
+          console.log(`[OrderExecutor] Bot ${order.botId} exit failed with RETRYABLE error (attempt ${exitAttempts}). Will auto-retry.`);
+          console.log(`[OrderExecutor] Error: ${error}`);
 
-        console.log(`[OrderExecutor] ✅ Bot ${order.botId} set to 'exit_failed' (attempt ${exitAttempts}). UI will show diagnostic info.`);
+          // Update bot with retry info but keep status as 'exiting'
+          await db.collection('dcaBots').doc(order.botId).update({
+            exitFailureReason: error,
+            exitFailureTime: new Date().toISOString(),
+            exitAttempts: exitAttempts,
+            lastExitAttempt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            // Keep status as 'exiting' - order will auto-retry
+          });
+
+          console.log(`[OrderExecutor] ✅ Bot ${order.botId} will auto-retry exit (retryable error). Order remains in queue for retry.`);
+        } else {
+          // NON-RETRYABLE ERROR: Mark as permanently failed
+          console.log(`[OrderExecutor] Bot ${order.botId} exit failed with NON-RETRYABLE error (attempt ${exitAttempts}). Setting to 'exit_failed'.`);
+          console.log(`[OrderExecutor] Error: ${error}`);
+
+          // Set bot to exit_failed status - requires manual intervention
+          await db.collection('dcaBots').doc(order.botId).update({
+            status: 'exit_failed',
+            exitFailureReason: error,
+            exitFailureTime: new Date().toISOString(),
+            exitAttempts: exitAttempts,
+            lastExitAttempt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          });
+
+          console.log(`[OrderExecutor] ✅ Bot ${order.botId} set to 'exit_failed' (non-retryable). UI will show diagnostic with manual retry button.`);
+        }
 
         // Log the failed exit in bot executions
         await db.collection('botExecutions').add({

@@ -1473,13 +1473,41 @@ export default function DalyDCA() {
                       {nextAction.message}
                     </p>
 
-                    {/* Exit Failure Diagnostic - Only show if status is exit_failed */}
+                    {/* Exit Status Indicators */}
+                    {/* Auto-Retry in Progress (exiting with failure reason) */}
+                    {bot.status === 'exiting' && bot.exitFailureReason && (
+                      <div className="mt-3 p-3 bg-yellow-900/20 border border-yellow-500/30 rounded">
+                        <div className="flex items-start gap-2">
+                          <RefreshCw className="h-5 w-5 text-yellow-400 flex-shrink-0 mt-0.5 animate-spin" />
+                          <div className="flex-1">
+                            <h4 className="text-sm font-semibold text-yellow-400 mb-1">Auto-Retrying Exit Order</h4>
+                            <p className="text-xs text-yellow-300 mb-2">{bot.exitFailureReason}</p>
+                            <div className="flex items-center gap-4 text-xs text-gray-400">
+                              {bot.exitFailureTime && (
+                                <span className="flex items-center gap-1">
+                                  <Clock className="h-3 w-3" />
+                                  Last attempt: {new Date(bot.exitFailureTime).toLocaleString()}
+                                </span>
+                              )}
+                              {bot.exitAttempts && (
+                                <span>Retry #{bot.exitAttempts}</span>
+                              )}
+                            </div>
+                            <p className="text-xs text-yellow-400 mt-2">
+                              System will automatically retry until success. No action needed.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Permanent Failure - Requires Manual Retry */}
                     {bot.status === 'exit_failed' && bot.exitFailureReason && (
                       <div className="mt-3 p-3 bg-red-900/20 border border-red-500/30 rounded">
                         <div className="flex items-start gap-2">
                           <AlertTriangle className="h-5 w-5 text-red-400 flex-shrink-0 mt-0.5" />
                           <div className="flex-1">
-                            <h4 className="text-sm font-semibold text-red-400 mb-1">Exit Order Failed</h4>
+                            <h4 className="text-sm font-semibold text-red-400 mb-1">Exit Order Failed (Manual Retry Required)</h4>
                             <p className="text-xs text-red-300 mb-2">{bot.exitFailureReason}</p>
                             <div className="flex items-center gap-4 text-xs text-gray-400 mb-3">
                               {bot.exitFailureTime && (
@@ -1489,9 +1517,12 @@ export default function DalyDCA() {
                                 </span>
                               )}
                               {bot.exitAttempts && (
-                                <span>Attempts: {bot.exitAttempts}</span>
+                                <span>Failed attempts: {bot.exitAttempts}</span>
                               )}
                             </div>
+                            <p className="text-xs text-gray-400 mb-3">
+                              This error cannot be auto-retried. Please fix the issue and click retry.
+                            </p>
                             <button
                               onClick={async (e) => {
                                 e.stopPropagation();
