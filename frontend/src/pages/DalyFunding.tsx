@@ -51,6 +51,9 @@ export default function DalyFunding() {
   const [strategyPositions, setStrategyPositions] = useState<StrategyPosition[]>([]);
   const [closedPositions, setClosedPositions] = useState<StrategyPosition[]>([]);
   const [nextRebalanceTime, setNextRebalanceTime] = useState(0);
+  const [isManualRebalancing, setIsManualRebalancing] = useState(false);
+  const [showRebalanceModal, setShowRebalanceModal] = useState(false);
+  const [rebalanceCooldown, setRebalanceCooldown] = useState(0);
   const [asterWallet, setAsterWallet] = useState('');
   const [hyperliquidWallet, setHyperliquidWallet] = useState('');
 
@@ -351,6 +354,21 @@ export default function DalyFunding() {
     }
   }, [isConnected]);
 
+  // Track rebalance cooldown
+  useEffect(() => {
+    if (!strategyEnabled) return;
+
+    const updateCooldown = () => {
+      const status = fundingArbitrageService.getRebalanceStatus();
+      setRebalanceCooldown(status.cooldownRemaining);
+    };
+
+    updateCooldown();
+    const interval = setInterval(updateCooldown, 1000);
+
+    return () => clearInterval(interval);
+  }, [strategyEnabled]);
+
   // Connect to WebSocket feeds on mount
   useEffect(() => {
     console.log('[DalyFunding] Connecting to multi-exchange feeds...');
@@ -503,6 +521,31 @@ export default function DalyFunding() {
       title: 'Strategy Stopped',
       message: 'Auto-arbitrage strategy has been stopped and all positions closed',
     });
+  };
+
+  const handleManualRebalance = async () => {
+    setShowRebalanceModal(false);
+    setIsManualRebalancing(true);
+
+    const { aster: asterRates, hyperliquid: hlRates } = multiExchangeService.getFundingRatesByExchange();
+
+    const result = await fundingArbitrageService.manualRebalance(asterRates, hlRates);
+
+    setIsManualRebalancing(false);
+
+    if (result.success) {
+      addNotification({
+        type: 'success',
+        title: 'Rebalance Complete',
+        message: `Entered: ${result.positionsEntered}, Exited: ${result.positionsExited}, Active: ${strategyPositions.length}/5`,
+      });
+    } else {
+      addNotification({
+        type: 'error',
+        title: 'Rebalance Failed',
+        message: result.error || 'Failed to rebalance positions',
+      });
+    }
   };
 
   const handleAddExcludedSymbol = () => {
@@ -1582,18 +1625,85 @@ export default function DalyFunding() {
                 </div>
               </button>
             ) : (
-              <button
-                type="button"
-                onClick={handleStopStrategy}
-                className="flex-1 relative overflow-hidden px-6 py-4 rounded-xl font-semibold text-white transition-all duration-300 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 shadow-lg shadow-red-500/25 hover:shadow-red-500/40"
-              >
-                <div className="relative flex items-center justify-center gap-2">
+              <>
+                <button
+                  type="button"
+                  onClick={() => setShowRebalanceModal(true)}
+                  disabled={isManualRebalancing || rebalanceCooldown > 0}
+                  className="flex-1 relative overflow-hidden px-6 py-4 rounded-xl font-semibold text-white transition-all duration-300 bg-gradient-to-r from-orange-500 to-yellow-500 hover:from-orange-600 hover:to-yellow-600 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed shadow-lg shadow-orange-500/25 hover:shadow-orange-500/40"
+                >
+                  <div className="relative flex items-center justify-center gap-2">
+                    {isManualRebalancing ? (
+                      <>
+                        <RefreshCw className="h-5 w-5 animate-spin" />
+                        <span>Rebalancing...</span>
+                      </>
+                    ) : rebalanceCooldown > 0 ? (
+                      <>
+                        <Clock className="h-5 w-5" />
+                        <span>Available in {rebalanceCooldown}s</span>
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw className="h-5 w-5" />
+                        <span>Manual Rebalance</span>
+                      </>
+                    )}
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleStopStrategy}
+                  className="flex-1 relative overflow-hidden px-6 py-4 rounded-xl font-semibold text-white transition-all duration-300 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 shadow-lg shadow-red-500/25 hover:shadow-red-500/40"
+                >
+                  <div className="relative flex items-center justify-center gap-2">
                   <AlertCircle className="h-5 w-5" />
                   <span>Stop Strategy & Close All Positions</span>
                 </div>
               </button>
+              </>
             )}
           </div>
+
+          {/* Manual Rebalance Confirmation Modal */}
+          {showRebalanceModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+              <div className="bg-gray-800 border border-gray-700 rounded-xl shadow-2xl max-w-md w-full p-6">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="p-2 rounded-lg bg-orange-500/20">
+                    <RefreshCw className="h-6 w-6 text-orange-400" />
+                  </div>
+                  <h3 className="text-xl font-bold text-white">Manual Rebalance</h3>
+                </div>
+
+                <p className="text-gray-300 mb-6">
+                  This will immediately recalculate the top 5 funding rate spreads and adjust positions accordingly.
+                  This may close existing positions and open new ones.
+                </p>
+
+                <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-3 mb-6">
+                  <p className="text-sm text-yellow-400">
+                    Are you sure you want to rebalance now?
+                  </p>
+                </div>
+
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setShowRebalanceModal(false)}
+                    className="flex-1 px-4 py-2 rounded-lg font-medium bg-gray-700 hover:bg-gray-600 text-white transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleManualRebalance}
+                    className="flex-1 px-4 py-2 rounded-lg font-medium bg-gradient-to-r from-orange-500 to-yellow-500 hover:from-orange-600 hover:to-yellow-600 text-white transition-colors"
+                  >
+                    Confirm Rebalance
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Info Alert */}
           <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4">

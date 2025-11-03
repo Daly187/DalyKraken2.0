@@ -107,6 +107,8 @@ class FundingArbitrageService {
   private positions: Map<string, StrategyPosition> = new Map();
   private rebalanceTimer: NodeJS.Timeout | null = null;
   private lastRebalanceTime: number = 0;
+  private lastManualRebalanceTime: number = 0;
+  private isRebalancing: boolean = false;
   private rebalanceHistory: RebalanceEvent[] = [];
   private closedPositions: StrategyPosition[] = []; // Track closed positions for history
   private spreadMonitorInterval: NodeJS.Timeout | null = null;
@@ -496,6 +498,7 @@ class FundingArbitrageService {
     asterRates: Map<string, FundingRate>,
     hlRates: Map<string, FundingRate>
   ): Promise<void> {
+    this.isRebalancing = true;
     console.log(`[Arbitrage] Starting rebalance...`);
 
     // PRE-TRADE VALIDATION: Check API keys and balances
@@ -582,6 +585,7 @@ class FundingArbitrageService {
     });
 
     this.lastRebalanceTime = Date.now();
+    this.isRebalancing = false;
     console.log(`[Arbitrage] Rebalance complete. Entered: ${positionsEntered.length}, Exited: ${positionsExited.length}`);
 
     // Send Telegram notification
@@ -590,6 +594,96 @@ class FundingArbitrageService {
       positionsExited,
       this.positions.size
     );
+  }
+
+  /**
+   * Manually trigger rebalance outside of automatic schedule
+   */
+  async manualRebalance(
+    asterRates: Map<string, FundingRate>,
+    hlRates: Map<string, FundingRate>
+  ): Promise<{ success: boolean; positionsEntered: number; positionsExited: number; error?: string }> {
+    if (!this.config.enabled) {
+      return {
+        success: false,
+        positionsEntered: 0,
+        positionsExited: 0,
+        error: 'Strategy is not running',
+      };
+    }
+
+    if (this.isRebalancing) {
+      return {
+        success: false,
+        positionsEntered: 0,
+        positionsExited: 0,
+        error: 'Rebalance already in progress',
+      };
+    }
+
+    // Check cooldown (60 seconds since last manual rebalance)
+    const timeSinceLastManual = Date.now() - this.lastManualRebalanceTime;
+    const cooldownMs = 60 * 1000; // 60 seconds
+    if (timeSinceLastManual < cooldownMs) {
+      const remainingSeconds = Math.ceil((cooldownMs - timeSinceLastManual) / 1000);
+      return {
+        success: false,
+        positionsEntered: 0,
+        positionsExited: 0,
+        error: `Cooldown active. Please wait ${remainingSeconds} seconds.`,
+      };
+    }
+
+    console.log(`[Arbitrage] Manual rebalance triggered`);
+    this.isRebalancing = true;
+    this.lastManualRebalanceTime = Date.now();
+
+    try {
+      // Track positions before rebalance
+      const positionsBefore = this.positions.size;
+
+      await this.rebalance(asterRates, hlRates);
+
+      // Calculate what changed
+      const positionsAfter = this.positions.size;
+      const lastRebalance = this.rebalanceHistory[this.rebalanceHistory.length - 1];
+
+      return {
+        success: true,
+        positionsEntered: lastRebalance?.positionsEntered.length || 0,
+        positionsExited: lastRebalance?.positionsExited.length || 0,
+      };
+    } catch (error: any) {
+      console.error(`[Arbitrage] Manual rebalance failed:`, error);
+      this.isRebalancing = false;
+      return {
+        success: false,
+        positionsEntered: 0,
+        positionsExited: 0,
+        error: error.message || 'Rebalance failed',
+      };
+    }
+  }
+
+  /**
+   * Get rebalancing status
+   */
+  getRebalanceStatus(): {
+    isRebalancing: boolean;
+    lastRebalanceTime: number;
+    lastManualRebalanceTime: number;
+    cooldownRemaining: number;
+  } {
+    const timeSinceLastManual = Date.now() - this.lastManualRebalanceTime;
+    const cooldownMs = 60 * 1000;
+    const cooldownRemaining = Math.max(0, cooldownMs - timeSinceLastManual);
+
+    return {
+      isRebalancing: this.isRebalancing,
+      lastRebalanceTime: this.lastRebalanceTime,
+      lastManualRebalanceTime: this.lastManualRebalanceTime,
+      cooldownRemaining: Math.ceil(cooldownRemaining / 1000),
+    };
   }
 
   /**
