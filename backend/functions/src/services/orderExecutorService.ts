@@ -320,16 +320,17 @@ export class OrderExecutorService {
 
           console.log(`[OrderExecutor] Order ${order.id} executed successfully with Kraken order ID: ${result.orderId}`);
 
-          // Update live bot when order completes
+          // Update live bot when order completes and get profit data
+          let profitData = undefined;
           try {
-            await this.updateBotAfterOrderCompletion(order, result);
+            profitData = await this.updateBotAfterOrderCompletion(order, result);
           } catch (error: any) {
             console.warn('[OrderExecutor] Failed to update bot after order completion:', error.message);
           }
 
-          // Send Telegram notification
+          // Send Telegram notification with profit data
           try {
-            await this.sendTelegramNotification(order, result, directKeyInfo);
+            await this.sendTelegramNotification(order, result, directKeyInfo, profitData);
           } catch (error: any) {
             console.warn('[OrderExecutor] Failed to send Telegram notification:', error.message);
           }
@@ -389,17 +390,18 @@ export class OrderExecutorService {
 
           console.log(`[OrderExecutor] Order ${order.id} executed successfully with Kraken order ID: ${result.orderId}`);
 
-          // Update live bot when order completes
+          // Update live bot when order completes and get profit data
+          let profitData = undefined;
           try {
-            await this.updateBotAfterOrderCompletion(order, result);
+            profitData = await this.updateBotAfterOrderCompletion(order, result);
           } catch (error: any) {
             console.warn('[OrderExecutor] Failed to update bot after order completion:', error.message);
             // Don't fail the order if bot update fails
           }
 
-          // Send Telegram notification
+          // Send Telegram notification with profit data
           try {
-            await this.sendTelegramNotification(order, result, apiKey);
+            await this.sendTelegramNotification(order, result, apiKey, profitData);
           } catch (error: any) {
             console.warn('[OrderExecutor] Failed to send Telegram notification:', error.message);
             // Don't fail the order if notification fails
@@ -765,11 +767,12 @@ export class OrderExecutorService {
 
   /**
    * Update bot after order completion
+   * Returns profit data for exit orders to use in Telegram notifications
    */
   private async updateBotAfterOrderCompletion(
     order: PendingOrder,
     result: OrderExecutionResult & { executedPrice?: string; executedVolume?: string }
-  ): Promise<void> {
+  ): Promise<{ profit: number; profitPercent: number; averageEntryPrice: number; totalInvested: number } | undefined> {
     try {
       console.log(`[OrderExecutor] Updating bot ${order.botId} after order completion`);
 
@@ -860,11 +863,13 @@ export class OrderExecutorService {
         });
 
         console.log(`[OrderExecutor] Bot ${order.botId} updated: entry count ${newEntryCount}, avg price ${newAverageEntryPrice.toFixed(2)}, total volume ${newTotalVolume.toFixed(8)}, total invested $${newTotalInvested.toFixed(2)}`);
+
+        return undefined; // No profit data for entry orders
       } else {
         // For sell orders, reset the bot to restart the cycle
         console.log(`[OrderExecutor] Processing SELL order completion for bot ${order.botId}`);
 
-        // Get current bot data to save cycle history
+        // Get current bot data to save cycle history AND calculate profit
         const botDoc = await db.collection('dcaBots').doc(order.botId).get();
         const currentBot = botDoc.data();
 
@@ -911,13 +916,22 @@ export class OrderExecutorService {
 
         console.log(`[OrderExecutor] Successfully deleted ${entriesSnapshot.size} entries for bot ${order.botId}`);
 
-        // Calculate cycle profit
+        // Calculate cycle profit BEFORE resetting bot (for Telegram notification)
         const exitPrice = result.executedPrice ? parseFloat(result.executedPrice) : parseFloat(order.price || '0');
         const totalInvested = currentBot.totalInvested || 0;
         const totalVolume = currentBot.totalVolume || 0;
+        const averageEntryPrice = currentBot.averageEntryPrice || 0;
         const exitValue = exitPrice * totalVolume;
         const profit = exitValue - totalInvested;
         const profitPercent = totalInvested > 0 ? (profit / totalInvested) * 100 : 0;
+
+        // Save profit data to return for Telegram notification
+        const profitData = {
+          profit,
+          profitPercent,
+          averageEntryPrice,
+          totalInvested,
+        };
 
         // Create cycle history record
         const completedCycle = {
@@ -969,6 +983,9 @@ export class OrderExecutorService {
         await db.collection('dcaBots').doc(order.botId).update(resetData);
 
         console.log(`[OrderExecutor] ✅ Bot ${order.botId} successfully reset to active, starting cycle ${newCycleNumber} (${newCycleId})`);
+
+        // Return profit data for Telegram notification
+        return profitData;
       }
     } catch (error: any) {
       console.error(`[OrderExecutor] CRITICAL: Error updating bot ${order.botId} after order completion:`, error.message);
@@ -1007,6 +1024,8 @@ export class OrderExecutorService {
       // Don't throw - order was executed successfully on Kraken
       // Throwing here would cause the order to be marked as failed even though it succeeded
       console.warn(`[OrderExecutor] Order ${order.id} completed on Kraken but bot update failed. Bot may require manual intervention.`);
+
+      return undefined; // No profit data if update failed
     }
   }
 
@@ -1016,7 +1035,8 @@ export class OrderExecutorService {
   private async sendTelegramNotification(
     order: PendingOrder,
     result: OrderExecutionResult & { executedPrice?: string; executedVolume?: string },
-    apiKey: KrakenApiKey
+    apiKey: KrakenApiKey,
+    profitData?: { profit: number; profitPercent: number; averageEntryPrice: number; totalInvested: number }
   ): Promise<void> {
     try {
       // Get balance for notification
@@ -1064,7 +1084,8 @@ export class OrderExecutorService {
             if (!['ZUSD', 'USD', 'USDT', 'USDC', 'DAI', 'BUSD'].includes(asset)) {
               currentPrice = prices[asset] || 0;
               if (!currentPrice) {
-                console.warn(`[OrderExecutor] No price found for asset ${asset}, skipping`);
+                console.warn(`[OrderExecutor] No price found for asset ${asset}, skipping in total calculation`);
+                return sum; // Skip this asset if no price available
               }
             }
 
@@ -1098,30 +1119,16 @@ export class OrderExecutorService {
       const isExit = order.side === 'sell';
 
       if (isExit) {
-        // Get bot data to calculate profit
-        let profit = 0;
-        let profitPercent = 0;
+        // Use profit data passed from updateBotAfterOrderCompletion
+        // This is calculated BEFORE the bot is reset, so it has accurate values
+        const profit = profitData?.profit || 0;
+        const profitPercent = profitData?.profitPercent || 0;
+        const averageEntryPrice = profitData?.averageEntryPrice || 0;
 
-        try {
-          const botDoc = await db.collection('dcaBots').doc(order.botId).get();
-          if (botDoc.exists) {
-            const bot = botDoc.data();
-            if (bot) {
-              const averageEntryPrice = bot.averageEntryPrice || 0;
-              const totalVolume = bot.totalVolume || 0;
-              const totalInvested = bot.totalInvested || 0;
+        console.log(`[OrderExecutor] Exit notification: avg entry ${averageEntryPrice.toFixed(2)}, exit ${price.toFixed(2)}, profit $${profit.toFixed(2)} (${profitPercent.toFixed(2)}%)`);
 
-              // Calculate profit based on average entry price
-              if (averageEntryPrice > 0 && totalVolume > 0) {
-                profit = (price - averageEntryPrice) * totalVolume;
-                profitPercent = ((price - averageEntryPrice) / averageEntryPrice) * 100;
-              }
-
-              console.log(`[OrderExecutor] Exit notification: avg entry ${averageEntryPrice.toFixed(2)}, exit ${price.toFixed(2)}, profit $${profit.toFixed(2)} (${profitPercent.toFixed(2)}%)`);
-            }
-          }
-        } catch (error: any) {
-          console.warn('[OrderExecutor] Failed to get bot data for profit calculation:', error.message);
+        if (!profitData) {
+          console.warn('[OrderExecutor] No profit data provided for exit notification - values will show as $0.00');
         }
 
         // Trade closure notification
