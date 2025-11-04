@@ -87,50 +87,8 @@ class RateLimiter {
 }
 
 class ExchangeTradeService {
-  private paperMode: boolean = false;
-  private paperBalances = {
-    aster: 100,
-    hyperliquid: 100,
-  };
   private rateLimiter = new RateLimiter();
   private hlAssetCache: Map<string, number> = new Map();
-
-  /**
-   * Enable/disable paper trading mode
-   */
-  setPaperMode(enabled: boolean): void {
-    this.paperMode = enabled;
-    if (enabled) {
-      this.paperBalances = {
-        aster: 100,
-        hyperliquid: 100,
-      };
-    }
-    console.log(`[ExchangeTradeService] Paper mode ${enabled ? 'ENABLED' : 'DISABLED'}`);
-  }
-
-  isPaperMode(): boolean {
-    return this.paperMode;
-  }
-
-  getPaperBalances() {
-    return { ...this.paperBalances };
-  }
-
-  /**
-   * Simulate order execution for paper trading
-   */
-  private simulatePaperOrder(params: OrderParams): OrderResult {
-    console.log(`[PAPER] Simulating ${params.side} order for ${params.symbol}: ${params.size} USD @ ${params.price}`);
-
-    return {
-      success: true,
-      orderId: `PAPER-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      price: params.price,
-      size: params.size,
-      filled: true,
-    };
-  }
 
   /**
    * Format size with proper decimal precision
@@ -229,10 +187,6 @@ class ExchangeTradeService {
       };
     } catch (error) {
       console.error('[Hyperliquid] Signature error:', error);
-      // Fallback to placeholder in paper mode
-      if (this.paperMode) {
-        return { r: '0x0', s: '0x0', v: 27 };
-      }
       throw error;
     }
   }
@@ -283,18 +237,6 @@ class ExchangeTradeService {
   async validateTradingReadiness(requiredCapital: number): Promise<ValidationResult> {
     const errors: string[] = [];
     const warnings: string[] = [];
-
-    // In paper mode, skip API key validation and use paper balances
-    if (this.paperMode) {
-      console.log('[ExchangeTradeService] Paper mode - skipping API validation');
-      return {
-        valid: true,
-        errors: [],
-        warnings: ['Running in PAPER MODE - no real trades will be executed'],
-        asterBalance: this.paperBalances.aster,
-        hyperliquidBalance: this.paperBalances.hyperliquid,
-      };
-    }
 
     // LIVE MODE: Check Aster API keys
     const asterApiKey = localStorage.getItem('aster_api_key');
@@ -495,11 +437,6 @@ class ExchangeTradeService {
    * Place a limit order on AsterDEX
    */
   async placeAsterOrder(params: OrderParams): Promise<OrderResult> {
-    // Paper trading mode
-    if (this.paperMode) {
-      return this.simulatePaperOrder(params);
-    }
-
     const { symbol, side, size, price } = params;
 
     try {
@@ -583,11 +520,6 @@ class ExchangeTradeService {
    * Place a limit order on HyperLiquid
    */
   async placeHyperliquidOrder(params: OrderParams): Promise<OrderResult> {
-    // Paper trading mode
-    if (this.paperMode) {
-      return this.simulatePaperOrder(params);
-    }
-
     const { symbol, side, size, price } = params;
 
     try {

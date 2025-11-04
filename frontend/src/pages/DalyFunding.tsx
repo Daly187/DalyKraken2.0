@@ -42,7 +42,6 @@ export default function DalyFunding() {
 
   // Auto-Strategy State
   const [strategyEnabled, setStrategyEnabled] = useState(false);
-  const [paperMode, setPaperMode] = useState(true); // Default to paper mode for testing
   const [totalCapital, setTotalCapital] = useState(10000);
   const [minSpreadThreshold, setMinSpreadThreshold] = useState(0.5);
   const [excludedSymbols, setExcludedSymbols] = useState<string[]>([]);
@@ -61,10 +60,6 @@ export default function DalyFunding() {
   const [asterBalance, setAsterBalance] = useState(0);
   const [hyperliquidBalance, setHyperliquidBalance] = useState(0);
   const [loadingBalances, setLoadingBalances] = useState(false);
-
-  // Paper trading balances
-  const [paperAsterBalance, setPaperAsterBalance] = useState(100);
-  const [paperHyperliquidBalance, setPaperHyperliquidBalance] = useState(100);
   const [asterBalanceError, setAsterBalanceError] = useState<string | null>(null);
   const [hyperliquidBalanceError, setHyperliquidBalanceError] = useState<string | null>(null);
 
@@ -490,7 +485,6 @@ export default function DalyFunding() {
 
     // Update configuration
     fundingArbitrageService.updateConfig({
-      paperMode,
       totalCapital,
       minSpreadThreshold,
       excludedSymbols,
@@ -594,63 +588,6 @@ export default function DalyFunding() {
 
   return (
     <div className="space-y-6">
-      {/* Paper/Live Mode Toggle */}
-      <div className="card bg-gradient-to-r from-yellow-500/10 to-orange-500/10 border-yellow-500/30">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className={`h-12 w-12 rounded-xl flex items-center justify-center ${
-              paperMode ? 'bg-yellow-500/20' : 'bg-green-500/20'
-            }`}>
-              {paperMode ? (
-                <span className="text-2xl">📝</span>
-              ) : (
-                <span className="text-2xl">🔴</span>
-              )}
-            </div>
-            <div>
-              <h3 className="text-lg font-bold text-white">
-                {paperMode ? 'Paper Trading Mode' : 'Live Trading Mode'}
-              </h3>
-              <p className="text-xs text-gray-400">
-                {paperMode
-                  ? 'Testing with $100 per exchange • No real money at risk'
-                  : 'Live trading with real money • Actual trades executed'}
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            {paperMode && (
-              <div className="text-right mr-4">
-                <div className="text-xs text-gray-400 mb-1">Paper Balances</div>
-                <div className="flex items-center gap-3">
-                  <div>
-                    <span className="text-xs text-cyan-400 font-medium">Aster: </span>
-                    <span className="text-sm font-bold text-white">${paperAsterBalance.toFixed(2)}</span>
-                  </div>
-                  <div>
-                    <span className="text-xs text-purple-400 font-medium">HL: </span>
-                    <span className="text-sm font-bold text-white">${paperHyperliquidBalance.toFixed(2)}</span>
-                  </div>
-                </div>
-              </div>
-            )}
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                checked={!paperMode}
-                onChange={(e) => setPaperMode(!e.target.checked)}
-                disabled={strategyEnabled}
-                className="sr-only peer"
-              />
-              <div className="w-20 h-10 bg-gray-700 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-yellow-500/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-1 after:left-[4px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-8 after:w-8 after:transition-all peer-checked:bg-green-500 peer-disabled:opacity-50 peer-disabled:cursor-not-allowed"></div>
-              <span className="ml-3 text-sm font-medium text-gray-300">
-                {paperMode ? 'Paper' : 'LIVE'}
-              </span>
-            </label>
-          </div>
-        </div>
-      </div>
-
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>

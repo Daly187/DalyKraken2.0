@@ -19,7 +19,9 @@
       "Bash(git remote:*)",
       "Bash(npm install:*)",
       "Bash(node utils/testing/check-bch-status.mjs:*)",
-      "Bash(firebase functions:log:*)"
+      "Bash(firebase functions:log:*)",
+      "Bash(GOOGLE_APPLICATION_CREDENTIALS=\"../../serviceAccountKey.json\" node:*)",
+      "Bash(git log:*)"
     ],
     "deny": [],
     "ask": []
