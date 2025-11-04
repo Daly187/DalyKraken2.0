@@ -332,6 +332,99 @@ export class DCABotService {
   }
 
   /**
+   * Ensure sufficient USD liquidity by converting ETH if needed
+   * @param krakenService KrakenService instance with user credentials
+   * @param requiredUSD Amount of USD needed for the trade
+   * @param symbol Trading pair symbol (for logging)
+   * @returns Success status and error message if failed
+   */
+  private async ensureUSDLiquidity(
+    krakenService: KrakenService,
+    requiredUSD: number,
+    symbol: string
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      // 1. Get current USD balance
+      const balances = await krakenService.getBalance();
+      const usdBalance = parseFloat(balances['ZUSD'] || '0');
+
+      console.log(`[DCABotService] USD liquidity check for ${symbol}: required=$${requiredUSD.toFixed(2)}, available=$${usdBalance.toFixed(2)}`);
+
+      if (usdBalance >= requiredUSD) {
+        console.log(`[DCABotService] ✅ Sufficient USD balance - no conversion needed`);
+        return { success: true }; // Sufficient USD
+      }
+
+      // 2. Calculate USD shortage and apply 10% buffer
+      const usdShortage = requiredUSD - usdBalance;
+      const usdNeededWithBuffer = usdShortage * 1.10; // Add 10% buffer
+
+      console.log(`[DCABotService] 💡 USD shortage: $${usdShortage.toFixed(2)}, with 10% buffer: $${usdNeededWithBuffer.toFixed(2)}`);
+
+      // 3. Get ETH balance and current price
+      const ethBalance = parseFloat(balances['XETH'] || '0');
+      const ethTicker = await krakenService.getTicker('ETH/USD');
+      const ethPrice = ethTicker.price;
+
+      // Calculate ETH needed (with extra 2% for trading fees)
+      const ethNeeded = (usdNeededWithBuffer * 1.02) / ethPrice;
+
+      console.log(`[DCABotService] ETH check: available=${ethBalance.toFixed(6)} ETH, needed=${ethNeeded.toFixed(6)} ETH at $${ethPrice.toFixed(2)}`);
+
+      if (ethBalance < ethNeeded) {
+        const totalAvailable = usdBalance + (ethBalance * ethPrice);
+        return {
+          success: false,
+          error: `Insufficient funds: need $${requiredUSD.toFixed(2)} USD, but only have $${usdBalance.toFixed(2)} USD + ${ethBalance.toFixed(6)} ETH ($${(ethBalance * ethPrice).toFixed(2)}) = $${totalAvailable.toFixed(2)} total`
+        };
+      }
+
+      // 4. Execute ETH→USD conversion on Kraken
+      console.log(`[DCABotService] 🔄 Converting ${ethNeeded.toFixed(6)} ETH to USD for ${symbol} purchase (target: $${usdNeededWithBuffer.toFixed(2)} USD)`);
+
+      const sellResult = await krakenService.placeSellOrder(
+        'ETH/USD',
+        ethNeeded,
+        'market'
+      );
+
+      if (!sellResult || !sellResult.txid || sellResult.txid.length === 0) {
+        return {
+          success: false,
+          error: 'ETH→USD conversion failed: no transaction ID returned from Kraken'
+        };
+      }
+
+      const txid = sellResult.txid[0];
+      const usdReceived = ethNeeded * ethPrice; // Approximate (actual may vary slightly)
+
+      console.log(`[DCABotService] ✅ Successfully converted ${ethNeeded.toFixed(6)} ETH to ~$${usdReceived.toFixed(2)} USD (txid: ${txid})`);
+
+      // 5. Wait briefly for Kraken to settle the trade (usually very fast)
+      console.log(`[DCABotService] ⏳ Waiting 2 seconds for trade settlement...`);
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      // 6. Verify new USD balance
+      const newBalances = await krakenService.getBalance();
+      const newUsdBalance = parseFloat(newBalances['ZUSD'] || '0');
+      console.log(`[DCABotService] 💰 New USD balance: $${newUsdBalance.toFixed(2)} (was: $${usdBalance.toFixed(2)})`);
+
+      if (newUsdBalance < requiredUSD) {
+        console.warn(`[DCABotService] ⚠️  USD balance still insufficient after conversion. This may be due to settlement delay or fees. Proceeding anyway...`);
+      }
+
+      return { success: true };
+
+    } catch (error: any) {
+      console.error('[DCABotService] ❌ Error ensuring USD liquidity:', error);
+      return {
+        success: false,
+        error: `Liquidity management failed: ${error.message}`
+      };
+    }
+  }
+
+  /**
    * Execute a buy order for a bot
    */
   async executeEntry(
@@ -358,6 +451,25 @@ export class DCABotService {
 
       // Calculate quantity to buy
       const quantity = orderAmount / currentPrice;
+
+      // CRITICAL: Ensure sufficient USD liquidity before creating order
+      // This will automatically convert ETH→USD on Kraken if needed
+      console.log(`[DCABotService] Checking USD liquidity for $${orderAmount} ${bot.symbol} purchase...`);
+      const liquidityCheck = await this.ensureUSDLiquidity(
+        krakenService,
+        orderAmount,
+        bot.symbol
+      );
+
+      if (!liquidityCheck.success) {
+        console.error(`[DCABotService] ❌ Liquidity check failed: ${liquidityCheck.error}`);
+        return {
+          success: false,
+          error: liquidityCheck.error
+        };
+      }
+
+      console.log(`[DCABotService] ✅ Liquidity check passed - proceeding with order creation`);
 
       // Create pending order in queue instead of executing directly
       const pendingOrder = await orderQueueService.createOrder({
