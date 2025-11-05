@@ -129,6 +129,7 @@ export class OrderExecutorService {
       console.log(`[OrderExecutor] Execution cycle complete: ${processed} processed, ${successful} successful, ${failed} failed, ${stuckReset} stuck reset`);
     } catch (error: any) {
       console.error('[OrderExecutor] Error in execution cycle:', error.message);
+      console.error('[OrderExecutor] Error stack:', error.stack);
     }
 
     return { processed, successful, failed, stuckReset };
