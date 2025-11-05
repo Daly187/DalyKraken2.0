@@ -584,10 +584,12 @@ export class OrderQueueService {
 
     stuckOrders.forEach((doc) => {
       const order = doc.data() as PendingOrder;
-      const retryDelay = this.calculateRetryDelay(order.attempts + 1);
+      // CRITICAL FIX: Ensure attempts is a valid number, default to 0 if undefined/null
+      const attempts = typeof order.attempts === 'number' && !isNaN(order.attempts) ? order.attempts : 0;
+      const retryDelay = this.calculateRetryDelay(attempts + 1);
       const nextRetryAt = new Date(Date.now() + retryDelay * 1000).toISOString();
 
-      console.log(`[OrderQueue] Resetting stuck order ${order.id} (stuck since ${order.updatedAt})`);
+      console.log(`[OrderQueue] Resetting stuck order ${order.id} (stuck since ${order.updatedAt}, attempts: ${attempts})`);
 
       batch.update(doc.ref, {
         status: OrderStatus.RETRY,
