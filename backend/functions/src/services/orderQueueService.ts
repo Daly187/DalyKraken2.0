@@ -584,6 +584,14 @@ export class OrderQueueService {
 
     stuckOrders.forEach((doc) => {
       const order = doc.data() as PendingOrder;
+
+      // CRITICAL FIX: Skip orders with invalid/missing IDs (corrupted data)
+      if (!order.id || typeof order.id !== 'string') {
+        console.warn(`[OrderQueue] Skipping corrupted stuck order with invalid ID (docId: ${doc.id}, stuck since: ${order.updatedAt}). Deleting from database.`);
+        batch.delete(doc.ref); // Clean up corrupted order
+        return;
+      }
+
       // CRITICAL FIX: Ensure attempts is a valid number, default to 0 if undefined/null
       const attempts = typeof order.attempts === 'number' && !isNaN(order.attempts) ? order.attempts : 0;
       const retryDelay = this.calculateRetryDelay(attempts + 1);
