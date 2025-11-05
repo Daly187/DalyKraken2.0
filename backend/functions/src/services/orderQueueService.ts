@@ -174,9 +174,16 @@ export class OrderQueueService {
 
       // Check if order is ready for retry
       if (order.status === OrderStatus.RETRY && order.nextRetryAt) {
-        const retryTime = new Date(order.nextRetryAt);
-        if (retryTime > now) {
-          return; // Not ready yet
+        try {
+          const retryTime = new Date(order.nextRetryAt);
+          // Validate the date is valid
+          if (isNaN(retryTime.getTime())) {
+            console.warn(`[OrderQueue] Order ${order.id} has invalid nextRetryAt: ${order.nextRetryAt}, allowing execution`);
+          } else if (retryTime > now) {
+            return; // Not ready yet
+          }
+        } catch (error: any) {
+          console.warn(`[OrderQueue] Error parsing nextRetryAt for order ${order.id}: ${error.message}, allowing execution`);
         }
       }
 
@@ -185,7 +192,18 @@ export class OrderQueueService {
 
     // Sort by createdAt in memory (oldest first) and limit
     return orders
-      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+      .sort((a, b) => {
+        try {
+          const timeA = new Date(a.createdAt).getTime();
+          const timeB = new Date(b.createdAt).getTime();
+          // Handle invalid dates by pushing them to the end
+          if (isNaN(timeA)) return 1;
+          if (isNaN(timeB)) return -1;
+          return timeA - timeB;
+        } catch (error) {
+          return 0; // Keep original order if comparison fails
+        }
+      })
       .slice(0, limit);
   }
 
