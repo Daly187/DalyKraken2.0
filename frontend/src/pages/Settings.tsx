@@ -121,6 +121,10 @@ export default function Settings() {
   const [showSecrets, setShowSecrets] = useState<{ [key: string]: boolean }>({});
   const [saving, setSaving] = useState(false);
 
+  // Test connection states
+  const [testing, setTesting] = useState<{ [key: string]: boolean }>({});
+  const [testResults, setTestResults] = useState<{ [key: string]: { success: boolean; message: string } | null }>({});
+
   // Load saved settings on mount
   useEffect(() => {
     loadSavedSettings();
@@ -517,6 +521,137 @@ export default function Settings() {
       });
     } finally {
       setSaving(false);
+    }
+  };
+
+  const testAsterConnection = async () => {
+    if (!asterApiKey || !asterApiSecret) {
+      addNotification({
+        type: 'error',
+        title: 'Missing Credentials',
+        message: 'Please enter both AsterDEX API key and secret',
+      });
+      return;
+    }
+
+    setTesting((prev) => ({ ...prev, aster: true }));
+    setTestResults((prev) => ({ ...prev, aster: null }));
+
+    try {
+      // Test connection by fetching account info
+      const timestamp = Date.now();
+      const params = `timestamp=${timestamp}`;
+
+      // Create HMAC signature
+      const crypto = await import('crypto-js');
+      const signature = crypto.default.HmacSHA256(params, asterApiSecret).toString();
+
+      const response = await fetch(`https://fapi.asterdex.com/fapi/v1/account?${params}&signature=${signature}`, {
+        method: 'GET',
+        headers: {
+          'X-MBX-APIKEY': asterApiKey,
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setTestResults((prev) => ({ ...prev, aster: { success: true, message: `Connected! Balance: $${data.totalWalletBalance || '0'}` } }));
+        addNotification({
+          type: 'success',
+          title: 'AsterDEX Connected',
+          message: 'API credentials are valid',
+        });
+      } else {
+        const error = await response.text();
+        setTestResults((prev) => ({ ...prev, aster: { success: false, message: `Failed: ${error}` } }));
+        addNotification({
+          type: 'error',
+          title: 'Connection Failed',
+          message: 'Invalid AsterDEX API credentials',
+        });
+      }
+    } catch (error: any) {
+      setTestResults((prev) => ({ ...prev, aster: { success: false, message: error.message } }));
+      addNotification({
+        type: 'error',
+        title: 'Connection Failed',
+        message: error.message || 'Failed to connect to AsterDEX',
+      });
+    } finally {
+      setTesting((prev) => ({ ...prev, aster: false }));
+    }
+  };
+
+  const testHyperliquidConnection = async () => {
+    if (!hyperliquidWalletAddress) {
+      addNotification({
+        type: 'error',
+        title: 'Missing Address',
+        message: 'Please enter HyperLiquid wallet address',
+      });
+      return;
+    }
+
+    setTesting((prev) => ({ ...prev, hyperliquid: true }));
+    setTestResults((prev) => ({ ...prev, hyperliquid: null }));
+
+    try {
+      // Test by fetching account state (doesn't require private key)
+      const response = await fetch('https://api.hyperliquid.xyz/info', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'clearinghouseState',
+          user: hyperliquidWalletAddress
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const balance = data.marginSummary?.accountValue || '0';
+
+        // Also check spot balance
+        const spotResponse = await fetch('https://api.hyperliquid.xyz/info', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: 'spotClearinghouseState',
+            user: hyperliquidWalletAddress
+          }),
+        });
+
+        let spotBalance = 0;
+        if (spotResponse.ok) {
+          const spotData = await spotResponse.json();
+          const usdcBalance = spotData.balances?.find((b: any) => b.coin === 'USDC');
+          spotBalance = parseFloat(usdcBalance?.total || '0');
+        }
+
+        const totalBalance = parseFloat(balance) + spotBalance;
+
+        setTestResults((prev) => ({ ...prev, hyperliquid: { success: true, message: `Connected! Total: $${totalBalance.toFixed(2)} (Perps: $${balance}, Spot: $${spotBalance.toFixed(2)})` } }));
+        addNotification({
+          type: 'success',
+          title: 'HyperLiquid Connected',
+          message: `Wallet found with $${totalBalance.toFixed(2)} total balance`,
+        });
+      } else {
+        setTestResults((prev) => ({ ...prev, hyperliquid: { success: false, message: 'Invalid wallet address' } }));
+        addNotification({
+          type: 'error',
+          title: 'Connection Failed',
+          message: 'Invalid HyperLiquid wallet address',
+        });
+      }
+    } catch (error: any) {
+      setTestResults((prev) => ({ ...prev, hyperliquid: { success: false, message: error.message } }));
+      addNotification({
+        type: 'error',
+        title: 'Connection Failed',
+        message: error.message || 'Failed to connect to HyperLiquid',
+      });
+    } finally {
+      setTesting((prev) => ({ ...prev, hyperliquid: false }));
     }
   };
 
@@ -1135,6 +1270,18 @@ export default function Settings() {
                       {showSecrets['aster-key'] ? 'Hide' : 'Show'} Key
                     </button>
                     <button
+                      onClick={testAsterConnection}
+                      disabled={testing.aster || !asterApiKey || !asterApiSecret}
+                      className="btn btn-secondary btn-sm flex items-center gap-2"
+                    >
+                      {testing.aster ? (
+                        <RefreshCw className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Shield className="h-3 w-3" />
+                      )}
+                      Test Connection
+                    </button>
+                    <button
                       onClick={saveAsterConfig}
                       disabled={saving || !asterApiKey || !asterApiSecret}
                       className="btn btn-primary btn-sm flex items-center gap-2"
@@ -1147,6 +1294,13 @@ export default function Settings() {
                       Save Aster Config
                     </button>
                   </div>
+                  {testResults.aster && (
+                    <div className={`mt-2 p-3 rounded-lg ${testResults.aster.success ? 'bg-green-500/10 border border-green-500/30' : 'bg-red-500/10 border border-red-500/30'}`}>
+                      <p className={`text-sm ${testResults.aster.success ? 'text-green-400' : 'text-red-400'}`}>
+                        {testResults.aster.message}
+                      </p>
+                    </div>
+                  )}
                 </div>
               </>
             )}
@@ -1219,6 +1373,18 @@ export default function Settings() {
                       {showSecrets['hyperliquid-key'] ? 'Hide' : 'Show'} Key
                     </button>
                     <button
+                      onClick={testHyperliquidConnection}
+                      disabled={testing.hyperliquid || !hyperliquidWalletAddress}
+                      className="btn btn-secondary btn-sm flex items-center gap-2"
+                    >
+                      {testing.hyperliquid ? (
+                        <RefreshCw className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Shield className="h-3 w-3" />
+                      )}
+                      Test Connection
+                    </button>
+                    <button
                       onClick={saveHyperliquidConfig}
                       disabled={saving || !hyperliquidPrivateKey || !hyperliquidWalletAddress}
                       className="btn btn-primary btn-sm flex items-center gap-2"
@@ -1231,6 +1397,13 @@ export default function Settings() {
                       Save Hyperliquid Config
                     </button>
                   </div>
+                  {testResults.hyperliquid && (
+                    <div className={`mt-2 p-3 rounded-lg ${testResults.hyperliquid.success ? 'bg-green-500/10 border border-green-500/30' : 'bg-red-500/10 border border-red-500/30'}`}>
+                      <p className={`text-sm ${testResults.hyperliquid.success ? 'text-green-400' : 'text-red-400'}`}>
+                        {testResults.hyperliquid.message}
+                      </p>
+                    </div>
+                  )}
                 </div>
               </>
             )}
