@@ -596,7 +596,7 @@ export default function Settings() {
     setTestResults((prev) => ({ ...prev, hyperliquid: null }));
 
     try {
-      // Test by fetching account state (doesn't require private key)
+      // Fetch clearinghouseState (includes both perps and spot in single response)
       const response = await fetch('https://api.hyperliquid.xyz/info', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -608,28 +608,36 @@ export default function Settings() {
 
       if (response.ok) {
         const data = await response.json();
-        const balance = data.marginSummary?.accountValue || '0';
 
-        // Also check spot balance
-        const spotResponse = await fetch('https://api.hyperliquid.xyz/info', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            type: 'spotClearinghouseState',
-            user: hyperliquidWalletAddress
-          }),
-        });
-
+        let perpsBalance = 0;
         let spotBalance = 0;
-        if (spotResponse.ok) {
-          const spotData = await spotResponse.json();
-          const usdcBalance = spotData.balances?.find((b: any) => b.coin === 'USDC');
-          spotBalance = parseFloat(usdcBalance?.total || '0');
+
+        // Check perps balance (marginSummary.accountValue)
+        if (data?.marginSummary?.accountValue) {
+          perpsBalance = parseFloat(data.marginSummary.accountValue);
         }
 
-        const totalBalance = parseFloat(balance) + spotBalance;
+        // Check spot balance - can be in spotState.balances or assetPositions
+        if (data?.spotState?.balances) {
+          const usdcBalance = data.spotState.balances.find((b: any) => b.coin === 'USDC');
+          if (usdcBalance?.total) {
+            spotBalance = parseFloat(usdcBalance.total);
+          }
+        }
 
-        setTestResults((prev) => ({ ...prev, hyperliquid: { success: true, message: `Connected! Total: $${totalBalance.toFixed(2)} (Perps: $${balance}, Spot: $${spotBalance.toFixed(2)})` } }));
+        // Also check assetPositions for USDC
+        if (data?.assetPositions && Array.isArray(data.assetPositions)) {
+          data.assetPositions.forEach((asset: any) => {
+            if (asset.position?.coin === 'USDC') {
+              const usdcAmount = parseFloat(asset.position.szi || '0');
+              if (!spotBalance) spotBalance = usdcAmount; // Use if not already found in spotState
+            }
+          });
+        }
+
+        const totalBalance = perpsBalance + spotBalance;
+
+        setTestResults((prev) => ({ ...prev, hyperliquid: { success: true, message: `Connected! Total: $${totalBalance.toFixed(2)} (Perps: $${perpsBalance.toFixed(2)}, Spot: $${spotBalance.toFixed(2)})` } }));
         addNotification({
           type: 'success',
           title: 'HyperLiquid Connected',

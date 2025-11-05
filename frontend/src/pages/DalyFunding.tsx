@@ -162,7 +162,7 @@ export default function DalyFunding() {
       // HyperLiquid balance fetch
       if (hyperliquidWallet) {
         try {
-          // Fetch perps account (clearinghouseState)
+          // Fetch clearinghouseState (includes both perps and spot)
           const hlResponse = await fetch('https://api.hyperliquid.xyz/info', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -173,44 +173,57 @@ export default function DalyFunding() {
           });
           const hlData = await hlResponse.json();
 
-          // Also fetch spot balances
-          const spotResponse = await fetch('https://api.hyperliquid.xyz/info', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              type: 'spotClearinghouseState',
-              user: hyperliquidWallet
-            }),
-          });
-          const spotData = await spotResponse.json();
-
-          // Combine responses for debugging
-          setHlApiResponse({ perps: hlData, spot: spotData });
-          console.log('[DalyFunding] Hyperliquid perps response:', JSON.stringify(hlData, null, 2));
-          console.log('[DalyFunding] Hyperliquid spot response:', JSON.stringify(spotData, null, 2));
+          // Store for debugging
+          setHlApiResponse(hlData);
+          console.log('[DalyFunding] Full Hyperliquid response:', JSON.stringify(hlData, null, 2));
 
           let totalBalance = 0;
+          let perpsBalance = 0;
+          let spotBalance = 0;
 
-          // Check perps balance
-          if (hlData && hlData.marginSummary && hlData.marginSummary.accountValue) {
-            const perpsBalance = parseFloat(hlData.marginSummary.accountValue);
+          // Check perps balance (marginSummary.accountValue)
+          if (hlData?.marginSummary?.accountValue) {
+            perpsBalance = parseFloat(hlData.marginSummary.accountValue);
             totalBalance += perpsBalance;
-            console.log('[DalyFunding] Perps balance:', perpsBalance);
+            console.log('[DalyFunding] Perps balance (accountValue):', perpsBalance);
           }
 
-          // Check spot balance (USDC balance)
-          if (spotData && spotData.balances) {
-            const usdcBalance = spotData.balances.find((b: any) => b.coin === 'USDC');
-            if (usdcBalance && usdcBalance.total) {
-              const spotUsdcBalance = parseFloat(usdcBalance.total);
-              totalBalance += spotUsdcBalance;
-              console.log('[DalyFunding] Spot USDC balance:', spotUsdcBalance);
+          // Check withdrawable (available balance)
+          if (hlData?.withdrawable) {
+            console.log('[DalyFunding] Withdrawable:', hlData.withdrawable);
+          }
+
+          // Check spot balance - nested in crossMarginSummary or spotState
+          if (hlData?.crossMarginSummary) {
+            console.log('[DalyFunding] Cross margin summary:', JSON.stringify(hlData.crossMarginSummary, null, 2));
+          }
+
+          // Check assetPositions for spot holdings
+          if (hlData?.assetPositions && Array.isArray(hlData.assetPositions)) {
+            hlData.assetPositions.forEach((asset: any) => {
+              if (asset.position?.coin === 'USDC') {
+                const usdcAmount = parseFloat(asset.position.szi || '0');
+                spotBalance += usdcAmount;
+                console.log('[DalyFunding] USDC from assetPositions:', usdcAmount);
+              }
+            });
+          }
+
+          // Also try the nested spotState structure (from subaccounts example)
+          if (hlData?.spotState?.balances) {
+            const usdcBalance = hlData.spotState.balances.find((b: any) => b.coin === 'USDC');
+            if (usdcBalance?.total) {
+              const usdcAmount = parseFloat(usdcBalance.total);
+              spotBalance = usdcAmount; // Use this instead of assetPositions if available
+              console.log('[DalyFunding] USDC from spotState.balances:', usdcAmount);
             }
           }
 
+          totalBalance += spotBalance;
+
           setHyperliquidBalance(totalBalance);
           setHyperliquidBalanceError(null);
-          console.log('[DalyFunding] Total Hyperliquid balance:', totalBalance);
+          console.log('[DalyFunding] Balances - Perps:', perpsBalance, 'Spot:', spotBalance, 'Total:', totalBalance);
         } catch (hlError) {
           console.error('[DalyFunding] Error fetching Hyperliquid balance:', hlError);
           setHyperliquidBalance(0);

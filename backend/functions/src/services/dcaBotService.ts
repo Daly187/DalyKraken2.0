@@ -203,9 +203,11 @@ export class DCABotService {
         botData.stepPercent,
         botData.stepMultiplier
       );
-      // IMPORTANT: Always calculate from CURRENT price (not last entry price)
-      // This ensures DCA is always entering BELOW current market price
-      nextEntryPrice = currentPrice * (1 - nextStepPercent / 100);
+      // IMPORTANT: Calculate from LAST ENTRY price (not current price)
+      // This creates a FIXED target that doesn't move with market fluctuations
+      // The bot will enter when price drops to this level, regardless of interim price movements
+      const lastFilledEntry = filledEntries[filledEntries.length - 1];
+      nextEntryPrice = lastFilledEntry.price * (1 - nextStepPercent / 100);
     } else {
       // First entry: calculate one step down from current price
       nextEntryPrice = currentPrice * (1 - botData.stepPercent / 100);
