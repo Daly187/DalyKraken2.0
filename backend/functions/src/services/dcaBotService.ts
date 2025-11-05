@@ -362,7 +362,20 @@ export class DCABotService {
       console.log(`[DCABotService] 💡 USD shortage: $${usdShortage.toFixed(2)}, with 10% buffer: $${usdNeededWithBuffer.toFixed(2)}`);
 
       // 3. Get ETH balance and current price
-      const ethBalance = parseFloat(balances['XETH'] || '0');
+      // CRITICAL: Check for ETH in multiple forms (standard, flexed, staked)
+      const possibleEthKeys = ['XETH', 'ETH', 'ETH.F', 'XETH.F', 'ETH.S', 'XETH.S'];
+      let ethBalance = 0;
+      const foundEthKeys: string[] = [];
+      for (const key of possibleEthKeys) {
+        if (balances[key]) {
+          const keyBalance = parseFloat(balances[key]);
+          ethBalance += keyBalance;
+          foundEthKeys.push(`${key}=${keyBalance.toFixed(6)}`);
+        }
+      }
+
+      console.log(`[DCABotService] 💰 ETH balance sources: ${foundEthKeys.length > 0 ? foundEthKeys.join(', ') : 'none found'} (total: ${ethBalance.toFixed(6)} ETH)`);
+
       const ethTicker = await krakenService.getTicker('ETH/USD');
       const ethPrice = ethTicker.price;
 
