@@ -62,6 +62,7 @@ export default function DalyFunding() {
   const [loadingBalances, setLoadingBalances] = useState(false);
   const [asterBalanceError, setAsterBalanceError] = useState<string | null>(null);
   const [hyperliquidBalanceError, setHyperliquidBalanceError] = useState<string | null>(null);
+  const [hlApiResponse, setHlApiResponse] = useState<any>(null); // Debug: store HL API response
 
   // Legacy Strategy Configuration (keep for backward compatibility)
   const [positionSize, setPositionSize] = useState(100);
@@ -161,6 +162,7 @@ export default function DalyFunding() {
       // HyperLiquid balance fetch
       if (hyperliquidWallet) {
         try {
+          // Fetch perps account (clearinghouseState)
           const hlResponse = await fetch('https://api.hyperliquid.xyz/info', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -170,16 +172,49 @@ export default function DalyFunding() {
             }),
           });
           const hlData = await hlResponse.json();
+
+          // Also fetch spot balances
+          const spotResponse = await fetch('https://api.hyperliquid.xyz/info', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              type: 'spotClearinghouseState',
+              user: hyperliquidWallet
+            }),
+          });
+          const spotData = await spotResponse.json();
+
+          // Combine responses for debugging
+          setHlApiResponse({ perps: hlData, spot: spotData });
+          console.log('[DalyFunding] Hyperliquid perps response:', JSON.stringify(hlData, null, 2));
+          console.log('[DalyFunding] Hyperliquid spot response:', JSON.stringify(spotData, null, 2));
+
+          let totalBalance = 0;
+
+          // Check perps balance
           if (hlData && hlData.marginSummary && hlData.marginSummary.accountValue) {
-            setHyperliquidBalance(parseFloat(hlData.marginSummary.accountValue));
-            console.log('[DalyFunding] Hyperliquid balance:', hlData.marginSummary.accountValue);
-          } else {
-            console.warn('[DalyFunding] Invalid Hyperliquid response:', hlData);
-            setHyperliquidBalance(0);
+            const perpsBalance = parseFloat(hlData.marginSummary.accountValue);
+            totalBalance += perpsBalance;
+            console.log('[DalyFunding] Perps balance:', perpsBalance);
           }
+
+          // Check spot balance (USDC balance)
+          if (spotData && spotData.balances) {
+            const usdcBalance = spotData.balances.find((b: any) => b.coin === 'USDC');
+            if (usdcBalance && usdcBalance.total) {
+              const spotUsdcBalance = parseFloat(usdcBalance.total);
+              totalBalance += spotUsdcBalance;
+              console.log('[DalyFunding] Spot USDC balance:', spotUsdcBalance);
+            }
+          }
+
+          setHyperliquidBalance(totalBalance);
+          setHyperliquidBalanceError(null);
+          console.log('[DalyFunding] Total Hyperliquid balance:', totalBalance);
         } catch (hlError) {
           console.error('[DalyFunding] Error fetching Hyperliquid balance:', hlError);
           setHyperliquidBalance(0);
+          setHyperliquidBalanceError('Failed to fetch balance');
         }
       } else {
         setHyperliquidBalance(0);
@@ -2302,6 +2337,19 @@ export default function DalyFunding() {
                 <div className="text-white">loadingBalances: {loadingBalances.toString()}</div>
                 <div className="text-white">asterBalance: ${asterBalance.toFixed(2)}</div>
                 <div className="text-white">hyperliquidBalance: ${hyperliquidBalance.toFixed(2)}</div>
+                {hyperliquidBalanceError && (
+                  <div className="text-red-400 mt-2">HL Error: {hyperliquidBalanceError}</div>
+                )}
+              </div>
+              <div className="bg-slate-800/50 rounded p-2 font-mono text-xs">
+                <div className="text-gray-400 mb-1">HyperLiquid API Response:</div>
+                {hlApiResponse ? (
+                  <pre className="text-white overflow-x-auto text-[10px] max-h-96 overflow-y-auto">
+                    {JSON.stringify(hlApiResponse, null, 2)}
+                  </pre>
+                ) : (
+                  <div className="text-gray-500">No response yet - click refresh balances button</div>
+                )}
               </div>
               <div className="bg-slate-800/50 rounded p-2 font-mono text-xs">
                 <div className="text-gray-400 mb-1">Top 5 Spreads Data:</div>
