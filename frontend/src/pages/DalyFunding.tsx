@@ -63,6 +63,7 @@ export default function DalyFunding() {
   const [asterBalanceError, setAsterBalanceError] = useState<string | null>(null);
   const [hyperliquidBalanceError, setHyperliquidBalanceError] = useState<string | null>(null);
   const [hlApiResponse, setHlApiResponse] = useState<any>(null); // Debug: store HL API response
+  const [hlDebugAnalysis, setHlDebugAnalysis] = useState<string[]>([]); // Debug: analysis of API response
 
   // Legacy Strategy Configuration (keep for backward compatibility)
   const [positionSize, setPositionSize] = useState(100);
@@ -212,17 +213,52 @@ export default function DalyFunding() {
           let totalBalance = 0;
           let perpsBalance = 0;
           let spotBalance = 0;
+          const debugLog: string[] = [];
 
-          // Check perps balance
-          if (perpsData?.marginSummary?.accountValue) {
-            perpsBalance = parseFloat(perpsData.marginSummary.accountValue);
-            totalBalance += perpsBalance;
-            console.log('[DalyFunding] Perps balance:', perpsBalance);
+          // Check perps balance - try ALL possible locations
+          debugLog.push(`📊 PERPS ACCOUNT ANALYSIS`);
+          debugLog.push(`Wallet: ${hyperliquidWallet}`);
+          debugLog.push(`Top-level keys: ${Object.keys(perpsData || {}).join(', ')}`);
+
+          if (perpsData?.marginSummary) {
+            debugLog.push(`\n✓ marginSummary found`);
+            debugLog.push(`  Keys: ${Object.keys(perpsData.marginSummary).join(', ')}`);
+            debugLog.push(`  accountValue: "${perpsData.marginSummary.accountValue}"`);
+
+            if (perpsData.marginSummary.accountValue) {
+              const parsed = parseFloat(perpsData.marginSummary.accountValue);
+              if (!isNaN(parsed)) {
+                perpsBalance = parsed;
+                totalBalance += perpsBalance;
+                debugLog.push(`  ✅ Parsed successfully: $${perpsBalance}`);
+              } else {
+                debugLog.push(`  ❌ Failed to parse: "${perpsData.marginSummary.accountValue}"`);
+              }
+            } else {
+              debugLog.push(`  ⚠️ accountValue is empty/null`);
+            }
+          } else {
+            debugLog.push(`\n❌ No marginSummary found in perps response`);
           }
 
+          // Also check crossMarginSummary as fallback
+          if (perpsBalance === 0 && perpsData?.crossMarginSummary?.accountValue) {
+            debugLog.push(`\n🔄 Trying crossMarginSummary fallback...`);
+            debugLog.push(`  accountValue: "${perpsData.crossMarginSummary.accountValue}"`);
+            const parsed = parseFloat(perpsData.crossMarginSummary.accountValue);
+            if (!isNaN(parsed)) {
+              perpsBalance = parsed;
+              totalBalance += perpsBalance;
+              debugLog.push(`  ✅ Found balance: $${perpsBalance}`);
+            }
+          }
+
+          debugLog.push(`\n💰 PERPS BALANCE: $${perpsBalance}`);
+
           // Check spot balance - spotClearinghouseState returns different structure
+          debugLog.push(`\n\n📊 SPOT ACCOUNT ANALYSIS`);
           if (spotData?.balances && Array.isArray(spotData.balances)) {
-            console.log('[DalyFunding] All spot balances:', spotData.balances);
+            debugLog.push(`✓ Balances array found with ${spotData.balances.length} tokens:`);
 
             // Sum ALL token balances (not just USDC)
             spotData.balances.forEach((balance: any) => {
@@ -230,15 +266,25 @@ export default function DalyFunding() {
                 const amount = parseFloat(balance.total);
                 if (!isNaN(amount) && amount > 0) {
                   spotBalance += amount;
-                  console.log(`[DalyFunding] Found ${balance.coin} balance: ${amount}`);
+                  debugLog.push(`  • ${balance.coin}: $${amount}`);
                 }
               }
             });
 
+            if (spotBalance === 0) {
+              debugLog.push(`  ⚠️ All balances are zero`);
+            }
+
             totalBalance += spotBalance;
           } else {
-            console.log('[DalyFunding] No spot balances array found. Full spotData:', spotData);
+            debugLog.push(`❌ No balances array found`);
+            debugLog.push(`Spot response keys: ${Object.keys(spotData || {}).join(', ')}`);
           }
+
+          debugLog.push(`\n💰 SPOT BALANCE: $${spotBalance}`);
+          debugLog.push(`\n💵 TOTAL BALANCE: $${totalBalance}`);
+
+          setHlDebugAnalysis(debugLog);
 
           // Check withdrawable
           if (perpsData?.withdrawable) {
@@ -2378,8 +2424,37 @@ export default function DalyFunding() {
                   <div className="text-red-400 mt-2">HL Error: {hyperliquidBalanceError}</div>
                 )}
               </div>
+              {/* Balance Analysis Section */}
+              {hlDebugAnalysis.length > 0 && (
+                <div className="bg-gradient-to-br from-cyan-500/10 to-blue-500/10 border border-cyan-500/30 rounded p-4 font-mono text-xs">
+                  <div className="text-cyan-400 mb-3 font-bold text-sm flex items-center gap-2">
+                    <span>🔍</span>
+                    <span>BALANCE DETECTION ANALYSIS</span>
+                  </div>
+                  <div className="space-y-1">
+                    {hlDebugAnalysis.map((line, idx) => (
+                      <div
+                        key={idx}
+                        className={`${
+                          line.includes('❌') || line.includes('Failed') ? 'text-red-400' :
+                          line.includes('✅') || line.includes('success') ? 'text-green-400' :
+                          line.includes('⚠️') ? 'text-yellow-400' :
+                          line.includes('💰') || line.includes('💵') ? 'text-emerald-400 font-bold' :
+                          line.includes('📊') ? 'text-cyan-400 font-bold mt-2' :
+                          'text-gray-300'
+                        }`}
+                        style={{ whiteSpace: 'pre-wrap' }}
+                      >
+                        {line}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Raw API Response Section */}
               <div className="bg-slate-800/50 rounded p-2 font-mono text-xs">
-                <div className="text-gray-400 mb-1">HyperLiquid API Response:</div>
+                <div className="text-gray-400 mb-1">HyperLiquid API Response (Raw JSON):</div>
                 {hlApiResponse ? (
                   <pre className="text-white overflow-x-auto text-[10px] max-h-96 overflow-y-auto">
                     {JSON.stringify(hlApiResponse, null, 2)}
