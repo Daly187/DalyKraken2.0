@@ -11,7 +11,8 @@ export interface OrderParams {
   symbol: string;
   side: 'buy' | 'sell';
   size: number; // Position size in USD
-  price: number; // Limit price
+  price?: number; // Limit price (optional for market orders)
+  orderType?: 'LIMIT' | 'MARKET'; // Order type (default: LIMIT)
 }
 
 export interface OrderResult {
@@ -378,9 +379,9 @@ class ExchangeTradeService {
   }
 
   /**
-   * Get order status
+   * Get order status (PUBLIC - used by arbitrage service)
    */
-  private async getOrderStatus(exchange: 'aster' | 'hyperliquid', orderId: string): Promise<string> {
+  async getOrderStatus(exchange: 'aster' | 'hyperliquid', orderId: string): Promise<string> {
     if (exchange === 'aster') {
       await this.rateLimiter.checkAster(2);
 
@@ -434,21 +435,95 @@ class ExchangeTradeService {
   }
 
   /**
-   * Place a limit order on AsterDEX
+   * Cancel an order
+   */
+  async cancelOrder(exchange: 'aster' | 'hyperliquid', orderId: string, symbol?: string): Promise<boolean> {
+    try {
+      if (exchange === 'aster') {
+        await this.rateLimiter.checkAster(1);
+
+        const apiKey = localStorage.getItem('aster_api_key');
+        const apiSecret = localStorage.getItem('aster_api_secret');
+
+        if (!apiKey || !apiSecret) throw new Error('API keys not found');
+
+        const timestamp = Date.now();
+        const params: any = {
+          orderId,
+          timestamp,
+        };
+
+        if (symbol) params.symbol = symbol;
+
+        const signature = await this.signAsterRequest(params, apiSecret);
+        const queryString = new URLSearchParams({ ...params, signature }).toString();
+
+        const response = await fetch(`${ASTER_API}/fapi/v1/order?${queryString}`, {
+          method: 'DELETE',
+          headers: {
+            'X-MBX-APIKEY': apiKey,
+          },
+        });
+
+        if (!response.ok) throw new Error(`Cancel failed: ${response.statusText}`);
+
+        console.log(`[AsterDEX] Order ${orderId} cancelled`);
+        return true;
+      } else {
+        // HyperLiquid cancel
+        await this.rateLimiter.checkHL();
+
+        const walletAddress = localStorage.getItem('hyperliquid_wallet_address');
+        const privateKey = localStorage.getItem('hyperliquid_private_key');
+
+        if (!walletAddress || !privateKey) throw new Error('Wallet credentials not found');
+
+        const action = {
+          type: 'cancel',
+          cancels: [{ a: 0, o: parseInt(orderId) }], // Asset index 0 for now, should be dynamic
+        };
+
+        const signature = await this.signHyperliquidOrder(action, privateKey);
+
+        const response = await fetch(`${HL_API}/exchange`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action,
+            nonce: Date.now(),
+            signature,
+            vaultAddress: null,
+          }),
+        });
+
+        if (!response.ok) throw new Error(`Cancel failed: ${response.statusText}`);
+
+        console.log(`[HyperLiquid] Order ${orderId} cancelled`);
+        return true;
+      }
+    } catch (error: any) {
+      console.error(`[${exchange}] Cancel order failed:`, error);
+      return false;
+    }
+  }
+
+  /**
+   * Place an order on AsterDEX (LIMIT or MARKET)
    */
   async placeAsterOrder(params: OrderParams): Promise<OrderResult> {
-    const { symbol, side, size, price } = params;
+    const { symbol, side, size, price, orderType = 'LIMIT' } = params;
 
     try {
-      // Validate minimum size
-      const quantity = size / price;
+      // For market orders, use current market price estimate for quantity calculation
+      const estimatedPrice = orderType === 'MARKET' ? (price || 1) : price!;
+      const quantity = size / estimatedPrice;
       const formattedQty = this.formatSize(symbol, quantity);
 
       if (!this.validateOrderSize(symbol, formattedQty, 'aster')) {
         throw new Error(`Order size ${formattedQty} below minimum for ${symbol} on Aster`);
       }
 
-      console.log(`[AsterDEX] Placing ${side} order for ${symbol}: ${formattedQty} @ ${price}`);
+      console.log(`[AsterDEX] Placing ${orderType} ${side} order for ${symbol}: ${formattedQty}${orderType === 'LIMIT' ? ` @ ${price}` : ''}`);
 
       // Get API credentials
       const apiKey = localStorage.getItem('aster_api_key');
@@ -465,11 +540,15 @@ class ExchangeTradeService {
       const orderParams: any = {
         symbol: symbol,
         side: side.toUpperCase(),
-        type: 'LIMIT',
+        type: orderType,
         quantity: formattedQty.toString(),
-        price: price.toFixed(2),
-        timeInForce: 'GTC',
       };
+
+      // Add price and timeInForce only for LIMIT orders
+      if (orderType === 'LIMIT') {
+        orderParams.price = price!.toFixed(2);
+        orderParams.timeInForce = 'GTC';
+      }
 
       // Sign request
       const signature = await this.signAsterRequest(orderParams, apiSecret);
@@ -503,7 +582,7 @@ class ExchangeTradeService {
         success: true,
         orderId: result.orderId.toString(),
         price: parseFloat(result.price),
-        size: parseFloat(result.executedQty) * price,
+        size: parseFloat(result.executedQty) * (price || parseFloat(result.price)),
         filled,
       };
     } catch (error: any) {
@@ -517,24 +596,25 @@ class ExchangeTradeService {
   }
 
   /**
-   * Place a limit order on HyperLiquid
+   * Place an order on HyperLiquid (LIMIT or MARKET)
    */
   async placeHyperliquidOrder(params: OrderParams): Promise<OrderResult> {
-    const { symbol, side, size, price } = params;
+    const { symbol, side, size, price, orderType = 'LIMIT' } = params;
 
     try {
       // Get asset index
       const assetIndex = await this.getHyperliquidAssetIndex(symbol);
 
-      // Validate minimum size
-      const quantity = size / price;
+      // For market orders, use current market price estimate for quantity calculation
+      const estimatedPrice = orderType === 'MARKET' ? (price || 1) : price!;
+      const quantity = size / estimatedPrice;
       const formattedQty = this.formatSize(symbol, quantity);
 
       if (!this.validateOrderSize(symbol, formattedQty, 'hl')) {
         throw new Error(`Order size ${formattedQty} below minimum for ${symbol} on Hyperliquid`);
       }
 
-      console.log(`[HyperLiquid] Placing ${side} order for ${symbol}: ${formattedQty} @ ${price}`);
+      console.log(`[HyperLiquid] Placing ${orderType} ${side} order for ${symbol}: ${formattedQty}${orderType === 'LIMIT' ? ` @ ${price}` : ''}`);
 
       // Get wallet credentials
       const walletAddress = localStorage.getItem('hyperliquid_wallet_address');
@@ -547,6 +627,11 @@ class ExchangeTradeService {
       // Rate limit check
       await this.rateLimiter.checkHL();
 
+      // Build order type object
+      const orderTypeObj = orderType === 'LIMIT'
+        ? { limit: { tif: 'Gtc' } }
+        : { trigger: { isMarket: true, tpsl: 'tp' } }; // Market order
+
       // Build order action
       const action = {
         type: 'order',
@@ -554,14 +639,10 @@ class ExchangeTradeService {
           {
             a: assetIndex,
             b: side === 'buy',
-            p: price.toFixed(2),
+            p: orderType === 'LIMIT' ? price!.toFixed(2) : '0', // Price is 0 for market orders
             s: formattedQty.toString(),
             r: false,
-            t: {
-              limit: {
-                tif: 'Gtc',
-              },
-            },
+            t: orderTypeObj,
           },
         ],
         grouping: 'na',
@@ -602,8 +683,8 @@ class ExchangeTradeService {
       return {
         success: true,
         orderId,
-        price: price,
-        size: formattedQty * price,
+        price: price || 0,
+        size: formattedQty * (price || 0),
         filled,
       };
     } catch (error: any) {

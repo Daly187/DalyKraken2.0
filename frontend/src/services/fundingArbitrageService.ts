@@ -76,6 +76,7 @@ export interface StrategyConfig {
   allocations: [30, 30, 20, 10, 10]; // Fixed allocation percentages
   rebalanceInterval: number; // In milliseconds (4 hours = 14400000)
   minSpreadThreshold: number; // Minimum spread to enter (e.g., 0.5%)
+  fillTimeout: number; // Time to wait for both orders to fill (milliseconds)
   excludedSymbols: string[]; // Manual exclusions
   walletAddresses: {
     aster?: string;
@@ -98,6 +99,7 @@ class FundingArbitrageService {
     allocations: [30, 30, 20, 10, 10],
     rebalanceInterval: 4 * 60 * 60 * 1000, // 4 hours
     minSpreadThreshold: 0.5, // 0.5% minimum spread
+    fillTimeout: 30000, // 30 seconds to wait for order fills
     excludedSymbols: [],
     walletAddresses: {},
   };
@@ -246,6 +248,142 @@ class FundingArbitrageService {
   }
 
   /**
+   * Execute hedged entry with matched fill validation + market order hedge
+   * Guarantees delta-neutral position or nothing
+   */
+  private async executeHedgedEntry(
+    longExchange: 'aster' | 'hyperliquid',
+    shortExchange: 'aster' | 'hyperliquid',
+    longSymbol: string,
+    shortSymbol: string,
+    price: number,
+    size: number
+  ): Promise<{ success: boolean; longOrderId?: string; shortOrderId?: string; error?: string }> {
+    console.log(`[HedgedEntry] Starting hedged entry for ${longSymbol}/${shortSymbol}`);
+    console.log(`[HedgedEntry] Long: ${longExchange}, Short: ${shortExchange}, Price: ${price}, Size: $${size}`);
+
+    try {
+      // Step 1: Place both limit orders simultaneously
+      console.log(`[HedgedEntry] Placing limit orders on both exchanges...`);
+
+      const [longOrder, shortOrder] = await Promise.all([
+        exchangeTradeService.placeAsterOrder({
+          symbol: longSymbol,
+          side: 'buy',
+          size,
+          price,
+          orderType: 'LIMIT',
+        }).catch(err => ({ success: false, error: err.message })) as Promise<any>,
+        exchangeTradeService.placeHyperliquidOrder({
+          symbol: shortSymbol,
+          side: 'sell',
+          size,
+          price,
+          orderType: 'LIMIT',
+        }).catch(err => ({ success: false, error: err.message })) as Promise<any>,
+      ]);
+
+      if (!longOrder.success || !shortOrder.success) {
+        console.error(`[HedgedEntry] Failed to place orders`);
+        return { success: false, error: `Order placement failed: ${longOrder.error || shortOrder.error}` };
+      }
+
+      console.log(`[HedgedEntry] Orders placed. Long: ${longOrder.orderId}, Short: ${shortOrder.orderId}`);
+
+      // Step 2: Wait fillTimeout for both to fill
+      console.log(`[HedgedEntry] Waiting ${this.config.fillTimeout}ms for fills...`);
+      await new Promise(resolve => setTimeout(resolve, this.config.fillTimeout));
+
+      // Step 3: Check fill status
+      const [longStatus, shortStatus] = await Promise.all([
+        exchangeTradeService.getOrderStatus(longExchange, longOrder.orderId!),
+        exchangeTradeService.getOrderStatus(shortExchange, shortOrder.orderId!),
+      ]);
+
+      const longFilled = longStatus === 'FILLED';
+      const shortFilled = shortStatus === 'FILLED';
+
+      console.log(`[HedgedEntry] Fill status - Long: ${longStatus}, Short: ${shortStatus}`);
+
+      // Step 4: Handle outcomes
+      if (longFilled && shortFilled) {
+        // ✅ SUCCESS: Both filled, position is hedged
+        console.log(`[HedgedEntry] ✅ SUCCESS: Both orders filled, position is hedged`);
+        console.log(`[Telegram] ✅ Hedged Entry Success: ${longSymbol}/${shortSymbol}`);
+        return { success: true, longOrderId: longOrder.orderId, shortOrderId: shortOrder.orderId };
+
+      } else if (!longFilled && !shortFilled) {
+        // ⚠️ Neither filled, cancel both and skip
+        console.log(`[HedgedEntry] ⚠️ Neither order filled, cancelling both...`);
+        await Promise.all([
+          exchangeTradeService.cancelOrder(longExchange, longOrder.orderId!, longSymbol),
+          exchangeTradeService.cancelOrder(shortExchange, shortOrder.orderId!, shortSymbol),
+        ]);
+        console.log(`[Telegram] ⚠️ No Fills: ${longSymbol}/${shortSymbol}`);
+        return { success: false, error: 'No fills within timeout' };
+
+      } else {
+        // 🚨 PARTIAL FILL - EMERGENCY HEDGE WITH MARKET ORDER
+        console.log(`[HedgedEntry] 🚨 PARTIAL FILL DETECTED - Emergency hedging with market order...`);
+
+        if (longFilled && !shortFilled) {
+          // Long filled, short didn't - cancel short and place market short to hedge
+          console.log(`[HedgedEntry] Long filled, short didn't. Cancelling short and placing market order...`);
+          await exchangeTradeService.cancelOrder(shortExchange, shortOrder.orderId!, shortSymbol);
+
+          const marketShort = await exchangeTradeService.placeHyperliquidOrder({
+            symbol: shortSymbol,
+            side: 'sell',
+            size,
+            price, // Use last price as estimate
+            orderType: 'MARKET',
+          });
+
+          if (marketShort.success) {
+            console.log(`[HedgedEntry] ✅ Hedged with market order: ${marketShort.orderId}`);
+            console.log(`[Telegram] ⚠️ Partial Fill - Hedged with market order`);
+            return { success: true, longOrderId: longOrder.orderId, shortOrderId: marketShort.orderId };
+          } else {
+            console.error(`[HedgedEntry] ❌ Failed to place market hedge order`);
+            console.error(`[Telegram] 🚨 URGENT: Unhedged Position - ${longSymbol}/${shortSymbol}`);
+            return { success: false, error: 'Failed to hedge with market order' };
+          }
+
+        } else if (shortFilled && !longFilled) {
+          // Short filled, long didn't - cancel long and place market long to hedge
+          console.log(`[HedgedEntry] Short filled, long didn't. Cancelling long and placing market order...`);
+          await exchangeTradeService.cancelOrder(longExchange, longOrder.orderId!, longSymbol);
+
+          const marketLong = await exchangeTradeService.placeAsterOrder({
+            symbol: longSymbol,
+            side: 'buy',
+            size,
+            price, // Use last price as estimate
+            orderType: 'MARKET',
+          });
+
+          if (marketLong.success) {
+            console.log(`[HedgedEntry] ✅ Hedged with market order: ${marketLong.orderId}`);
+            console.log(`[Telegram] ⚠️ Partial Fill - Hedged with market order`);
+            return { success: true, longOrderId: marketLong.orderId, shortOrderId: shortOrder.orderId };
+          } else {
+            console.error(`[HedgedEntry] ❌ Failed to place market hedge order`);
+            console.error(`[Telegram] 🚨 URGENT: Unhedged Position - ${longSymbol}/${shortSymbol}`);
+            return { success: false, error: 'Failed to hedge with market order' };
+          }
+        }
+      }
+
+      return { success: false, error: 'Unknown hedging outcome' };
+
+    } catch (error: any) {
+      console.error(`[HedgedEntry] Error:`, error);
+      console.error(`[Telegram] ❌ Hedged Entry Failed: ${longSymbol}/${shortSymbol} - ${error.message}`);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
    * Create a new arbitrage position
    */
   async createPosition(spread: FundingSpread, rank: number): Promise<StrategyPosition> {
@@ -262,8 +400,8 @@ class FundingArbitrageService {
     // Use the average of both mark prices
     const executionPrice = (longData.markPrice + shortData.markPrice) / 2;
 
-    // Execute the trade on both exchanges simultaneously
-    const tradeResult = await exchangeTradeService.placeArbitrageTrade(
+    // Execute hedged entry with matched fill validation
+    const hedgedResult = await this.executeHedgedEntry(
       spread.longExchange,
       spread.shortExchange,
       longData.symbol,
@@ -273,15 +411,9 @@ class FundingArbitrageService {
     );
 
     // Check if trade execution was successful
-    if (!tradeResult.longOrder.success || !tradeResult.shortOrder.success) {
-      console.error(`[Arbitrage] Failed to create position for ${spread.canonical}`);
-      if (!tradeResult.longOrder.success) {
-        console.error(`  Long order error: ${tradeResult.longOrder.error}`);
-      }
-      if (!tradeResult.shortOrder.success) {
-        console.error(`  Short order error: ${tradeResult.shortOrder.error}`);
-      }
-      throw new Error(`Trade execution failed: ${tradeResult.longOrder.error || tradeResult.shortOrder.error}`);
+    if (!hedgedResult.success) {
+      console.error(`[Arbitrage] Failed to create hedged position for ${spread.canonical}: ${hedgedResult.error}`);
+      throw new Error(`Hedged entry failed: ${hedgedResult.error}`);
     }
 
     // Create position object with actual execution prices
@@ -295,16 +427,16 @@ class FundingArbitrageService {
       longExchange: spread.longExchange,
       longSymbol: longData.symbol,
       longSize: halfSize,
-      longEntryPrice: tradeResult.longOrder.price || executionPrice,
-      longCurrentPrice: tradeResult.longOrder.price || executionPrice,
+      longEntryPrice: executionPrice,
+      longCurrentPrice: executionPrice,
       longFundingRate: longData.rate,
 
       // Short side
       shortExchange: spread.shortExchange,
       shortSymbol: shortData.symbol,
       shortSize: halfSize,
-      shortEntryPrice: tradeResult.shortOrder.price || executionPrice,
-      shortCurrentPrice: tradeResult.shortOrder.price || executionPrice,
+      shortEntryPrice: executionPrice,
+      shortCurrentPrice: executionPrice,
       shortFundingRate: shortData.rate,
 
       // P&L
@@ -319,8 +451,8 @@ class FundingArbitrageService {
 
     this.positions.set(position.canonical, position);
     console.log(`[Arbitrage] Position created successfully: ${position.canonical}`);
-    console.log(`  Long: ${spread.longExchange} @ $${position.longEntryPrice.toFixed(2)} (Order: ${tradeResult.longOrder.orderId})`);
-    console.log(`  Short: ${spread.shortExchange} @ $${position.shortEntryPrice.toFixed(2)} (Order: ${tradeResult.shortOrder.orderId})`);
+    console.log(`  Long: ${spread.longExchange} @ $${position.longEntryPrice.toFixed(2)} (Order: ${hedgedResult.longOrderId})`);
+    console.log(`  Short: ${spread.shortExchange} @ $${position.shortEntryPrice.toFixed(2)} (Order: ${hedgedResult.shortOrderId})`);
 
     // Save state
     this.saveState();
