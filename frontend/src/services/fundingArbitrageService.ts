@@ -951,6 +951,25 @@ class FundingArbitrageService {
   }
 
   /**
+   * Clear all positions (useful for clearing paper trading data)
+   */
+  clearAllPositions(): void {
+    console.log('[Arbitrage] Clearing all positions and resetting state');
+
+    // Clear in-memory state
+    this.positions.clear();
+    this.closedPositions = [];
+    this.rebalanceHistory = [];
+    this.lastRebalanceTime = 0;
+    this.lastManualRebalanceTime = 0;
+
+    // Clear localStorage
+    this.clearState();
+
+    console.log('[Arbitrage] All positions cleared. Refresh the page to see changes.');
+  }
+
+  /**
    * Resume strategy after page reload
    */
   async resume(
