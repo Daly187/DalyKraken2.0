@@ -24,7 +24,8 @@
       "Bash(git log:*)",
       "Bash(curl:*)",
       "Bash(node:*)",
-      "Bash(npx tsc)"
+      "Bash(npx tsc)",
+      "Bash(npm run:*)"
     ],
     "deny": [],
     "ask": []
