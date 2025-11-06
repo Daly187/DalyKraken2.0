@@ -224,32 +224,55 @@ export default function DalyFunding() {
             debugLog.push(`\n✓ marginSummary found`);
             debugLog.push(`  Keys: ${Object.keys(perpsData.marginSummary).join(', ')}`);
             debugLog.push(`  accountValue: "${perpsData.marginSummary.accountValue}"`);
+            debugLog.push(`  totalRawUsd: "${perpsData.marginSummary.totalRawUsd}"`);
 
-            if (perpsData.marginSummary.accountValue) {
-              const parsed = parseFloat(perpsData.marginSummary.accountValue);
-              if (!isNaN(parsed)) {
+            // Try totalRawUsd first (this is the actual USDC balance)
+            if (perpsData.marginSummary.totalRawUsd) {
+              const parsed = parseFloat(perpsData.marginSummary.totalRawUsd);
+              if (!isNaN(parsed) && parsed > 0) {
                 perpsBalance = parsed;
                 totalBalance += perpsBalance;
-                debugLog.push(`  ✅ Parsed successfully: $${perpsBalance}`);
-              } else {
-                debugLog.push(`  ❌ Failed to parse: "${perpsData.marginSummary.accountValue}"`);
+                debugLog.push(`  ✅ Using totalRawUsd: $${perpsBalance}`);
               }
-            } else {
-              debugLog.push(`  ⚠️ accountValue is empty/null`);
+            }
+
+            // Fallback to accountValue if totalRawUsd is 0 (for open positions)
+            if (perpsBalance === 0 && perpsData.marginSummary.accountValue) {
+              const parsed = parseFloat(perpsData.marginSummary.accountValue);
+              if (!isNaN(parsed) && parsed > 0) {
+                perpsBalance = parsed;
+                totalBalance += perpsBalance;
+                debugLog.push(`  ✅ Using accountValue: $${perpsBalance}`);
+              }
+            }
+
+            if (perpsBalance === 0) {
+              debugLog.push(`  ⚠️ Both totalRawUsd and accountValue are zero`);
             }
           } else {
             debugLog.push(`\n❌ No marginSummary found in perps response`);
           }
 
           // Also check crossMarginSummary as fallback
-          if (perpsBalance === 0 && perpsData?.crossMarginSummary?.accountValue) {
+          if (perpsBalance === 0 && perpsData?.crossMarginSummary) {
             debugLog.push(`\n🔄 Trying crossMarginSummary fallback...`);
-            debugLog.push(`  accountValue: "${perpsData.crossMarginSummary.accountValue}"`);
-            const parsed = parseFloat(perpsData.crossMarginSummary.accountValue);
-            if (!isNaN(parsed)) {
-              perpsBalance = parsed;
-              totalBalance += perpsBalance;
-              debugLog.push(`  ✅ Found balance: $${perpsBalance}`);
+            if (perpsData.crossMarginSummary.totalRawUsd) {
+              debugLog.push(`  totalRawUsd: "${perpsData.crossMarginSummary.totalRawUsd}"`);
+              const parsed = parseFloat(perpsData.crossMarginSummary.totalRawUsd);
+              if (!isNaN(parsed) && parsed > 0) {
+                perpsBalance = parsed;
+                totalBalance += perpsBalance;
+                debugLog.push(`  ✅ Found balance in totalRawUsd: $${perpsBalance}`);
+              }
+            }
+            if (perpsBalance === 0 && perpsData.crossMarginSummary.accountValue) {
+              debugLog.push(`  accountValue: "${perpsData.crossMarginSummary.accountValue}"`);
+              const parsed = parseFloat(perpsData.crossMarginSummary.accountValue);
+              if (!isNaN(parsed) && parsed > 0) {
+                perpsBalance = parsed;
+                totalBalance += perpsBalance;
+                debugLog.push(`  ✅ Found balance in accountValue: $${perpsBalance}`);
+              }
             }
           }
 
