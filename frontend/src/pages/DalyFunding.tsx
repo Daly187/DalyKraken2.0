@@ -162,6 +162,14 @@ export default function DalyFunding() {
       // HyperLiquid balance fetch
       if (hyperliquidWallet) {
         try {
+          console.log('[DalyFunding] Fetching HyperLiquid balance for wallet:', hyperliquidWallet);
+
+          // Validate wallet address format (should be 42-char hex starting with 0x)
+          if (!hyperliquidWallet.startsWith('0x') || hyperliquidWallet.length !== 42) {
+            console.warn('[DalyFunding] Warning: Wallet address may be invalid format:', hyperliquidWallet);
+            setHyperliquidBalanceError('Invalid wallet address format');
+          }
+
           // Fetch perps clearinghouse state
           const perpsResponse = await fetch('https://api.hyperliquid.xyz/info', {
             method: 'POST',
@@ -173,6 +181,12 @@ export default function DalyFunding() {
           });
           const perpsData = await perpsResponse.json();
 
+          // Check for API errors in perps response
+          if (!perpsResponse.ok) {
+            console.error('[DalyFunding] Perps API error:', perpsResponse.status, perpsData);
+            throw new Error(`Perps API returned ${perpsResponse.status}`);
+          }
+
           // Fetch SPOT clearinghouse state (separate wallet!)
           const spotResponse = await fetch('https://api.hyperliquid.xyz/info', {
             method: 'POST',
@@ -183,6 +197,12 @@ export default function DalyFunding() {
             }),
           });
           const spotData = await spotResponse.json();
+
+          // Check for API errors in spot response
+          if (!spotResponse.ok) {
+            console.error('[DalyFunding] Spot API error:', spotResponse.status, spotData);
+            throw new Error(`Spot API returned ${spotResponse.status}`);
+          }
 
           // Store both for debugging
           setHlApiResponse({ perps: perpsData, spot: spotData });
@@ -202,12 +222,22 @@ export default function DalyFunding() {
 
           // Check spot balance - spotClearinghouseState returns different structure
           if (spotData?.balances && Array.isArray(spotData.balances)) {
-            const usdcBalance = spotData.balances.find((b: any) => b.coin === 'USDC');
-            if (usdcBalance?.total) {
-              spotBalance = parseFloat(usdcBalance.total);
-              totalBalance += spotBalance;
-              console.log('[DalyFunding] Spot USDC balance:', spotBalance);
-            }
+            console.log('[DalyFunding] All spot balances:', spotData.balances);
+
+            // Sum ALL token balances (not just USDC)
+            spotData.balances.forEach((balance: any) => {
+              if (balance?.total) {
+                const amount = parseFloat(balance.total);
+                if (!isNaN(amount) && amount > 0) {
+                  spotBalance += amount;
+                  console.log(`[DalyFunding] Found ${balance.coin} balance: ${amount}`);
+                }
+              }
+            });
+
+            totalBalance += spotBalance;
+          } else {
+            console.log('[DalyFunding] No spot balances array found. Full spotData:', spotData);
           }
 
           // Check withdrawable
