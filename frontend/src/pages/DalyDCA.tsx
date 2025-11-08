@@ -747,9 +747,27 @@ export default function DalyDCA() {
         return 'text-blue-500 bg-blue-500/10';
       case 'stopped':
         return 'text-gray-500 bg-gray-500/10';
+      case 'waiting_for_exit':
+        return 'text-blue-500 bg-blue-500/10';
       default:
         return 'text-gray-500 bg-gray-500/10';
     }
+  };
+
+  const getDisplayStatus = (bot: any): { status: string; displayText: string } => {
+    const livePrice = livePrices.get(bot.symbol);
+    const currentPrice = livePrice?.price || bot.currentPrice || 0;
+
+    // Check if bot is above TP and still active (waiting for bearish trend)
+    if (bot.status === 'active' && bot.currentTpPrice && currentPrice >= bot.currentTpPrice) {
+      return { status: 'waiting_for_exit', displayText: 'Waiting for Exit' };
+    }
+
+    // Return normal status with capitalized display text
+    return {
+      status: bot.status,
+      displayText: bot.status.charAt(0).toUpperCase() + bot.status.slice(1)
+    };
   };
 
   const getTrendDisplay = (recommendation?: 'bullish' | 'bearish' | 'neutral') => {
@@ -1382,8 +1400,8 @@ export default function DalyDCA() {
                     <div className="flex items-center justify-between mb-3">
                       <div className="flex items-center gap-3 flex-wrap">
                         <h3 className="text-lg font-bold text-white">{bot.symbol}</h3>
-                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${getStatusColor(bot.status)}`}>
-                          {bot.status}
+                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${getStatusColor(getDisplayStatus(bot).status)}`}>
+                          {getDisplayStatus(bot).displayText}
                         </span>
                         <span className="text-xs text-gray-400">
                           {bot.currentEntryCount || 0}/{bot.reEntryCount} entries
