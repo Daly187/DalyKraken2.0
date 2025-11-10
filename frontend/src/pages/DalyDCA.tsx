@@ -195,6 +195,7 @@ export default function DalyDCA() {
         const trends = result.data?.trends || result.trends || [];
 
         // Convert array to Map for fast lookups
+        // Key by symbol (which is already the base symbol like "BTC", not "BTC/USD")
         const trendMap = new Map();
         trends.forEach((trend: any) => {
           if (trend.symbol) {
@@ -203,6 +204,7 @@ export default function DalyDCA() {
         });
         setTrendData(trendMap);
         console.log('[DalyDCA] Loaded trend data for', trendMap.size, 'symbols');
+        console.log('[DalyDCA] Sample trend data:', trends[0]); // Log first item to verify structure
       } else {
         console.error('[DalyDCA] Failed to fetch trend data:', response.status, response.statusText);
       }
@@ -608,13 +610,18 @@ export default function DalyDCA() {
 
   // Helper function to merge bot data with trend data
   const getBotWithTrend = (bot: any) => {
-    const trend = trendData.get(bot.symbol);
+    // Bot symbols are like "BTC/USD", trend data keys are like "BTC"
+    // Extract the base symbol (e.g., "BTC" from "BTC/USD")
+    const baseSymbol = bot.symbol.split('/')[0];
+    const trend = trendData.get(baseSymbol);
+
     if (trend) {
       return {
         ...bot,
         techScore: trend.technical_score || bot.techScore || 50,
         trendScore: trend.trend_score || bot.trendScore || 50,
-        recommendation: trend.recommendation || bot.recommendation || 'neutral',
+        // Trend data has 'trend_signal' not 'recommendation'
+        recommendation: trend.trend_signal || trend.recommendation || bot.recommendation || 'neutral',
       };
     }
     return bot;
