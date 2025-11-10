@@ -188,19 +188,26 @@ export default function DalyDCA() {
       });
 
       if (response.ok) {
-        const data = await response.json();
+        const result = await response.json();
+        console.log('[DalyDCA] Enhanced trends response:', result.cached ? 'CACHED (5min)' : 'FRESH');
+
+        // The response has nested structure: { data: { trends: [...] } }
+        const trends = result.data?.trends || result.trends || [];
+
         // Convert array to Map for fast lookups
         const trendMap = new Map();
-        data.trends?.forEach((trend: any) => {
+        trends.forEach((trend: any) => {
           if (trend.symbol) {
             trendMap.set(trend.symbol, trend);
           }
         });
         setTrendData(trendMap);
-        console.log('[DalyDCA] Fetched trend data for', trendMap.size, 'symbols');
+        console.log('[DalyDCA] Loaded trend data for', trendMap.size, 'symbols');
+      } else {
+        console.error('[DalyDCA] Failed to fetch trend data:', response.status, response.statusText);
       }
     } catch (error) {
-      console.error('[DalyDCA] Failed to fetch trend data:', error);
+      console.error('[DalyDCA] Error fetching trend data:', error);
     }
   };
 

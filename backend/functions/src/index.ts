@@ -39,11 +39,13 @@ app.use((req, res, next) => {
 
 // Simple in-memory cache
 const cache = new Map<string, { data: any; timestamp: number }>();
-const CACHE_TTL = 30000; // 30 seconds
+const CACHE_TTL = 30000; // 30 seconds (default)
+const TRENDS_CACHE_TTL = 300000; // 5 minutes for trend data
 
-function getCache(key: string) {
+function getCache(key: string, customTTL?: number) {
   const cached = cache.get(key);
-  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+  const ttl = customTTL || CACHE_TTL;
+  if (cached && Date.now() - cached.timestamp < ttl) {
     return cached.data;
   }
   cache.delete(key);
@@ -262,11 +264,11 @@ app.get('/market/quantify-crypto/enhanced-trends', authenticateToken, async (req
     const limit = parseInt(req.query.limit as string) || 20;
     console.log('[API] Fetching enhanced trends from Kraken (limit:', limit, ')');
 
-    // Check cache first (60 second TTL for trends)
+    // Check cache first (5 minute TTL for trends)
     const cacheKey = `enhanced_trends_kraken_${limit}`;
-    const cached = getCache(cacheKey);
+    const cached = getCache(cacheKey, TRENDS_CACHE_TTL);
     if (cached) {
-      console.log('[API] Returning cached enhanced trends');
+      console.log('[API] Returning cached enhanced trends (5 min cache)');
       return res.json({
         ...cached,
         cached: true,
