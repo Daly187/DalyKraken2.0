@@ -303,7 +303,7 @@ export default function CryptoTrends() {
           {overview.btc_dominance !== undefined && (
             <div className="card">
               <p className="text-sm text-gray-400">BTC Dominance</p>
-              <p className="text-2xl font-bold mt-1">{overview.btc_dominance.toFixed(1)}%</p>
+              <p className="text-2xl font-bold mt-1">{overview.btc_dominance?.toFixed(1) || 'N/A'}%</p>
             </div>
           )}
           {overview.active_cryptos !== undefined && (
@@ -499,11 +499,11 @@ export default function CryptoTrends() {
                           <div className="w-20 bg-slate-700 rounded-full h-2">
                             <div
                               className={`h-2 rounded-full ${getScoreBgColor(trend.trend_score)}`}
-                              style={{ width: `${Math.min(trend.trend_score, 100)}%` }}
+                              style={{ width: `${Math.min(trend.trend_score || 0, 100)}%` }}
                             />
                           </div>
                           <span className={`text-sm font-medium ${getScoreColor(trend.trend_score)}`}>
-                            {trend.trend_score.toFixed(1)}
+                            {trend.trend_score?.toFixed(1) || 'N/A'}
                           </span>
                         </div>
                       </td>
@@ -512,22 +512,22 @@ export default function CryptoTrends() {
                           <div className="w-20 bg-slate-700 rounded-full h-2">
                             <div
                               className={`h-2 rounded-full ${getScoreBgColor(trend.technical_score)}`}
-                              style={{ width: `${Math.min(trend.technical_score, 100)}%` }}
+                              style={{ width: `${Math.min(trend.technical_score || 0, 100)}%` }}
                             />
                           </div>
                           <span className={`text-sm font-medium ${getScoreColor(trend.technical_score)}`}>
-                            {trend.technical_score.toFixed(1)}
+                            {trend.technical_score?.toFixed(1) || 'N/A'}
                           </span>
                         </div>
                       </td>
                       <td className="py-3 pr-4">
                         <span className={getRSIColor(trend.rsi || trend.momentum)}>
-                          {(trend.rsi || trend.momentum).toFixed(1)}
+                          {(trend.rsi || trend.momentum)?.toFixed(1) || 'N/A'}
                         </span>
                       </td>
                       <td className="py-3 pr-4">
                         <span className={getScoreColor(trend.volatility)}>
-                          {trend.volatility.toFixed(1)}
+                          {trend.volatility?.toFixed(1) || 'N/A'}
                         </span>
                       </td>
                       <td className="py-3 pr-4 text-green-400 text-sm">
