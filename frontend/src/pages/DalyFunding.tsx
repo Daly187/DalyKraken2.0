@@ -19,11 +19,16 @@ import {
   ChevronDown,
   ChevronRight,
   History as HistoryIcon,
+  Link,
+  Plus,
+  Trash2,
 } from 'lucide-react';
 import { multiExchangeService, FundingRate, FundingPosition } from '@/services/multiExchangeService';
 import { MatchedPair } from '@/services/symbolMappingEngine';
 import { fundingArbitrageService, type FundingSpread, type StrategyPosition } from '@/services/fundingArbitrageService';
 import { exchangeTradeService } from '@/services/exchangeTradeService';
+import { assetMappingService, type AssetMapping } from '@/services/assetMappingService';
+import AssetMappingDnD from '@/components/AssetMappingDnD';
 import { useStore } from '@/store/useStore';
 
 export default function DalyFunding() {
@@ -36,7 +41,7 @@ export default function DalyFunding() {
   const [isConnected, setIsConnected] = useState(false);
   const [sortBy, setSortBy] = useState<'rate' | 'symbol' | 'markPrice'>('rate');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
-  const [viewMode, setViewMode] = useState<'all' | 'arbitrage' | 'diagnostics'>('arbitrage');
+  const [viewMode, setViewMode] = useState<'all' | 'arbitrage' | 'mapping'>('arbitrage');
   const [fundingRatesCollapsed, setFundingRatesCollapsed] = useState(false);
   const [activePositionsCollapsed, setActivePositionsCollapsed] = useState(false);
   const [fundingHistoryCollapsed, setFundingHistoryCollapsed] = useState(false);
@@ -70,9 +75,43 @@ export default function DalyFunding() {
   const [hlApiResponse, setHlApiResponse] = useState<any>(null); // Debug: store HL API response
   const [hlDebugAnalysis, setHlDebugAnalysis] = useState<string[]>([]); // Debug: analysis of API response
 
+  // Balance Validation Debug
+  const [balanceDebugLogs, setBalanceDebugLogs] = useState<string[]>([]);
+  const [asterSpotBalance, setAsterSpotBalance] = useState(0);
+  const [asterFuturesBalance, setAsterFuturesBalance] = useState(0);
+  const [validationErrors, setValidationErrors] = useState<string[]>([]);
+  const [validationWarnings, setValidationWarnings] = useState<string[]>([]);
+
   // Strategy Execution Logs
   const [executionLogs, setExecutionLogs] = useState<Array<{ timestamp: number; message: string; type: 'info' | 'success' | 'warning' | 'error' }>>([]);
   const [maxLogs, setMaxLogs] = useState(100);
+
+  // Manual Asset Mappings (using imported AssetMapping type from assetMappingService)
+  const [manualMappings, setManualMappings] = useState<AssetMapping[]>([]);
+
+  // Handlers for the drag-and-drop mapping component
+  const handleAddMapping = async (mapping: AssetMapping) => {
+    const updatedMappings = await assetMappingService.addMapping(mapping, manualMappings);
+    setManualMappings(updatedMappings);
+    addNotification({
+      type: 'success',
+      title: 'Mapping Added',
+      message: `${mapping.canonical}: ${mapping.asterSymbol} ↔ ${mapping.hyperliquidSymbol}`,
+    });
+  };
+
+  const handleRemoveMapping = async (canonical: string) => {
+    const idx = manualMappings.findIndex(m => m.canonical === canonical);
+    if (idx !== -1) {
+      const updated = await assetMappingService.removeMapping(idx, manualMappings);
+      setManualMappings(updated);
+      addNotification({
+        type: 'info',
+        title: 'Mapping Removed',
+        message: `Removed ${canonical}`,
+      });
+    }
+  };
 
   // Legacy Strategy Configuration (keep for backward compatibility)
   const [positionSize, setPositionSize] = useState(100);
@@ -178,6 +217,33 @@ export default function DalyFunding() {
     const savedHLWallet = localStorage.getItem('hyperliquid_wallet_address') || '';
     setAsterWallet(savedAsterWallet);
     setHyperliquidWallet(savedHLWallet);
+  }, []);
+
+  // Load and sync manual asset mappings with Firestore
+  useEffect(() => {
+    const syncMappings = async () => {
+      try {
+        // Load from localStorage first (instant display)
+        const localMappings = assetMappingService.loadFromLocalStorage();
+        if (localMappings.length > 0) {
+          setManualMappings(localMappings);
+          console.log('[DalyFunding] Loaded', localMappings.length, 'mappings from localStorage cache');
+        }
+
+        // Then sync with Firestore in background
+        console.log('[DalyFunding] Syncing with Firestore...');
+        const syncedMappings = await assetMappingService.sync();
+        setManualMappings(syncedMappings);
+        console.log('[DalyFunding] Synced', syncedMappings.length, 'mappings from Firestore');
+      } catch (error) {
+        console.error('[DalyFunding] Failed to sync mappings:', error);
+        // Fallback to localStorage only
+        const localMappings = assetMappingService.loadFromLocalStorage();
+        setManualMappings(localMappings);
+      }
+    };
+
+    syncMappings();
   }, []);
 
   // Fetch wallet balances
@@ -368,6 +434,14 @@ export default function DalyFunding() {
             // Import crypto library
             const crypto = await import('crypto-js');
             let totalBalance = 0;
+            let spotBalance = 0;
+            let futuresBalance = 0;
+
+            // Clear previous debug logs
+            setBalanceDebugLogs([]);
+            const addDebugLog = (msg: string) => {
+              setBalanceDebugLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${msg}`]);
+            };
 
             // 1. Fetch SPOT balance
             try {
@@ -375,6 +449,7 @@ export default function DalyFunding() {
               const spotParams = `timestamp=${spotTimestamp}`;
               const spotSignature = crypto.default.HmacSHA256(spotParams, asterApiSecret).toString();
 
+              addDebugLog('Fetching Aster SPOT balance...');
               console.log('[DalyFunding] Fetching Aster SPOT balance...');
               const spotResponse = await fetch(`https://sapi.asterdex.com/api/v1/account?${spotParams}&signature=${spotSignature}`, {
                 method: 'GET',
@@ -383,19 +458,26 @@ export default function DalyFunding() {
 
               if (spotResponse.ok) {
                 const spotData = await spotResponse.json();
+                addDebugLog(`Spot API response status: ${spotResponse.status}`);
                 if (spotData.balances && Array.isArray(spotData.balances)) {
-                  const spotBalance = spotData.balances.reduce((total: number, asset: any) => {
+                  spotBalance = spotData.balances.reduce((total: number, asset: any) => {
                     const free = parseFloat(asset.free || '0');
                     const locked = parseFloat(asset.locked || '0');
                     return total + free + locked;
                   }, 0);
                   totalBalance += spotBalance;
+                  setAsterSpotBalance(spotBalance);
+                  addDebugLog(`✓ Spot balance: $${spotBalance.toFixed(2)}`);
                   console.log('[DalyFunding] ✓ Spot balance:', spotBalance);
+                } else {
+                  addDebugLog('⚠️ Spot response missing balances array');
                 }
               } else {
+                addDebugLog(`❌ Spot fetch failed: HTTP ${spotResponse.status}`);
                 console.warn('[DalyFunding] Spot balance fetch failed:', spotResponse.status);
               }
-            } catch (spotError) {
+            } catch (spotError: any) {
+              addDebugLog(`❌ Spot error: ${spotError.message}`);
               console.warn('[DalyFunding] Spot balance error:', spotError);
             }
 
@@ -405,6 +487,7 @@ export default function DalyFunding() {
               const futuresParams = `timestamp=${futuresTimestamp}`;
               const futuresSignature = crypto.default.HmacSHA256(futuresParams, asterApiSecret).toString();
 
+              addDebugLog('Fetching Aster FUTURES balance...');
               console.log('[DalyFunding] Fetching Aster FUTURES balance...');
               const futuresResponse = await fetch(`https://fapi.asterdex.com/fapi/v2/account?${futuresParams}&signature=${futuresSignature}`, {
                 method: 'GET',
@@ -413,34 +496,50 @@ export default function DalyFunding() {
 
               if (futuresResponse.ok) {
                 const futuresData = await futuresResponse.json();
+                addDebugLog(`Futures API response status: ${futuresResponse.status}`);
+                addDebugLog(`Response fields: ${Object.keys(futuresData).join(', ')}`);
                 console.log('[DalyFunding] Futures API response:', JSON.stringify(futuresData, null, 2));
 
                 // Try multiple balance fields
-                let futuresBalance = 0;
                 if (futuresData.totalWalletBalance !== undefined) {
                   futuresBalance = parseFloat(futuresData.totalWalletBalance);
+                  addDebugLog(`✓ Futures balance (totalWalletBalance): $${futuresBalance.toFixed(2)}`);
                   console.log('[DalyFunding] ✓ Futures balance (totalWalletBalance):', futuresBalance);
                 } else if (futuresData.totalMarginBalance !== undefined) {
                   futuresBalance = parseFloat(futuresData.totalMarginBalance);
+                  addDebugLog(`✓ Futures balance (totalMarginBalance): $${futuresBalance.toFixed(2)}`);
                   console.log('[DalyFunding] ✓ Futures balance (totalMarginBalance):', futuresBalance);
                 } else if (futuresData.assets && Array.isArray(futuresData.assets)) {
                   futuresBalance = futuresData.assets.reduce((total: number, asset: any) => {
                     const balance = parseFloat(asset.walletBalance || asset.marginBalance || '0');
                     return total + balance;
                   }, 0);
+                  addDebugLog(`✓ Futures balance (from assets): $${futuresBalance.toFixed(2)}`);
                   console.log('[DalyFunding] ✓ Futures balance (from assets):', futuresBalance);
+                } else {
+                  addDebugLog('⚠️ Futures response format not recognized');
                 }
                 totalBalance += futuresBalance;
+                setAsterFuturesBalance(futuresBalance);
               } else {
+                addDebugLog(`❌ Futures fetch failed: HTTP ${futuresResponse.status}`);
                 console.warn('[DalyFunding] Futures balance fetch failed:', futuresResponse.status);
                 const errorData = await futuresResponse.json();
+                addDebugLog(`Error: ${JSON.stringify(errorData).substring(0, 100)}`);
                 console.warn('[DalyFunding] Futures error:', errorData);
               }
-            } catch (futuresError) {
+            } catch (futuresError: any) {
+              addDebugLog(`❌ Futures error: ${futuresError.message}`);
               console.warn('[DalyFunding] Futures balance error:', futuresError);
             }
 
             // Set total balance
+            addDebugLog('========================================');
+            addDebugLog(`AsterDEX Total Balance: $${totalBalance.toFixed(2)}`);
+            addDebugLog(`  - Spot:    $${spotBalance.toFixed(2)}`);
+            addDebugLog(`  - Futures: $${futuresBalance.toFixed(2)}`);
+            addDebugLog('========================================');
+
             console.log('[DalyFunding] ========================================');
             console.log('[DalyFunding] AsterDEX Total Balance: $' + totalBalance.toFixed(2));
             console.log('[DalyFunding] ========================================');
@@ -450,6 +549,7 @@ export default function DalyFunding() {
               setAsterBalanceError(null);
             } else {
               setAsterBalanceError('No funds found in Spot or Futures accounts');
+              addDebugLog('⚠️ Total balance is $0 - check API keys or wallet funding');
             }
           }
         } catch (asterError: any) {
@@ -486,6 +586,11 @@ export default function DalyFunding() {
       setStrategyPositions(status.positions);
       setNextRebalanceTime(status.nextRebalanceTime);
       setStrategyEnabled(status.enabled);
+
+      // Update validation debug logs if available
+      if (status.validationDebugLogs && status.validationDebugLogs.length > 0) {
+        setBalanceDebugLogs(status.validationDebugLogs);
+      }
 
       // Update closed positions
       const closed = fundingArbitrageService.getClosedPositions();
@@ -618,8 +723,57 @@ export default function DalyFunding() {
     }
   };
 
-  // Get matched pairs and arbitrage opportunities
-  const matchedPairs = multiExchangeService.getMatchedPairs();
+  // Convert manual mappings to MatchedPairs with funding rate data
+  const manualMatchedPairs: MatchedPair[] = manualMappings.map(mapping => {
+    // Find funding rates for each exchange
+    const asterRate = fundingRates.find(r => r.exchange === 'aster' && r.symbol === mapping.asterSymbol);
+    const hlRate = fundingRates.find(r => r.exchange === 'hyperliquid' && r.symbol === mapping.hyperliquidSymbol);
+
+    // Calculate spread and annual rates
+    let spread: number | undefined;
+    let annualSpread: number | undefined;
+    let opportunity: 'long_aster_short_hl' | 'short_aster_long_hl' | 'none' = 'none';
+
+    if (asterRate && hlRate) {
+      // AsterDEX pays every 8 hours (3x daily), HyperLiquid pays hourly (24x daily)
+      const asterAnnual = asterRate.rate * 3 * 365;
+      const hlAnnual = hlRate.rate * 24 * 365;
+
+      spread = asterRate.rate - hlRate.rate;
+      annualSpread = asterAnnual - hlAnnual;
+
+      // Determine arbitrage strategy
+      if (spread > 0) {
+        opportunity = 'short_aster_long_hl'; // Aster pays more, so short Aster
+      } else {
+        opportunity = 'long_aster_short_hl'; // HL pays more, so short HL
+      }
+    }
+
+    return {
+      canonical: mapping.canonical,
+      aster: asterRate ? {
+        symbol: mapping.asterSymbol,
+        fundingRate: asterRate.rate,
+        annualRate: asterRate.rate * 3 * 365,
+        markPrice: asterRate.markPrice,
+        multiplier: mapping.multiplier,
+      } : undefined,
+      hyperliquid: hlRate ? {
+        symbol: mapping.hyperliquidSymbol,
+        fundingRate: hlRate.rate,
+        annualRate: hlRate.rate * 24 * 365,
+        markPrice: hlRate.markPrice,
+        multiplier: 1, // HyperLiquid doesn't have multipliers
+      } : undefined,
+      spread,
+      annualSpread,
+      opportunity,
+    };
+  });
+
+  // Use manual mappings instead of automatic matching
+  const matchedPairs = manualMatchedPairs;
   const arbitrageOpportunities = matchedPairs
     .filter(pair =>
       pair.aster &&
@@ -629,11 +783,10 @@ export default function DalyFunding() {
     )
     .sort((a, b) => Math.abs(b.annualSpread || 0) - Math.abs(a.annualSpread || 0));
 
-  // Get exclusive assets (only on one exchange)
-  const exclusiveAssets = multiExchangeService.getExclusiveAssets();
+  // No more automatic matching - only manual mappings
   const totalMatched = matchedPairs.filter(p => p.aster && p.hyperliquid).length;
-  const asterOnlyCount = exclusiveAssets.asterOnly.length;
-  const hlOnlyCount = exclusiveAssets.hyperliquidOnly.length;
+  const asterOnlyCount = 0; // Disabled - only manual mappings
+  const hlOnlyCount = 0; // Disabled - only manual mappings
 
   // Calculate statistics
   const totalPositions = strategyPositions.length;
@@ -716,6 +869,7 @@ export default function DalyFunding() {
         aster: asterWallet || undefined,
         hyperliquid: hyperliquidWallet || undefined,
       },
+      manualMappings, // Pass manual asset mappings
     });
 
     // Get current funding rates organized by exchange
@@ -798,7 +952,7 @@ export default function DalyFunding() {
     const updateTop5 = () => {
       const { aster: asterRates, hyperliquid: hlRates } = multiExchangeService.getFundingRatesByExchange();
       console.log(`[Top5Update] Aster rates: ${asterRates.size}, HL rates: ${hlRates.size}`);
-      const spreads = fundingArbitrageService.getTop5Spreads(asterRates, hlRates);
+      const spreads = fundingArbitrageService.getTop5Spreads(asterRates, hlRates, manualMappings);
       console.log(`[Top5Update] Top 5 spreads calculated:`, spreads.map(s => `${s.canonical}: ${s.annualSpread.toFixed(2)}%`));
       setTop5Spreads(spreads);
     };
@@ -810,7 +964,7 @@ export default function DalyFunding() {
     const interval = setInterval(updateTop5, 10000);
 
     return () => clearInterval(interval);
-  }, [isConnected]);
+  }, [isConnected, manualMappings]);
 
   // Intercept console logs for strategy execution display
   useEffect(() => {
@@ -1025,15 +1179,15 @@ export default function DalyFunding() {
                 2-Way Arbitrage ({arbitrageOpportunities.length})
               </button>
               <button
-                onClick={() => setViewMode('diagnostics')}
+                onClick={() => setViewMode('mapping')}
                 className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${
-                  viewMode === 'diagnostics'
+                  viewMode === 'mapping'
                     ? 'bg-yellow-500 text-white'
                     : 'bg-slate-700/50 text-gray-400 hover:bg-slate-600/50'
                 }`}
               >
-                <Activity className="h-3 w-3" />
-                Diagnostics ({totalMatched} matched)
+                <Link className="h-3 w-3" />
+                Asset Mapping ({manualMappings.length})
               </button>
               <button
                 onClick={() => setViewMode('all')}
@@ -1237,134 +1391,31 @@ export default function DalyFunding() {
               </p>
             </div>
           )
-        ) : viewMode === 'diagnostics' ? (
-          // Diagnostics View - Symbol Mapping Status
-          <div className="space-y-6">
-            {/* Summary Cards */}
-            <div className="grid grid-cols-3 gap-4 mb-6">
-              <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-4">
-                <div className="flex items-center gap-2 mb-2">
-                  <CheckCircle className="h-5 w-5 text-green-400" />
-                  <span className="text-sm font-medium text-gray-400">Matched Assets</span>
-                </div>
-                <div className="text-3xl font-bold text-green-400">{totalMatched}</div>
-                <div className="text-xs text-gray-500 mt-1">Available on both exchanges</div>
-              </div>
-              <div className="bg-cyan-500/10 border border-cyan-500/20 rounded-lg p-4">
-                <div className="flex items-center gap-2 mb-2">
-                  <Activity className="h-5 w-5 text-cyan-400" />
-                  <span className="text-sm font-medium text-gray-400">AsterDEX Only</span>
-                </div>
-                <div className="text-3xl font-bold text-cyan-400">{asterOnlyCount}</div>
-                <div className="text-xs text-gray-500 mt-1">Exclusive to AsterDEX</div>
-              </div>
-              <div className="bg-purple-500/10 border border-purple-500/20 rounded-lg p-4">
-                <div className="flex items-center gap-2 mb-2">
-                  <Activity className="h-5 w-5 text-purple-400" />
-                  <span className="text-sm font-medium text-gray-400">HyperLiquid Only</span>
-                </div>
-                <div className="text-3xl font-bold text-purple-400">{hlOnlyCount}</div>
-                <div className="text-xs text-gray-500 mt-1">Exclusive to HyperLiquid</div>
-              </div>
-            </div>
-
-            {/* Matched Pairs Table */}
-            <div className="bg-slate-800/30 rounded-lg p-4 border border-slate-700/50">
-              <h3 className="text-lg font-bold text-green-400 mb-4 flex items-center gap-2">
-                <CheckCircle className="h-5 w-5" />
-                Matched Assets ({totalMatched})
-              </h3>
-              <div className="overflow-x-auto max-h-96 overflow-y-auto">
-                <table className="w-full text-sm">
-                  <thead className="sticky top-0 bg-slate-800 border-b border-slate-600/50">
-                    <tr>
-                      <th className="px-3 py-2 text-left text-xs font-semibold text-gray-400">Canonical</th>
-                      <th className="px-3 py-2 text-left text-xs font-semibold text-gray-400">AsterDEX Symbol</th>
-                      <th className="px-3 py-2 text-left text-xs font-semibold text-gray-400">HyperLiquid Symbol</th>
-                      <th className="px-3 py-2 text-right text-xs font-semibold text-gray-400">Multiplier</th>
-                      <th className="px-3 py-2 text-center text-xs font-semibold text-gray-400">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-700/30">
-                    {matchedPairs
-                      .filter(p => p.aster && p.hyperliquid)
-                      .sort((a, b) => a.canonical.localeCompare(b.canonical))
-                      .map((pair) => (
-                        <tr key={pair.canonical} className="hover:bg-slate-700/20">
-                          <td className="px-3 py-2 font-bold text-white">{pair.canonical}</td>
-                          <td className="px-3 py-2">
-                            <span className="text-cyan-400 font-mono text-xs">
-                              {pair.aster?.symbol}
-                            </span>
-                          </td>
-                          <td className="px-3 py-2">
-                            <span className="text-purple-400 font-mono text-xs">
-                              {pair.hyperliquid?.symbol}
-                            </span>
-                          </td>
-                          <td className="px-3 py-2 text-right">
-                            <span className={`text-xs ${
-                              (pair.aster?.multiplier || 1) > 1 ? 'text-yellow-400 font-bold' : 'text-gray-500'
-                            }`}>
-                              {pair.aster?.multiplier || 1}x
-                            </span>
-                          </td>
-                          <td className="px-3 py-2 text-center">
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-green-500/20 text-green-400">
-                              <CheckCircle className="h-3 w-3" />
-                              Matched
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* Exchange-Exclusive Assets */}
-            <div className="grid grid-cols-2 gap-4">
-              {/* AsterDEX Only */}
-              <div className="bg-slate-800/30 rounded-lg p-4 border border-cyan-500/20">
-                <h3 className="text-lg font-bold text-cyan-400 mb-4 flex items-center gap-2">
-                  <Activity className="h-5 w-5" />
-                  AsterDEX Exclusive ({asterOnlyCount})
-                </h3>
-                <div className="max-h-64 overflow-y-auto">
-                  <div className="space-y-2">
-                    {exclusiveAssets.asterOnly
-                      .sort((a, b) => a.canonical.localeCompare(b.canonical))
-                      .map((pair) => (
-                        <div key={pair.canonical} className="flex items-center justify-between p-2 bg-cyan-500/5 rounded">
-                          <span className="font-bold text-white">{pair.canonical}</span>
-                          <span className="text-xs text-cyan-400 font-mono">{pair.aster?.symbol}</span>
-                        </div>
-                      ))}
-                  </div>
-                </div>
-              </div>
-
-              {/* HyperLiquid Only */}
-              <div className="bg-slate-800/30 rounded-lg p-4 border border-purple-500/20">
-                <h3 className="text-lg font-bold text-purple-400 mb-4 flex items-center gap-2">
-                  <Activity className="h-5 w-5" />
-                  HyperLiquid Exclusive ({hlOnlyCount})
-                </h3>
-                <div className="max-h-64 overflow-y-auto">
-                  <div className="space-y-2">
-                    {exclusiveAssets.hyperliquidOnly
-                      .sort((a, b) => a.canonical.localeCompare(b.canonical))
-                      .map((pair) => (
-                        <div key={pair.canonical} className="flex items-center justify-between p-2 bg-purple-500/5 rounded">
-                          <span className="font-bold text-white">{pair.canonical}</span>
-                          <span className="text-xs text-purple-400 font-mono">{pair.hyperliquid?.symbol}</span>
-                        </div>
-                      ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+        ) : viewMode === 'mapping' ? (
+          // Asset Mapping View - Drag-and-Drop Interface
+          <AssetMappingDnD
+            asterAssets={fundingRates
+              .filter(r => r.exchange === 'aster')
+              .map(r => r.symbol)
+              .sort((a, b) => a.localeCompare(b))}
+            hlAssets={fundingRates
+              .filter(r => r.exchange === 'hyperliquid')
+              .map(r => r.symbol)
+              .sort((a, b) => a.localeCompare(b))}
+            asterPrices={new Map(
+              fundingRates
+                .filter(r => r.exchange === 'aster')
+                .map(r => [r.symbol, r.markPrice])
+            )}
+            hlPrices={new Map(
+              fundingRates
+                .filter(r => r.exchange === 'hyperliquid')
+                .map(r => [r.symbol, r.markPrice])
+            )}
+            mappings={manualMappings}
+            onAddMapping={handleAddMapping}
+            onRemoveMapping={handleRemoveMapping}
+          />
         ) : (
           // All Assets View
           sortedRates.length > 0 ? (

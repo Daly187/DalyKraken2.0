@@ -38,6 +38,7 @@ export interface ValidationResult {
   warnings: string[];
   asterBalance?: number;
   hyperliquidBalance?: number;
+  debugLogs?: string[]; // Debug logs for UI display
 }
 
 // Static precision mappings removed - now using dynamic PrecisionManager
@@ -270,27 +271,55 @@ class ExchangeTradeService {
   async validateTradingReadiness(requiredCapital: number): Promise<ValidationResult> {
     const errors: string[] = [];
     const warnings: string[] = [];
+    const debugLogs: string[] = [];
+
+    const addDebugLog = (msg: string) => {
+      const timestamp = new Date().toISOString().split('T')[1].split('.')[0];
+      debugLogs.push(`[${timestamp}] ${msg}`);
+      console.log(`[Validation] ${msg}`);
+    };
+
+    addDebugLog('========================================');
+    addDebugLog('STARTING VALIDATION');
+    addDebugLog(`Required capital per exchange: $${requiredCapital}`);
+    addDebugLog('========================================');
 
     // LIVE MODE: Check Aster API keys
+    addDebugLog('Step 1: Checking Aster API keys in localStorage...');
     const asterApiKey = localStorage.getItem('aster_api_key');
     const asterApiSecret = localStorage.getItem('aster_api_secret');
+
     if (!asterApiKey || !asterApiSecret) {
+      addDebugLog('❌ Aster API keys NOT FOUND in localStorage');
       errors.push('Aster API keys not configured in Settings');
+    } else {
+      addDebugLog(`✓ Aster API key found: ${asterApiKey.substring(0, 8)}...${asterApiKey.substring(asterApiKey.length - 4)}`);
+      addDebugLog(`✓ Aster API secret found: ${asterApiSecret.substring(0, 8)}...`);
     }
 
     // Check Hyperliquid wallet
+    addDebugLog('Step 2: Checking Hyperliquid credentials in localStorage...');
     const hyperliquidWallet = localStorage.getItem('hyperliquid_wallet_address');
     const hyperliquidPrivateKey = localStorage.getItem('hyperliquid_private_key');
+
     if (!hyperliquidWallet || !hyperliquidPrivateKey) {
+      addDebugLog('❌ Hyperliquid credentials NOT FOUND in localStorage');
       errors.push('Hyperliquid wallet not configured in Settings');
+    } else {
+      addDebugLog(`✓ Hyperliquid wallet found: ${hyperliquidWallet.substring(0, 8)}...${hyperliquidWallet.substring(hyperliquidWallet.length - 4)}`);
+      addDebugLog(`✓ Hyperliquid private key found`);
     }
 
     // If keys are missing, return early
     if (errors.length > 0) {
+      addDebugLog('========================================');
+      addDebugLog('VALIDATION ABORTED: Missing credentials');
+      addDebugLog('========================================');
       return {
         valid: false,
         errors,
         warnings,
+        debugLogs,
       };
     }
 
@@ -298,104 +327,181 @@ class ExchangeTradeService {
     let asterBalance = 0;
     let hyperliquidBalance = 0;
 
+    addDebugLog('========================================');
+    addDebugLog('Step 3: Fetching Aster balance...');
+    addDebugLog('========================================');
+
     try {
+      addDebugLog('3.1: Checking rate limiter...');
       await this.rateLimiter.checkAster(5);
+      addDebugLog('✓ Rate limiter check passed');
 
       const timestamp = Date.now();
       const params = `timestamp=${timestamp}`;
+      addDebugLog(`3.2: Created timestamp: ${timestamp}`);
+      addDebugLog(`3.3: Created params string: ${params}`);
 
       // Create signature
+      addDebugLog('3.4: Importing crypto-js module...');
       const crypto = await import('crypto-js');
+      addDebugLog('✓ crypto-js imported successfully');
+      addDebugLog(`✓ crypto.default exists: ${!!crypto.default}`);
+      addDebugLog(`✓ crypto.default.HmacSHA256 exists: ${!!crypto.default?.HmacSHA256}`);
+
+      addDebugLog('3.5: Creating HMAC signature...');
       const signature = crypto.default.HmacSHA256(params, asterApiSecret!).toString();
+      addDebugLog(`✓ Signature created: ${signature.substring(0, 16)}...${signature.substring(signature.length - 8)}`);
 
       // Check BOTH spot and futures balances on AsterDEX
       let spotBalance = 0;
       let futuresBalance = 0;
 
       // 1. Fetch SPOT balance
-      console.log(`[Validation] Fetching AsterDEX SPOT balance...`);
+      addDebugLog('========================================');
+      addDebugLog('3.6: Fetching SPOT balance...');
+      addDebugLog('========================================');
       try {
-        const spotResponse = await fetch(`https://sapi.asterdex.com/api/v1/account?${params}&signature=${signature}`, {
+        const spotUrl = `https://sapi.asterdex.com/api/v1/account?${params}&signature=${signature}`;
+        addDebugLog(`Making GET request to: ${spotUrl.substring(0, 80)}...`);
+        addDebugLog(`Headers: X-MBX-APIKEY: ${asterApiKey!.substring(0, 8)}...`);
+
+        const spotResponse = await fetch(spotUrl, {
           method: 'GET',
           headers: {
             'X-MBX-APIKEY': asterApiKey!,
           },
         });
 
+        addDebugLog(`✓ Spot API response received: HTTP ${spotResponse.status}`);
+
         if (spotResponse.ok) {
+          addDebugLog('✓ Spot response is OK, parsing JSON...');
           const spotData = await spotResponse.json();
+          addDebugLog(`✓ Spot JSON parsed. Response preview: ${JSON.stringify(spotData).substring(0, 200)}...`);
+          addDebugLog(`Spot response keys: ${Object.keys(spotData).join(', ')}`);
 
           // Sum all balances from spot wallet
           if (spotData.balances && Array.isArray(spotData.balances)) {
+            addDebugLog(`✓ Found 'balances' array with ${spotData.balances.length} items`);
+            const nonZeroBalances = spotData.balances.filter((a: any) =>
+              (parseFloat(a.free || '0') + parseFloat(a.locked || '0')) > 0
+            );
+            addDebugLog(`Found ${nonZeroBalances.length} non-zero spot balances`);
+
             spotBalance = spotData.balances.reduce((total: number, asset: any) => {
               const free = parseFloat(asset.free || '0');
               const locked = parseFloat(asset.locked || '0');
               return total + free + locked;
             }, 0);
-            console.log(`[Validation] ✅ Spot balance: $${spotBalance.toFixed(2)}`);
+            addDebugLog(`✅ SPOT BALANCE CALCULATED: $${spotBalance.toFixed(2)}`);
+          } else {
+            addDebugLog('⚠️ Spot response missing "balances" array');
           }
         } else {
-          console.warn(`[Validation] Could not fetch spot balance: ${spotResponse.status}`);
+          addDebugLog(`❌ Spot API returned error status: ${spotResponse.status}`);
+          const errorData = await spotResponse.text();
+          addDebugLog(`Error response: ${errorData.substring(0, 200)}`);
         }
       } catch (spotError: any) {
-        console.warn(`[Validation] Spot balance fetch failed: ${spotError.message}`);
+        addDebugLog(`❌ SPOT FETCH EXCEPTION: ${spotError.message}`);
+        addDebugLog(`Error name: ${spotError.name}`);
+        addDebugLog(`Error stack: ${spotError.stack?.substring(0, 200)}`);
       }
 
       // 2. Fetch FUTURES balance
-      console.log(`[Validation] Fetching AsterDEX FUTURES balance...`);
+      addDebugLog('========================================');
+      addDebugLog('3.7: Fetching FUTURES balance...');
+      addDebugLog('========================================');
       try {
-        const futuresResponse = await fetch(`https://fapi.asterdex.com/fapi/v2/account?${params}&signature=${signature}`, {
+        const futuresUrl = `https://fapi.asterdex.com/fapi/v2/account?${params}&signature=${signature}`;
+        addDebugLog(`Making GET request to: ${futuresUrl.substring(0, 80)}...`);
+        addDebugLog(`Headers: X-MBX-APIKEY: ${asterApiKey!.substring(0, 8)}...`);
+
+        const futuresResponse = await fetch(futuresUrl, {
           method: 'GET',
           headers: {
             'X-MBX-APIKEY': asterApiKey!,
           },
         });
 
+        addDebugLog(`✓ Futures API response received: HTTP ${futuresResponse.status}`);
+
         if (futuresResponse.ok) {
+          addDebugLog('✓ Futures response is OK, parsing JSON...');
           const futuresData = await futuresResponse.json();
+          addDebugLog(`✓ Futures JSON parsed. Response preview: ${JSON.stringify(futuresData).substring(0, 200)}...`);
+          addDebugLog(`Futures response keys: ${Object.keys(futuresData).join(', ')}`);
 
           // Try multiple methods to extract futures balance
           if (futuresData.totalWalletBalance !== undefined) {
             futuresBalance = parseFloat(futuresData.totalWalletBalance);
-            console.log(`[Validation] ✅ Futures balance (totalWalletBalance): $${futuresBalance.toFixed(2)}`);
+            addDebugLog(`✅ FUTURES BALANCE (totalWalletBalance): $${futuresBalance.toFixed(2)}`);
           } else if (futuresData.totalMarginBalance !== undefined) {
             futuresBalance = parseFloat(futuresData.totalMarginBalance);
-            console.log(`[Validation] ✅ Futures balance (totalMarginBalance): $${futuresBalance.toFixed(2)}`);
+            addDebugLog(`✅ FUTURES BALANCE (totalMarginBalance): $${futuresBalance.toFixed(2)}`);
           } else if (futuresData.assets && Array.isArray(futuresData.assets)) {
+            addDebugLog(`Found 'assets' array with ${futuresData.assets.length} items`);
             futuresBalance = futuresData.assets.reduce((total: number, asset: any) => {
               const walletBalance = parseFloat(asset.walletBalance || asset.marginBalance || '0');
               return total + walletBalance;
             }, 0);
-            console.log(`[Validation] ✅ Futures balance (from assets): $${futuresBalance.toFixed(2)}`);
+            addDebugLog(`✅ FUTURES BALANCE (from assets): $${futuresBalance.toFixed(2)}`);
+          } else {
+            addDebugLog('⚠️ Futures response format not recognized');
+            addDebugLog(`Available fields: ${Object.keys(futuresData).join(', ')}`);
           }
         } else {
-          console.warn(`[Validation] Could not fetch futures balance: ${futuresResponse.status}`);
+          addDebugLog(`❌ Futures API returned error status: ${futuresResponse.status}`);
+          const errorData = await futuresResponse.text();
+          addDebugLog(`Error response: ${errorData.substring(0, 200)}`);
         }
       } catch (futuresError: any) {
-        console.warn(`[Validation] Futures balance fetch failed: ${futuresError.message}`);
+        addDebugLog(`❌ FUTURES FETCH EXCEPTION: ${futuresError.message}`);
+        addDebugLog(`Error name: ${futuresError.name}`);
+        addDebugLog(`Error stack: ${futuresError.stack?.substring(0, 200)}`);
       }
 
       // 3. Combine spot + futures balances
+      addDebugLog('========================================');
+      addDebugLog('3.8: Combining balances...');
+      addDebugLog('========================================');
       asterBalance = spotBalance + futuresBalance;
-      console.log(`[Validation] ========================================`);
-      console.log(`[Validation] AsterDEX Total Balance: $${asterBalance.toFixed(2)}`);
-      console.log(`[Validation]   - Spot:    $${spotBalance.toFixed(2)}`);
-      console.log(`[Validation]   - Futures: $${futuresBalance.toFixed(2)}`);
-      console.log(`[Validation] ========================================`);
+      addDebugLog(`Spot balance:    $${spotBalance.toFixed(2)}`);
+      addDebugLog(`Futures balance: $${futuresBalance.toFixed(2)}`);
+      addDebugLog(`TOTAL ASTER BALANCE: $${asterBalance.toFixed(2)}`);
+      addDebugLog('========================================');
 
       if (asterBalance === 0) {
-        warnings.push('Could not fetch AsterDEX balance from either spot or futures wallet');
+        const errorMsg = '⚠️ Could not fetch AsterDEX balance from either spot or futures wallet';
+        warnings.push(errorMsg);
+        addDebugLog(`⚠️ WARNING: ${errorMsg}`);
+        addDebugLog('This could mean:');
+        addDebugLog('  1. Empty wallets on both spot and futures');
+        addDebugLog('  2. API authentication failed (check API keys)');
+        addDebugLog('  3. Network/CORS issues preventing API calls');
       }
     } catch (error: any) {
       const errorMsg = `Could not fetch Aster balance - network error: ${error.message}`;
       warnings.push(errorMsg);
-      console.error(`[Validation] ${errorMsg}`);
+      addDebugLog(`❌ OUTER TRY-CATCH CAUGHT ERROR: ${errorMsg}`);
+      addDebugLog(`Error type: ${error.name}`);
+      addDebugLog(`Error stack: ${error.stack?.substring(0, 300)}`);
     }
 
+    addDebugLog('========================================');
+    addDebugLog('Step 4: Fetching Hyperliquid balance...');
+    addDebugLog('========================================');
+
     try {
+      addDebugLog('4.1: Checking rate limiter...');
       await this.rateLimiter.checkHL();
+      addDebugLog('✓ Rate limiter check passed');
 
       // Fetch Hyperliquid balance
+      addDebugLog('4.2: Making POST request to Hyperliquid API...');
+      addDebugLog(`URL: ${HL_API}/info`);
+      addDebugLog(`Wallet: ${hyperliquidWallet}`);
+
       const hlResponse = await fetch(`${HL_API}/info`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -405,46 +511,73 @@ class ExchangeTradeService {
         }),
       });
 
+      addDebugLog(`✓ Hyperliquid API response received: HTTP ${hlResponse.status}`);
+
       if (hlResponse.ok) {
+        addDebugLog('✓ Hyperliquid response is OK, parsing JSON...');
         const hlData = await hlResponse.json();
+        addDebugLog(`✓ Hyperliquid JSON parsed`);
+        addDebugLog(`Response keys: ${Object.keys(hlData).join(', ')}`);
+
         hyperliquidBalance = parseFloat(hlData.marginSummary?.accountValue || '0');
-        console.log(`[Validation] Hyperliquid balance fetched: $${hyperliquidBalance.toFixed(2)}`);
+        addDebugLog(`✅ HYPERLIQUID BALANCE: $${hyperliquidBalance.toFixed(2)}`);
       } else {
         const errorText = await hlResponse.text();
         const errorMsg = `Could not fetch Hyperliquid balance - API error: ${hlResponse.status} ${errorText}`;
         warnings.push(errorMsg);
-        console.error(`[Validation] ${errorMsg}`);
+        addDebugLog(`❌ Hyperliquid API error: ${errorMsg}`);
       }
     } catch (error: any) {
       const errorMsg = `Could not fetch Hyperliquid balance - network error: ${error.message}`;
       warnings.push(errorMsg);
-      console.error(`[Validation] ${errorMsg}`);
+      addDebugLog(`❌ HYPERLIQUID FETCH EXCEPTION: ${errorMsg}`);
+      addDebugLog(`Error type: ${error.name}`);
     }
 
     // Check if balances are sufficient
+    addDebugLog('========================================');
+    addDebugLog('Step 5: Validating balances against requirements...');
+    addDebugLog('========================================');
+
     // NOTE: requiredCapital is already PER EXCHANGE (not total combined)
     const requiredPerExchange = requiredCapital;
+    addDebugLog(`Required per exchange: $${requiredPerExchange.toFixed(2)}`);
+    addDebugLog(`Aster balance:         $${asterBalance.toFixed(2)}`);
+    addDebugLog(`Hyperliquid balance:   $${hyperliquidBalance.toFixed(2)}`);
 
     if (asterBalance < requiredPerExchange) {
-      errors.push(
-        `Insufficient Aster balance: $${asterBalance.toFixed(2)} (need $${requiredPerExchange.toFixed(2)})`
-      );
+      const error = `Insufficient Aster balance: $${asterBalance.toFixed(2)} (need $${requiredPerExchange.toFixed(2)})`;
+      errors.push(error);
+      addDebugLog(`❌ ERROR: ${error}`);
+    } else {
+      addDebugLog(`✓ Aster balance sufficient`);
     }
 
     if (hyperliquidBalance < requiredPerExchange) {
-      errors.push(
-        `Insufficient Hyperliquid balance: $${hyperliquidBalance.toFixed(2)} (need $${requiredPerExchange.toFixed(2)})`
-      );
+      const error = `Insufficient Hyperliquid balance: $${hyperliquidBalance.toFixed(2)} (need $${requiredPerExchange.toFixed(2)})`;
+      errors.push(error);
+      addDebugLog(`❌ ERROR: ${error}`);
+    } else {
+      addDebugLog(`✓ Hyperliquid balance sufficient`);
     }
 
     // Warning if balances are barely sufficient (within 10% margin)
     if (asterBalance >= requiredPerExchange && asterBalance < requiredPerExchange * 1.1) {
       warnings.push(`Low Aster balance: $${asterBalance.toFixed(2)} (close to minimum)`);
+      addDebugLog(`⚠️ WARNING: Aster balance close to minimum`);
     }
 
     if (hyperliquidBalance >= requiredPerExchange && hyperliquidBalance < requiredPerExchange * 1.1) {
       warnings.push(`Low Hyperliquid balance: $${hyperliquidBalance.toFixed(2)} (close to minimum)`);
+      addDebugLog(`⚠️ WARNING: Hyperliquid balance close to minimum`);
     }
+
+    addDebugLog('========================================');
+    addDebugLog(`VALIDATION COMPLETE`);
+    addDebugLog(`Valid: ${errors.length === 0}`);
+    addDebugLog(`Errors: ${errors.length}`);
+    addDebugLog(`Warnings: ${warnings.length}`);
+    addDebugLog('========================================');
 
     return {
       valid: errors.length === 0,
@@ -452,6 +585,7 @@ class ExchangeTradeService {
       warnings,
       asterBalance,
       hyperliquidBalance,
+      debugLogs,
     };
   }
 
@@ -822,7 +956,18 @@ class ExchangeTradeService {
       // Build order type object
       const orderTypeObj = orderType === 'LIMIT'
         ? { limit: { tif: 'Gtc' } }
-        : { trigger: { isMarket: true, tpsl: 'tp' } }; // Market order
+        : { limit: { tif: 'Ioc' } }; // Market order uses IoC (Immediate or Cancel)
+
+      // For market orders (IoC), set price at extreme to ensure fill
+      // Buy orders: set high price, Sell orders: set low price
+      let orderPrice: string;
+      if (orderType === 'MARKET') {
+        orderPrice = side === 'buy'
+          ? (price! * 1.05).toFixed(2)  // 5% above for buys (ensures fill)
+          : (price! * 0.95).toFixed(2); // 5% below for sells (ensures fill)
+      } else {
+        orderPrice = price!.toFixed(2);
+      }
 
       // Build order action
       const action = {
@@ -831,7 +976,7 @@ class ExchangeTradeService {
           {
             a: assetIndex,
             b: side === 'buy',
-            p: orderType === 'LIMIT' ? price!.toFixed(2) : '0', // Price is 0 for market orders
+            p: orderPrice,
             s: formattedQty.toString(),
             r: false,
             t: orderTypeObj,
@@ -898,8 +1043,26 @@ class ExchangeTradeService {
 
       const orderId = result.status?.statuses?.[0]?.oid?.toString() || 'unknown';
 
-      // Verify fill
-      const filled = await this.verifyOrderFill('hyperliquid', orderId, symbol);
+      // For IoC orders (market orders), check if it was filled immediately from the response
+      // IoC orders don't need status verification since they fill or cancel instantly
+      let filled = false;
+      if (orderType === 'MARKET') {
+        // Check if the order was filled from the response
+        const orderStatus = result.status?.statuses?.[0]?.status;
+        filled = orderStatus === 'filled';
+        console.log(`[HyperLiquid] IoC order status from response: ${orderStatus}, filled: ${filled}`);
+
+        if (!filled) {
+          console.warn(`[HyperLiquid] IoC order did not fill immediately - may have been cancelled`);
+        }
+      } else {
+        // For limit orders, verify fill status
+        if (orderId !== 'unknown') {
+          filled = await this.verifyOrderFill('hyperliquid', orderId, symbol);
+        } else {
+          console.warn(`[HyperLiquid] Order ID is unknown, cannot verify fill status`);
+        }
+      }
 
       return {
         success: true,
@@ -1101,12 +1264,14 @@ class ExchangeTradeService {
             side: 'sell',
             size: positionSize,
             price: price,
+            orderType: 'MARKET',
           })
         : this.placeHyperliquidOrder({
             symbol: longSymbol,
             side: 'sell',
             size: positionSize,
             price: price,
+            orderType: 'MARKET',
           }),
 
       // Close short (buy)
@@ -1116,12 +1281,14 @@ class ExchangeTradeService {
             side: 'buy',
             size: positionSize,
             price: price,
+            orderType: 'MARKET',
           })
         : this.placeHyperliquidOrder({
             symbol: shortSymbol,
             side: 'buy',
             size: positionSize,
             price: price,
+            orderType: 'MARKET',
           }),
     ]);
 

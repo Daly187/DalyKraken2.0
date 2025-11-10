@@ -29,7 +29,13 @@
       "Bash(node -e:*)",
       "Bash(open -a \"Google Chrome\" https://dalydough.web.app/)",
       "Bash(open -a \"Google Chrome\" \"https://dalydough.web.app/\")",
-      "Bash(osascript -e 'tell application \"\"Google Chrome\"\" to execute front window'\"''\"'s active tab javascript \"\"console.log('\"''\"'Checking matched pairs...'\"''\"'); \n// Get the matched pairs from the page\nconst matchedPairs = document.querySelectorAll('\"''\"'[data-matched-pair]'\"''\"');\nconsole.log('\"''\"'Matched pairs found:'\"''\"', matchedPairs.length);\"\"')"
+      "Bash(osascript -e 'tell application \"\"Google Chrome\"\" to execute front window'\"''\"'s active tab javascript \"\"console.log('\"''\"'Checking matched pairs...'\"''\"'); \n// Get the matched pairs from the page\nconst matchedPairs = document.querySelectorAll('\"''\"'[data-matched-pair]'\"''\"');\nconsole.log('\"''\"'Matched pairs found:'\"''\"', matchedPairs.length);\"\"')",
+      "Bash(firebase functions:list:*)",
+      "Bash(cat:*)",
+      "Bash(npx tsx:*)",
+      "Bash(GOOGLE_APPLICATION_CREDENTIALS=\"../../serviceAccountKey.json\" npx tsx:*)",
+      "Bash(GOOGLE_APPLICATION_CREDENTIALS=\"./serviceAccountKey.json\" npx tsx:*)",
+      "Bash(GOOGLE_APPLICATION_CREDENTIALS=\"./backend/functions/serviceAccountKey.json\" npx tsx:*)"
     ],
     "deny": [],
     "ask": []

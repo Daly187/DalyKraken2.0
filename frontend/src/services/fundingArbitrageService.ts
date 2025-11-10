@@ -83,6 +83,7 @@ export interface StrategyConfig {
     aster?: string;
     hyperliquid?: string;
   };
+  manualMappings?: Array<{ canonical: string; asterSymbol: string; hyperliquidSymbol: string; multiplier: number }>; // Manual asset mappings
 }
 
 export interface RebalanceEvent {
@@ -104,6 +105,7 @@ class FundingArbitrageService {
     fillTimeout: 30000, // 30 seconds to wait for order fills
     excludedSymbols: [],
     walletAddresses: {},
+    manualMappings: [], // No manual mappings by default
   };
 
   private positions: Map<string, StrategyPosition> = new Map();
@@ -114,6 +116,7 @@ class FundingArbitrageService {
   private rebalanceHistory: RebalanceEvent[] = [];
   private closedPositions: StrategyPosition[] = []; // Track closed positions for history
   private spreadMonitorInterval: NodeJS.Timeout | null = null;
+  private validationDebugLogs: string[] = []; // Store latest validation debug logs
 
   constructor() {
     // Load persisted state on initialization
@@ -218,20 +221,44 @@ class FundingArbitrageService {
   getTopSpreads(
     asterRates: Map<string, FundingRate>,
     hlRates: Map<string, FundingRate>,
-    count: number = 5
+    count: number = 5,
+    manualMappings?: Array<{ canonical: string; asterSymbol: string; hyperliquidSymbol: string; multiplier: number }>
   ): FundingSpread[] {
     const spreads: FundingSpread[] = [];
 
-    // Match symbols between exchanges
-    asterRates.forEach((asterRate, symbol) => {
-      const hlRate = hlRates.get(symbol);
-      if (hlRate) {
-        const spread = this.calculateSpread(asterRate, hlRate);
-        if (spread && !this.config.excludedSymbols.includes(spread.canonical)) {
-          spreads.push(spread);
+    // Use manual mappings if provided, otherwise fallback to automatic matching
+    if (manualMappings && manualMappings.length > 0) {
+      console.log(`[FundingArbitrage] Using ${manualMappings.length} manual asset mappings`);
+
+      // Match using manual mappings
+      manualMappings.forEach(mapping => {
+        const asterRate = asterRates.get(mapping.asterSymbol);
+        const hlRate = hlRates.get(mapping.hyperliquidSymbol);
+
+        if (asterRate && hlRate) {
+          const spread = this.calculateSpread(asterRate, hlRate);
+          if (spread && !this.config.excludedSymbols.includes(spread.canonical)) {
+            // Override canonical name with mapping's canonical
+            spread.canonical = mapping.canonical;
+            spreads.push(spread);
+          }
+        } else {
+          console.warn(`[FundingArbitrage] Mapping ${mapping.canonical}: rates not found (Aster: ${mapping.asterSymbol}, HL: ${mapping.hyperliquidSymbol})`);
         }
-      }
-    });
+      });
+    } else {
+      // Fallback to automatic matching (deprecated)
+      console.warn('[FundingArbitrage] No manual mappings provided, using automatic matching (deprecated)');
+      asterRates.forEach((asterRate, symbol) => {
+        const hlRate = hlRates.get(symbol);
+        if (hlRate) {
+          const spread = this.calculateSpread(asterRate, hlRate);
+          if (spread && !this.config.excludedSymbols.includes(spread.canonical)) {
+            spreads.push(spread);
+          }
+        }
+      });
+    }
 
     // Filter out unrealistic spreads
     // Note: High spreads (>1000%) are VALID for extreme negative funding rates
@@ -278,9 +305,10 @@ class FundingArbitrageService {
    */
   getTop5Spreads(
     asterRates: Map<string, FundingRate>,
-    hlRates: Map<string, FundingRate>
+    hlRates: Map<string, FundingRate>,
+    manualMappings?: Array<{ canonical: string; asterSymbol: string; hyperliquidSymbol: string; multiplier: number }>
   ): FundingSpread[] {
-    return this.getTopSpreads(asterRates, hlRates, 5);
+    return this.getTopSpreads(asterRates, hlRates, 5, manualMappings);
   }
 
   /**
@@ -320,14 +348,14 @@ class FundingArbitrageService {
               side: 'buy',
               size,
               price,
-              orderType: 'LIMIT',
+              orderType: 'MARKET',
             }).catch(err => ({ success: false, error: err.message })) as Promise<any>
           : exchangeTradeService.placeHyperliquidOrder({
               symbol: longSymbol,
               side: 'buy',
               size,
               price,
-              orderType: 'LIMIT',
+              orderType: 'MARKET',
             }).catch(err => ({ success: false, error: err.message })) as Promise<any>,
         // Place short order on the correct exchange
         shortExchange === 'aster'
@@ -336,14 +364,14 @@ class FundingArbitrageService {
               side: 'sell',
               size,
               price,
-              orderType: 'LIMIT',
+              orderType: 'MARKET',
             }).catch(err => ({ success: false, error: err.message })) as Promise<any>
           : exchangeTradeService.placeHyperliquidOrder({
               symbol: shortSymbol,
               side: 'sell',
               size,
               price,
-              orderType: 'LIMIT',
+              orderType: 'MARKET',
             }).catch(err => ({ success: false, error: err.message })) as Promise<any>,
       ]);
 
@@ -717,6 +745,11 @@ class FundingArbitrageService {
     console.log(`[Arbitrage] Validating trading readiness...`);
     const validation = await exchangeTradeService.validateTradingReadiness(this.config.totalCapital);
 
+    // Store debug logs for UI display
+    if (validation.debugLogs) {
+      this.validationDebugLogs = validation.debugLogs;
+    }
+
     if (!validation.valid) {
       console.error(`[Arbitrage] ========================================`);
       console.error(`[Arbitrage] ❌ TRADING VALIDATION FAILED`);
@@ -770,7 +803,7 @@ class FundingArbitrageService {
     // Fetch MORE spreads than needed (buffer for skipped positions)
     // Request 3x the number needed to ensure we can backfill
     const bufferMultiplier = 3;
-    const candidateSpreads = this.getTopSpreads(asterRates, hlRates, this.config.numberOfPairs * bufferMultiplier);
+    const candidateSpreads = this.getTopSpreads(asterRates, hlRates, this.config.numberOfPairs * bufferMultiplier, this.config.manualMappings);
 
     console.log(`[Arbitrage] ========================================`);
     console.log(`[Arbitrage] REBALANCE EXECUTION`);
@@ -1063,6 +1096,7 @@ class FundingArbitrageService {
 
     return {
       enabled: this.config.enabled,
+      validationDebugLogs: this.validationDebugLogs,
       totalCapital: this.config.totalCapital,
       allocatedCapital,
       availableCapital: this.config.totalCapital - allocatedCapital,

@@ -2473,7 +2473,7 @@ class SymbolMappingEngine {
     // AUTO-DISCOVERY MODE: If no match found and autoDiscover is enabled,
     // use the base symbol itself as canonical (allows all pairs to be matched)
     if (autoDiscover && baseSymbol.length > 0) {
-      console.log(`[SymbolMapping] Auto-discovered new symbol: ${baseSymbol} (from ${rawSymbol})`);
+      // console.log(`[SymbolMapping] Auto-discovered new symbol: ${baseSymbol} (from ${rawSymbol})`);
       return { canonical: baseSymbol, multiplier: detectedMultiplier };
     }
 

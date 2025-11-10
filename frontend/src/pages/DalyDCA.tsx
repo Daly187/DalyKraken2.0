@@ -64,6 +64,7 @@ export default function DalyDCA() {
   const [pendingOrders, setPendingOrders] = useState<any[]>([]);
   const [portfolioBalances, setPortfolioBalances] = useState<Balance[]>([]);
   const [isSymbolDropdownOpen, setIsSymbolDropdownOpen] = useState(false);
+  const [trendData, setTrendData] = useState<Map<string, any>>(new Map());
 
   // Section collapse states
   const [isCreateSectionExpanded, setIsCreateSectionExpanded] = useState(true);
@@ -177,6 +178,32 @@ export default function DalyDCA() {
     }
   };
 
+  const fetchTrendData = async () => {
+    try {
+      const token = localStorage.getItem('auth_token');
+      const response = await fetch(`${config.api.mainUrl}/market/quantify-crypto/enhanced-trends?limit=100`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        // Convert array to Map for fast lookups
+        const trendMap = new Map();
+        data.trends?.forEach((trend: any) => {
+          if (trend.symbol) {
+            trendMap.set(trend.symbol, trend);
+          }
+        });
+        setTrendData(trendMap);
+        console.log('[DalyDCA] Fetched trend data for', trendMap.size, 'symbols');
+      }
+    } catch (error) {
+      console.error('[DalyDCA] Failed to fetch trend data:', error);
+    }
+  };
+
   const refreshData = async () => {
     setLoading(true);
     try {
@@ -184,6 +211,7 @@ export default function DalyDCA() {
         fetchDCABots(),
         fetchPendingOrders(),
         fetchPortfolioBalances(),
+        fetchTrendData(),
       ]);
       setLastRefreshTime(new Date());
     } catch (error) {
@@ -571,17 +599,34 @@ export default function DalyDCA() {
     }
   };
 
+  // Helper function to merge bot data with trend data
+  const getBotWithTrend = (bot: any) => {
+    const trend = trendData.get(bot.symbol);
+    if (trend) {
+      return {
+        ...bot,
+        techScore: trend.technical_score || bot.techScore || 50,
+        trendScore: trend.trend_score || bot.trendScore || 50,
+        recommendation: trend.recommendation || bot.recommendation || 'neutral',
+      };
+    }
+    return bot;
+  };
+
   const getNextActionMessage = (bot: any) => {
-    if (bot.status !== 'active') {
+    // Merge with trend data to get latest scores
+    const botWithTrend = getBotWithTrend(bot);
+
+    if (botWithTrend.status !== 'active') {
       return { message: 'Bot is paused', color: 'text-yellow-500' };
     }
 
-    if (bot.currentEntryCount >= bot.reEntryCount) {
+    if (botWithTrend.currentEntryCount >= botWithTrend.reEntryCount) {
       return { message: 'Max entries reached', color: 'text-orange-500' };
     }
 
     // Check trend alignment if enabled (applies to BOTH first entry and re-entries)
-    if (bot.trendAlignmentEnabled && (bot.techScore < 50 || bot.trendScore < 50)) {
+    if (botWithTrend.trendAlignmentEnabled && (botWithTrend.techScore < 50 || botWithTrend.trendScore < 50)) {
       return { message: 'Waiting for trend alignment', color: 'text-blue-400' };
     }
 
@@ -1445,6 +1490,8 @@ export default function DalyDCA() {
         {dcaBots.length > 0 ? (
           <div className="space-y-3">
             {sortedBots.map((bot) => {
+              // Merge with trend data to show latest market trends
+              const botWithTrend = getBotWithTrend(bot);
               const isExpanded = expandedBotId === bot.id;
               const isEditing = editingBotId === bot.id;
               const nextAction = getNextActionMessage(bot);
@@ -1532,7 +1579,7 @@ export default function DalyDCA() {
                         <div>
                           <p className="text-xs text-gray-500">Market Trend</p>
                           {(() => {
-                            const trend = getTrendDisplay(bot.recommendation);
+                            const trend = getTrendDisplay(botWithTrend.recommendation);
                             const TrendIcon = trend.icon;
                             return (
                               <div className={`flex items-center gap-1 px-2 py-1 rounded ${trend.bgColor} border ${trend.borderColor}`}>
@@ -1697,7 +1744,7 @@ export default function DalyDCA() {
                           <div>
                             <p className="text-xs text-gray-400 mb-2">Market Trend</p>
                             {(() => {
-                              const trend = getTrendDisplay(bot.recommendation);
+                              const trend = getTrendDisplay(botWithTrend.recommendation);
                               const TrendIcon = trend.icon;
                               return (
                                 <div className={`flex items-center gap-2 px-3 py-2 rounded-lg ${trend.bgColor} border ${trend.borderColor}`}>
@@ -1709,9 +1756,9 @@ export default function DalyDCA() {
                               );
                             })()}
                             <div className="mt-2 flex gap-2 text-xs text-gray-500">
-                              <span>Tech: <span className={(bot.techScore || 0) > 50 ? 'text-green-400' : 'text-red-400'}>{bot.techScore || 0}</span></span>
+                              <span>Tech: <span className={(botWithTrend.techScore || 0) > 50 ? 'text-green-400' : 'text-red-400'}>{botWithTrend.techScore || 0}</span></span>
                               <span>•</span>
-                              <span>Trend: <span className={(bot.trendScore || 0) > 50 ? 'text-green-400' : 'text-red-400'}>{bot.trendScore || 0}</span></span>
+                              <span>Trend: <span className={(botWithTrend.trendScore || 0) > 50 ? 'text-green-400' : 'text-red-400'}>{botWithTrend.trendScore || 0}</span></span>
                             </div>
                           </div>
                           <div>
