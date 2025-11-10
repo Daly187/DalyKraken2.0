@@ -59,7 +59,6 @@ export default function CryptoTrends() {
   const [sortBy, setSortBy] = useState<'trend_score' | 'technical_score' | 'momentum' | 'volatility'>('trend_score');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [filterSignal, setFilterSignal] = useState<'all' | 'bullish' | 'bearish' | 'neutral'>('all');
-  const [limit, setLimit] = useState(20);
 
   // Initial data load and WS subscription
   useEffect(() => {
@@ -75,7 +74,8 @@ export default function CryptoTrends() {
     setError(null);
 
     try {
-      const response = await apiService.getEnhancedTrends(limit);
+      // Always fetch all 100 assets
+      const response = await apiService.getEnhancedTrends(100);
 
       if (response.success && response.data) {
         setEnhancedTrends(response.data.trends || []);
@@ -415,23 +415,6 @@ export default function CryptoTrends() {
                 {filter.charAt(0).toUpperCase() + filter.slice(1)}
               </button>
             ))}
-          </div>
-          <div className="flex gap-2 items-center">
-            <span className="text-sm text-gray-400">Limit:</span>
-            <select
-              value={limit}
-              onChange={(e) => {
-                setLimit(Number(e.target.value));
-                // Reload with new limit
-                setTimeout(() => loadInitialData(), 100);
-              }}
-              className="bg-slate-700 text-white px-3 py-1 rounded-lg text-sm"
-            >
-              <option value={10}>10</option>
-              <option value={20}>20</option>
-              <option value={50}>50</option>
-              <option value={100}>100</option>
-            </select>
           </div>
         </div>
       </div>
