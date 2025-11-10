@@ -261,6 +261,7 @@ export class MarketAnalysisService {
    * Check if conditions are met for entry
    * NEW LOGIC: Entry requires trend to be BULLISH (matching crypto trends page)
    * Trend is bullish when recommendation is 'bullish' (avgScore >= 60)
+   * EXCEPTION: First entry (currentEntryCount === 0) bypasses S/R checks only
    */
   async shouldEnter(
     symbol: string,
@@ -272,10 +273,9 @@ export class MarketAnalysisService {
   ): Promise<{ shouldEnter: boolean; reason: string; analysis: TrendAnalysis }> {
     const analysis = await this.analyzeTrend(symbol);
 
-    console.log(`[MarketAnalysis] ${symbol} shouldEnter - currentEntryCount=${currentEntryCount}, recommendation=${analysis.recommendation}, techScore=${analysis.techScore.toFixed(0)}, trendScore=${analysis.trendScore.toFixed(0)}`);
+    console.log(`[MarketAnalysis] ${symbol} shouldEnter - currentEntryCount=${currentEntryCount}, recommendation=${analysis.recommendation}, techScore=${analysis.techScore.toFixed(0)}, trendScore=${analysis.trendScore.toFixed(0)}, S/R enabled=${supportResistanceEnabled}, support=${analysis.support?.toFixed(2)}`);
 
-    // NEW LOGIC: Entry requires BULLISH trend (matching crypto trends page logic)
-    // This replaces the old trendAlignmentEnabled check
+    // TREND CHECK: Always require BULLISH trend for ALL entries (first + re-entries)
     if (analysis.recommendation !== 'bullish') {
       console.log(`[MarketAnalysis] ${symbol} BLOCKED - Trend is not bullish (${analysis.recommendation})`);
       return {
@@ -285,13 +285,37 @@ export class MarketAnalysisService {
       };
     }
 
-    // All other checks have been removed - only bullish trend is required for entry
+    // FIRST ENTRY: Skip S/R checks (but trend check above still applies)
+    if (currentEntryCount === 0) {
+      console.log(`[MarketAnalysis] ${symbol} FIRST ENTRY - S/R checks bypassed, bullish trend confirmed`);
+      return {
+        shouldEnter: true,
+        reason: `First entry - bullish trend confirmed, S/R check bypassed (Tech: ${analysis.techScore.toFixed(0)}, Trend: ${analysis.trendScore.toFixed(0)})`,
+        analysis,
+      };
+    }
 
+    // RE-ENTRIES (currentEntryCount > 0): Check S/R if enabled
+    if (supportResistanceEnabled && analysis.support) {
+      // For re-entries, we need to check if price has crossed below support
+      // This ensures we're buying at a good dip level
+      if (lastSupport === null) {
+        // Haven't crossed support yet - wait for price to drop below support
+        if (currentPrice > analysis.support) {
+          console.log(`[MarketAnalysis] ${symbol} RE-ENTRY BLOCKED - Waiting for support cross (current: ${currentPrice.toFixed(2)}, support: ${analysis.support.toFixed(2)})`);
+          return {
+            shouldEnter: false,
+            reason: `Waiting for support cross at $${analysis.support.toFixed(2)} (current: $${currentPrice.toFixed(2)})`,
+            analysis,
+          };
+        }
+      }
+    }
+
+    // All checks passed for re-entry
     return {
       shouldEnter: true,
-      reason: currentEntryCount === 0
-        ? `Bullish trend detected - first entry (Tech: ${analysis.techScore.toFixed(0)}, Trend: ${analysis.trendScore.toFixed(0)})`
-        : `Bullish trend detected - re-entry ${currentEntryCount + 1} (Tech: ${analysis.techScore.toFixed(0)}, Trend: ${analysis.trendScore.toFixed(0)})`,
+      reason: `Bullish trend confirmed - re-entry ${currentEntryCount + 1} (Tech: ${analysis.techScore.toFixed(0)}, Trend: ${analysis.trendScore.toFixed(0)})`,
       analysis,
     };
   }
