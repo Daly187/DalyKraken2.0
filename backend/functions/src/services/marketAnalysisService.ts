@@ -412,30 +412,41 @@ export class MarketAnalysisService {
   /**
    * Get enhanced trends for multiple crypto pairs from Kraken
    */
-  async getEnhancedTrendsFromKraken(limit: number = 20): Promise<any> {
+  async getEnhancedTrendsFromKraken(limit: number = 100): Promise<any> {
     try {
-      // Popular crypto pairs on Kraken (USD pairs)
+      // Top 100 crypto pairs on Kraken (USD pairs) - ordered by market cap
+      // Using standard symbol format (BTC/USD) - KrakenService will handle mapping
       const cryptoPairs = [
-        'XXBTZUSD',  // BTC/USD
-        'XETHZUSD',  // ETH/USD
-        'SOLUSD',    // SOL/USD
-        'ADAUSD',    // ADA/USD
-        'DOTUSD',    // DOT/USD
-        'MATICUSD',  // MATIC/USD
-        'LINKUSD',   // LINK/USD
-        'UNIUSD',    // UNI/USD
-        'ATOMUSD',   // ATOM/USD
-        'AVAXUSD',   // AVAX/USD
-        'XLMUSD',    // XLM/USD
-        'ALGOUSD',   // ALGO/USD
-        'SANDUSD',   // SAND/USD
-        'MANAUSD',   // MANA/USD
-        'AAVEUSD',   // AAVE/USD
-        'GRTUSD',    // GRT/USD
-        'XRPUSD',    // XRP/USD
-        'LTCUSD',    // LTC/USD
-        'BCHUSD',    // BCH/USD
-        'XMRUSD',    // XMR/USD
+        // Top 10
+        'BTC/USD', 'ETH/USD', 'XRP/USD', 'SOL/USD', 'BNB/USD',
+        'DOGE/USD', 'ADA/USD', 'TRX/USD', 'AVAX/USD', 'LINK/USD',
+        // 11-20
+        'DOT/USD', 'BCH/USD', 'NEAR/USD', 'LTC/USD', 'UNI/USD',
+        'APT/USD', 'ICP/USD', 'MATIC/USD', 'ATOM/USD', 'XLM/USD',
+        // 21-30
+        'FIL/USD', 'ARB/USD', 'ALGO/USD', 'SAND/USD', 'MANA/USD',
+        'GRT/USD', 'AAVE/USD', 'SNX/USD', 'AXS/USD', 'FLOW/USD',
+        // 31-40
+        'EOS/USD', 'XTZ/USD', 'ZEC/USD', 'DASH/USD', 'COMP/USD',
+        'YFI/USD', 'MKR/USD', 'SUSHI/USD', 'BAT/USD', 'ZRX/USD',
+        // 41-50
+        'ENJ/USD', 'CRV/USD', 'BAL/USD', 'BAND/USD', 'KNC/USD',
+        'REN/USD', 'STORJ/USD', 'KSM/USD', 'KAVA/USD', 'OCEAN/USD',
+        // 51-60
+        'WAVES/USD', 'ICX/USD', 'SC/USD', 'OMG/USD', 'ANT/USD',
+        'REP/USD', 'LSK/USD', 'QTUM/USD', 'PAXG/USD', 'DAI/USD',
+        // 61-70
+        'USDC/USD', 'USDT/USD', 'GHST/USD', 'KEEP/USD', 'PERP/USD',
+        'RARI/USD', 'OXT/USD', 'MLN/USD', 'TBTC/USD', 'ETH2/USD',
+        // 71-80
+        'MOVR/USD', 'PHA/USD', 'KILT/USD', 'SDN/USD', 'KINT/USD',
+        'AIR/USD', 'XRT/USD', 'EWT/USD', 'SPELL/USD', 'RUNE/USD',
+        // 81-90
+        'LPT/USD', 'FET/USD', 'INJ/USD', 'AKT/USD', 'GLM/USD',
+        'OP/USD', 'ORCA/USD', 'IMX/USD', 'BLUR/USD', 'T/USD',
+        // 91-100
+        'LDO/USD', 'RPL/USD', 'API3/USD', 'CFG/USD', 'SRM/USD',
+        'RAY/USD', 'BNT/USD', 'MNGO/USD', 'BADGER/USD', '1INCH/USD',
       ];
 
       const trends: any[] = [];

@@ -16,30 +16,34 @@ export function createDCABotsRouter(db: Firestore): Router {
   /**
    * GET /dca-bots
    * Get all DCA bots for authenticated user
+   * NOTE: Optimized to handle large numbers of bots by NOT fetching live Kraken data
+   *       Use GET /dca-bots/:id for individual bot with live prices
    */
   router.get('/', async (req, res) => {
     try {
       // Get userId from authenticated user
       const userId = req.user!.userId;
 
-      // Get Kraken credentials from headers
-      const apiKey = req.headers['x-kraken-api-key'] as string;
-      const apiSecret = req.headers['x-kraken-api-secret'] as string;
-
-      // Create KrakenService if credentials are provided
-      const krakenService = (apiKey && apiSecret) ? new KrakenService(apiKey, apiSecret) : undefined;
+      console.log(`[DCABots API] Fetching all bots for user ${userId}`);
 
       const snapshot = await db
         .collection('dcaBots')
         .where('userId', '==', userId)
         .get();
 
+      console.log(`[DCABots API] Found ${snapshot.size} bots for user ${userId}`);
+
+      // OPTIMIZATION: Don't pass krakenService to avoid fetching live prices for all bots
+      // This prevents timeout when there are many bots (e.g., 100+)
+      // Individual bot details with live prices can be fetched via GET /dca-bots/:id
       const bots = await Promise.all(
         snapshot.docs.map(async (doc) => {
           const botId = doc.id;
-          return await dcaBotService.getBotById(botId, krakenService);
+          return await dcaBotService.getBotById(botId, undefined); // No krakenService = faster
         })
       );
+
+      console.log(`[DCABots API] Returning ${bots.length} bots`);
 
       res.json({
         success: true,

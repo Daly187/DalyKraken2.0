@@ -172,14 +172,18 @@ export class DCABotService {
     }
 
     // Get current market price
-    // Use provided krakenService if available, otherwise create a public one
-    const priceService = krakenService || new KrakenService();
+    // ONLY fetch if krakenService was provided (optimization for fetching many bots)
     let currentPrice = 0;
-    try {
-      const ticker = await priceService.getTicker(botData.symbol);
-      currentPrice = ticker.price;
-    } catch (error) {
-      console.error('[DCABotService] Error fetching current price:', error);
+    if (krakenService) {
+      try {
+        const ticker = await krakenService.getTicker(botData.symbol);
+        currentPrice = ticker.price;
+      } catch (error) {
+        console.error('[DCABotService] Error fetching current price:', error);
+      }
+    } else {
+      // No krakenService provided - skip live price fetch for performance
+      console.log(`[DCABotService] Bot ${botId}: Skipping live price fetch (no krakenService)`);
     }
 
     const currentValue = totalQuantity * currentPrice;
@@ -216,13 +220,21 @@ export class DCABotService {
     // Calculate current TP price
     const currentTpPrice = averagePurchasePrice * (1 + botData.tpTarget / 100);
 
-    // Get trend analysis
-    const trendAnalysis = await this.marketAnalysis.analyzeTrend(botData.symbol);
+    // Get trend analysis - ONLY if krakenService provided (optimization)
+    let trendAnalysis: any = null;
+    let currentSupport = 0;
+    let currentResistance = 0;
+    let nextSupport = 0;
 
-    // Calculate Support & Resistance levels
-    const currentSupport = trendAnalysis.support || currentPrice * 0.95;
-    const currentResistance = trendAnalysis.resistance || currentPrice * 1.05;
-    const nextSupport = currentSupport * 0.95; // Next support level below current
+    if (krakenService) {
+      trendAnalysis = await this.marketAnalysis.analyzeTrend(botData.symbol);
+      // Calculate Support & Resistance levels
+      currentSupport = trendAnalysis.support || currentPrice * 0.95;
+      currentResistance = trendAnalysis.resistance || currentPrice * 1.05;
+      nextSupport = currentSupport * 0.95; // Next support level below current
+    } else {
+      console.log(`[DCABotService] Bot ${botId}: Skipping trend analysis (no krakenService)`);
+    }
 
     const liveBot: LiveDCABot = {
       ...botData,
@@ -240,11 +252,11 @@ export class DCABotService {
       nextEntryPrice,
       currentTpPrice,
       entries,
-      techScore: trendAnalysis.techScore,
-      trendScore: trendAnalysis.trendScore,
-      recommendation: trendAnalysis.recommendation,
-      support: trendAnalysis.support,
-      resistance: trendAnalysis.resistance,
+      techScore: trendAnalysis?.techScore || 50,
+      trendScore: trendAnalysis?.trendScore || 50,
+      recommendation: trendAnalysis?.recommendation || 'neutral',
+      support: trendAnalysis?.support || 0,
+      resistance: trendAnalysis?.resistance || 0,
       currentSupport,
       currentResistance,
       nextSupport,
