@@ -23,6 +23,7 @@ import {
 import { multiExchangeService, FundingRate, FundingPosition } from '@/services/multiExchangeService';
 import { MatchedPair } from '@/services/symbolMappingEngine';
 import { fundingArbitrageService, type FundingSpread, type StrategyPosition } from '@/services/fundingArbitrageService';
+import { exchangeTradeService } from '@/services/exchangeTradeService';
 import { useStore } from '@/store/useStore';
 
 export default function DalyFunding() {
@@ -42,8 +43,12 @@ export default function DalyFunding() {
 
   // Auto-Strategy State
   const [strategyEnabled, setStrategyEnabled] = useState(false);
-  const [totalCapital, setTotalCapital] = useState(10000);
-  const [minSpreadThreshold, setMinSpreadThreshold] = useState(0.5);
+  const [autoStrategyCollapsed, setAutoStrategyCollapsed] = useState(false);
+  const [totalCapital, setTotalCapital] = useState(50); // Capital per exchange
+  const [numberOfPairs, setNumberOfPairs] = useState(3); // Number of positions to trade
+  const [allocations, setAllocations] = useState<number[]>([50, 30, 20]); // Dynamic allocations
+  const [rebalanceInterval, setRebalanceInterval] = useState(60); // Interval in minutes (default: 60 = 1 hour)
+  const [minSpreadThreshold, setMinSpreadThreshold] = useState(50); // Minimum annualized APR%
   const [excludedSymbols, setExcludedSymbols] = useState<string[]>([]);
   const [excludeInput, setExcludeInput] = useState('');
   const [top5Spreads, setTop5Spreads] = useState<FundingSpread[]>([]);
@@ -64,6 +69,10 @@ export default function DalyFunding() {
   const [hyperliquidBalanceError, setHyperliquidBalanceError] = useState<string | null>(null);
   const [hlApiResponse, setHlApiResponse] = useState<any>(null); // Debug: store HL API response
   const [hlDebugAnalysis, setHlDebugAnalysis] = useState<string[]>([]); // Debug: analysis of API response
+
+  // Strategy Execution Logs
+  const [executionLogs, setExecutionLogs] = useState<Array<{ timestamp: number; message: string; type: 'info' | 'success' | 'warning' | 'error' }>>([]);
+  const [maxLogs, setMaxLogs] = useState(100);
 
   // Legacy Strategy Configuration (keep for backward compatibility)
   const [positionSize, setPositionSize] = useState(100);
@@ -147,6 +156,21 @@ export default function DalyFunding() {
     'LITUSDT', 'MCUSDT', 'MDTUSDT', 'MOVRUSDT', 'MTLUSDT',
     'OGNUSDT', 'POLYXUSDT', 'QIUSDT', 'RIFUSDT', 'VANRYUSDT',
   ];
+
+  // Initialize exchange trade service with dynamic precision on mount
+  useEffect(() => {
+    const initializeServices = async () => {
+      try {
+        console.log('[DalyFunding] Initializing exchange trade service with dynamic precision...');
+        await exchangeTradeService.initialize();
+        console.log('[DalyFunding] ✅ Exchange trade service ready with all trading pairs');
+      } catch (error) {
+        console.error('[DalyFunding] Failed to initialize exchange trade service:', error);
+      }
+    };
+
+    initializeServices();
+  }, []);
 
   // Load wallet addresses from localStorage
   useEffect(() => {
@@ -327,6 +351,7 @@ export default function DalyFunding() {
       }
 
       // AsterDEX balance fetch (requires API keys from localStorage)
+      // Fetch from BOTH Spot and Futures accounts and sum them
       setAsterBalanceError(null); // Clear previous error
       if (asterWallet) {
         try {
@@ -338,95 +363,93 @@ export default function DalyFunding() {
             console.log('[DalyFunding] Aster API keys not found in Settings');
             setAsterBalance(0);
           } else {
-            // Aster uses Binance-compatible API
-            const timestamp = Date.now();
-            const params = `timestamp=${timestamp}`;
+            console.log('[DalyFunding] Fetching AsterDEX balances from BOTH Spot and Futures accounts...');
 
-            // Create signature (HMAC SHA256)
+            // Import crypto library
             const crypto = await import('crypto-js');
-            const signature = crypto.default.HmacSHA256(params, asterApiSecret).toString();
+            let totalBalance = 0;
 
-            console.log('[DalyFunding] Fetching Aster SPOT balance with API key:', asterApiKey.substring(0, 8) + '...');
+            // 1. Fetch SPOT balance
+            try {
+              const spotTimestamp = Date.now();
+              const spotParams = `timestamp=${spotTimestamp}`;
+              const spotSignature = crypto.default.HmacSHA256(spotParams, asterApiSecret).toString();
 
-            // Aster Spot API endpoint: https://sapi.asterdex.com/api/v1/account
-            const asterResponse = await fetch(`https://sapi.asterdex.com/api/v1/account?${params}&signature=${signature}`, {
-              method: 'GET',
-              headers: {
-                'X-MBX-APIKEY': asterApiKey,
-              },
-            });
+              console.log('[DalyFunding] Fetching Aster SPOT balance...');
+              const spotResponse = await fetch(`https://sapi.asterdex.com/api/v1/account?${spotParams}&signature=${spotSignature}`, {
+                method: 'GET',
+                headers: { 'X-MBX-APIKEY': asterApiKey },
+              });
 
-            const asterData = await asterResponse.json();
-
-            console.log('[DalyFunding] Aster API Response Status:', asterResponse.status);
-            console.log('[DalyFunding] Aster API Full Response:', JSON.stringify(asterData, null, 2));
-
-            if (!asterResponse.ok) {
-              const errorMsg = asterData.msg || asterData.message || `HTTP ${asterResponse.status}`;
-              setAsterBalanceError(`API Error: ${errorMsg}`);
-              console.error('[DalyFunding] Aster API error:', errorMsg);
-              setAsterBalance(0);
-            } else if (asterData) {
-              // Binance Spot API compatible response parsing
-              let balance = 0;
-
-              // Method 1: Sum all balances from balances array (Spot API format)
-              if (asterData.balances && Array.isArray(asterData.balances)) {
-                console.log('[DalyFunding] Found Spot API balances array, calculating total...');
-                balance = asterData.balances.reduce((total: number, asset: any) => {
-                  const free = parseFloat(asset.free || '0');
-                  const locked = parseFloat(asset.locked || '0');
-                  const assetBalance = free + locked;
-                  if (assetBalance > 0) {
-                    console.log(`  - ${asset.asset}: ${assetBalance} (free: ${free}, locked: ${locked})`);
-                  }
-                  return total + assetBalance;
-                }, 0);
-                console.log('[DalyFunding] ✓ Calculated total from Spot balances:', balance);
-              }
-              // Method 2: Check for totalWalletBalance (Futures format fallback)
-              else if (asterData.totalWalletBalance !== undefined) {
-                balance = parseFloat(asterData.totalWalletBalance);
-                console.log('[DalyFunding] ✓ Found balance in totalWalletBalance:', balance);
-              }
-              // Method 3: Check for totalMarginBalance
-              else if (asterData.totalMarginBalance !== undefined) {
-                balance = parseFloat(asterData.totalMarginBalance);
-                console.log('[DalyFunding] ✓ Found balance in totalMarginBalance:', balance);
-              }
-              // Method 4: Sum all assets (Futures API format)
-              else if (asterData.assets && Array.isArray(asterData.assets)) {
-                console.log('[DalyFunding] Found Futures assets array, calculating total...');
-                balance = asterData.assets.reduce((total: number, asset: any) => {
-                  const walletBalance = parseFloat(asset.walletBalance || asset.marginBalance || '0');
-                  if (walletBalance > 0) {
-                    console.log(`  - ${asset.asset}: ${walletBalance}`);
-                  }
-                  return total + walletBalance;
-                }, 0);
-                console.log('[DalyFunding] ✓ Calculated total from Futures assets:', balance);
-              }
-              // No recognized field found
-              else {
-                console.warn('[DalyFunding] ❌ Could not find balance field.');
-                console.warn('[DalyFunding] Available root fields:', Object.keys(asterData));
-                if (asterData.balances) {
-                  console.warn('[DalyFunding] Balances found:', asterData.balances.slice(0, 3));
+              if (spotResponse.ok) {
+                const spotData = await spotResponse.json();
+                if (spotData.balances && Array.isArray(spotData.balances)) {
+                  const spotBalance = spotData.balances.reduce((total: number, asset: any) => {
+                    const free = parseFloat(asset.free || '0');
+                    const locked = parseFloat(asset.locked || '0');
+                    return total + free + locked;
+                  }, 0);
+                  totalBalance += spotBalance;
+                  console.log('[DalyFunding] ✓ Spot balance:', spotBalance);
                 }
-                setAsterBalanceError(`Balance field not recognized. Check console for API response.`);
-              }
-
-              setAsterBalance(balance);
-              if (balance > 0) {
-                setAsterBalanceError(null);
-                console.log('[DalyFunding] ✓ Balance successfully set to:', balance);
               } else {
-                console.warn('[DalyFunding] ⚠️ Balance is 0 - this may indicate incorrect field parsing or truly empty account');
+                console.warn('[DalyFunding] Spot balance fetch failed:', spotResponse.status);
               }
+            } catch (spotError) {
+              console.warn('[DalyFunding] Spot balance error:', spotError);
+            }
+
+            // 2. Fetch FUTURES balance
+            try {
+              const futuresTimestamp = Date.now();
+              const futuresParams = `timestamp=${futuresTimestamp}`;
+              const futuresSignature = crypto.default.HmacSHA256(futuresParams, asterApiSecret).toString();
+
+              console.log('[DalyFunding] Fetching Aster FUTURES balance...');
+              const futuresResponse = await fetch(`https://fapi.asterdex.com/fapi/v2/account?${futuresParams}&signature=${futuresSignature}`, {
+                method: 'GET',
+                headers: { 'X-MBX-APIKEY': asterApiKey },
+              });
+
+              if (futuresResponse.ok) {
+                const futuresData = await futuresResponse.json();
+                console.log('[DalyFunding] Futures API response:', JSON.stringify(futuresData, null, 2));
+
+                // Try multiple balance fields
+                let futuresBalance = 0;
+                if (futuresData.totalWalletBalance !== undefined) {
+                  futuresBalance = parseFloat(futuresData.totalWalletBalance);
+                  console.log('[DalyFunding] ✓ Futures balance (totalWalletBalance):', futuresBalance);
+                } else if (futuresData.totalMarginBalance !== undefined) {
+                  futuresBalance = parseFloat(futuresData.totalMarginBalance);
+                  console.log('[DalyFunding] ✓ Futures balance (totalMarginBalance):', futuresBalance);
+                } else if (futuresData.assets && Array.isArray(futuresData.assets)) {
+                  futuresBalance = futuresData.assets.reduce((total: number, asset: any) => {
+                    const balance = parseFloat(asset.walletBalance || asset.marginBalance || '0');
+                    return total + balance;
+                  }, 0);
+                  console.log('[DalyFunding] ✓ Futures balance (from assets):', futuresBalance);
+                }
+                totalBalance += futuresBalance;
+              } else {
+                console.warn('[DalyFunding] Futures balance fetch failed:', futuresResponse.status);
+                const errorData = await futuresResponse.json();
+                console.warn('[DalyFunding] Futures error:', errorData);
+              }
+            } catch (futuresError) {
+              console.warn('[DalyFunding] Futures balance error:', futuresError);
+            }
+
+            // Set total balance
+            console.log('[DalyFunding] ========================================');
+            console.log('[DalyFunding] AsterDEX Total Balance: $' + totalBalance.toFixed(2));
+            console.log('[DalyFunding] ========================================');
+
+            setAsterBalance(totalBalance);
+            if (totalBalance > 0) {
+              setAsterBalanceError(null);
             } else {
-              setAsterBalanceError('Empty response from API');
-              console.warn('[DalyFunding] Empty Aster response');
-              setAsterBalance(0);
+              setAsterBalanceError('No funds found in Spot or Futures accounts');
             }
           }
         } catch (asterError: any) {
@@ -485,8 +508,24 @@ export default function DalyFunding() {
     const status = fundingArbitrageService.getStatus();
     if (status.enabled) {
       console.log('[DalyFunding] Resuming strategy from previous session...');
+
+      // Restore UI state from saved config
+      const config = fundingArbitrageService.getConfig();
+      setStrategyEnabled(true);
+      setTotalCapital(config.totalCapital);
+      setNumberOfPairs(config.numberOfPairs);
+      setAllocations(config.allocations);
+      setRebalanceInterval(config.rebalanceInterval);
+      setMinSpreadThreshold(config.minSpreadThreshold);
+      setExcludedSymbols(config.excludedSymbols);
+      if (config.walletAddresses.aster) setAsterWallet(config.walletAddresses.aster);
+      if (config.walletAddresses.hyperliquid) setHyperliquidWallet(config.walletAddresses.hyperliquid);
+
+      // Resume the strategy
       const { aster: asterRates, hyperliquid: hlRates } = multiExchangeService.getFundingRatesByExchange();
       fundingArbitrageService.resume(asterRates, hlRates);
+
+      console.log('[DalyFunding] Strategy state restored and resumed');
     }
   }, [isConnected]);
 
@@ -613,6 +652,36 @@ export default function DalyFunding() {
     return `${hours}h ${minutes}m`;
   };
 
+  // Handle changing number of pairs
+  const handleNumberOfPairsChange = (newCount: number) => {
+    setNumberOfPairs(newCount);
+
+    // Adjust allocations array to match new count
+    if (newCount > allocations.length) {
+      // Add new allocations (distribute remaining evenly)
+      const currentSum = allocations.reduce((sum, val) => sum + val, 0);
+      const remaining = 100 - currentSum;
+      const newAllocations = [...allocations];
+      const toAdd = newCount - allocations.length;
+      const perNew = remaining / toAdd;
+
+      for (let i = 0; i < toAdd; i++) {
+        newAllocations.push(Math.round(perNew * 10) / 10);
+      }
+      setAllocations(newAllocations);
+    } else if (newCount < allocations.length) {
+      // Remove extra allocations and redistribute
+      setAllocations(allocations.slice(0, newCount));
+    }
+  };
+
+  // Handle allocation change for a specific rank
+  const handleAllocationChange = (index: number, value: number) => {
+    const newAllocations = [...allocations];
+    newAllocations[index] = value;
+    setAllocations(newAllocations);
+  };
+
   // Strategy control handlers
   const handleStartStrategy = () => {
     if (totalCapital <= 0) {
@@ -624,9 +693,23 @@ export default function DalyFunding() {
       return;
     }
 
+    // Validate allocations sum to 100%
+    const allocationSum = allocations.reduce((sum, val) => sum + val, 0);
+    if (Math.abs(allocationSum - 100) > 0.01) {
+      addNotification({
+        type: 'error',
+        title: 'Invalid Allocations',
+        message: `Allocations must sum to 100% (current: ${allocationSum.toFixed(1)}%)`,
+      });
+      return;
+    }
+
     // Update configuration
     fundingArbitrageService.updateConfig({
       totalCapital,
+      numberOfPairs,
+      allocations,
+      rebalanceInterval,
       minSpreadThreshold,
       excludedSymbols,
       walletAddresses: {
@@ -714,7 +797,9 @@ export default function DalyFunding() {
 
     const updateTop5 = () => {
       const { aster: asterRates, hyperliquid: hlRates } = multiExchangeService.getFundingRatesByExchange();
+      console.log(`[Top5Update] Aster rates: ${asterRates.size}, HL rates: ${hlRates.size}`);
       const spreads = fundingArbitrageService.getTop5Spreads(asterRates, hlRates);
+      console.log(`[Top5Update] Top 5 spreads calculated:`, spreads.map(s => `${s.canonical}: ${s.annualSpread.toFixed(2)}%`));
       setTop5Spreads(spreads);
     };
 
@@ -726,6 +811,52 @@ export default function DalyFunding() {
 
     return () => clearInterval(interval);
   }, [isConnected]);
+
+  // Intercept console logs for strategy execution display
+  useEffect(() => {
+    const originalLog = console.log;
+    const originalWarn = console.warn;
+    const originalError = console.error;
+
+    const addLog = (message: string, type: 'info' | 'success' | 'warning' | 'error') => {
+      // Only capture logs related to arbitrage strategy
+      if (message.includes('[Arbitrage]') || message.includes('[HedgedEntry]') || message.includes('[Telegram]')) {
+        setExecutionLogs((prev) => {
+          const newLog = {
+            timestamp: Date.now(),
+            message: message.replace(/\[Arbitrage\]\s*/g, '').replace(/\[HedgedEntry\]\s*/g, '').replace(/\[Telegram\]\s*/g, ''),
+            type,
+          };
+          const updated = [newLog, ...prev].slice(0, maxLogs);
+          return updated;
+        });
+      }
+    };
+
+    console.log = function (...args: any[]) {
+      const message = args.join(' ');
+      addLog(message, message.includes('✅') ? 'success' : message.includes('⚠️') ? 'warning' : 'info');
+      originalLog.apply(console, args);
+    };
+
+    console.warn = function (...args: any[]) {
+      const message = args.join(' ');
+      addLog(message, 'warning');
+      originalWarn.apply(console, args);
+    };
+
+    console.error = function (...args: any[]) {
+      const message = args.join(' ');
+      addLog(message, 'error');
+      originalError.apply(console, args);
+    };
+
+    return () => {
+      console.log = originalLog;
+      console.warn = originalWarn;
+      console.error = originalError;
+    };
+  }, [maxLogs]);
 
   return (
     <div className="space-y-6">
@@ -1401,12 +1532,20 @@ export default function DalyFunding() {
 
       {/* Auto-Arbitrage Strategy Configuration */}
       <div className="card">
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h2 className="text-2xl font-bold bg-gradient-to-r from-emerald-400 via-cyan-400 to-purple-400 bg-clip-text text-transparent">
-              Auto-Arbitrage Strategy
-            </h2>
-            <p className="text-sm text-gray-400 mt-1">Delta-neutral funding rate arbitrage across HyperLiquid & AsterDEX</p>
+        <div
+          className="flex items-center justify-between mb-6 cursor-pointer"
+          onClick={() => setAutoStrategyCollapsed(!autoStrategyCollapsed)}
+        >
+          <div className="flex items-center gap-3">
+            <button className="text-gray-400 hover:text-white transition-colors">
+              {autoStrategyCollapsed ? <ChevronRight className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
+            </button>
+            <div>
+              <h2 className="text-2xl font-bold bg-gradient-to-r from-emerald-400 via-cyan-400 to-purple-400 bg-clip-text text-transparent">
+                Auto-Arbitrage Strategy
+              </h2>
+              <p className="text-sm text-gray-400 mt-1">Delta-neutral funding rate arbitrage across HyperLiquid & AsterDEX</p>
+            </div>
           </div>
           <div className="flex items-center gap-3">
             {strategyEnabled ? (
@@ -1423,6 +1562,7 @@ export default function DalyFunding() {
           </div>
         </div>
 
+        {!autoStrategyCollapsed && (
         <div className="space-y-6">
           {/* API Connection & Diagnostics Status */}
           <div className="bg-slate-800/50 border border-slate-600/50 rounded-lg p-5">
@@ -1487,11 +1627,11 @@ export default function DalyFunding() {
                   )}
                 </div>
                 <div className={`text-sm font-bold ${
-                  top5Spreads.length > 0 && top5Spreads[0].spread >= minSpreadThreshold
+                  top5Spreads.length > 0 && top5Spreads[0].annualSpread >= minSpreadThreshold
                     ? 'text-emerald-400'
                     : 'text-yellow-400'
                 }`}>
-                  {top5Spreads.length > 0 ? `${top5Spreads[0].spread.toFixed(4)}%` : 'No data'}
+                  {top5Spreads.length > 0 ? `${top5Spreads[0].annualSpread.toFixed(2)}% APR` : 'No data'}
                 </div>
                 {top5Spreads.length > 0 && (
                   <div className="text-xs text-gray-500 mt-1">{top5Spreads[0].canonical}</div>
@@ -1500,12 +1640,12 @@ export default function DalyFunding() {
             </div>
 
             {/* Warning if no qualifying spreads */}
-            {top5Spreads.length > 0 && top5Spreads.every(s => s.spread < minSpreadThreshold) && (
+            {top5Spreads.length > 0 && top5Spreads.every(s => s.annualSpread < minSpreadThreshold) && (
               <div className="mt-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3 flex items-start gap-2">
                 <AlertCircle className="h-5 w-5 text-yellow-500 mt-0.5 flex-shrink-0" />
                 <div className="text-sm text-yellow-300">
-                  <strong>No spreads meet threshold:</strong> All current spreads are below {minSpreadThreshold}%.
-                  Top spread is {top5Spreads[0].spread.toFixed(4)}% ({top5Spreads[0].canonical}).
+                  <strong>No spreads meet threshold:</strong> All current spreads are below {minSpreadThreshold}% APR.
+                  Top spread is {top5Spreads[0].annualSpread.toFixed(2)}% APR ({top5Spreads[0].canonical}).
                   Consider lowering the threshold or waiting for better opportunities.
                 </div>
               </div>
@@ -1540,53 +1680,143 @@ export default function DalyFunding() {
           )}
 
           {/* Configuration Section */}
-          <div className="grid md:grid-cols-2 gap-5">
-            {/* Total Capital */}
+          <div className="grid md:grid-cols-3 gap-5">
+            {/* Total Capital Per Exchange */}
             <div>
               <label className="flex items-center gap-2 text-sm font-medium text-gray-300 mb-3">
                 <Wallet className="h-4 w-4 text-green-400" />
-                Total Capital (100% Allocation)
+                Capital Per Exchange
                 <span className="text-red-400">*</span>
               </label>
               <div className="relative">
                 <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
                 <input
                   type="number"
-                  step="100"
-                  min="100"
+                  step="10"
+                  min="10"
                   value={totalCapital}
                   onChange={(e) => setTotalCapital(Number(e.target.value))}
                   disabled={strategyEnabled}
                   className="w-full bg-slate-800/50 border border-slate-600/50 focus:border-primary-500/50 text-white pl-8 pr-4 py-3 rounded-xl transition-all focus:ring-2 focus:ring-primary-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
-                  placeholder="10000.00"
+                  placeholder="50.00"
                 />
               </div>
               <p className="text-xs text-gray-500 mt-2">
-                Allocations: 30%, 30%, 20%, 10%, 10% (Rank 1-5)
+                Per exchange (Total: ${(totalCapital * 2).toLocaleString()})
               </p>
             </div>
 
-            {/* Minimum Spread Threshold */}
+            {/* Number of Pairs */}
             <div>
               <label className="flex items-center gap-2 text-sm font-medium text-gray-300 mb-3">
-                <Target className="h-4 w-4 text-purple-400" />
-                Minimum Spread Threshold
+                <Layers className="h-4 w-4 text-blue-400" />
+                Number of Pairs
+                <span className="text-red-400">*</span>
               </label>
-              <div className="relative">
-                <input
-                  type="number"
-                  step="0.1"
-                  min="0"
-                  value={minSpreadThreshold}
-                  onChange={(e) => setMinSpreadThreshold(Number(e.target.value))}
-                  disabled={strategyEnabled}
-                  className="w-full bg-slate-800/50 border border-slate-600/50 focus:border-primary-500/50 text-white px-4 pr-8 py-3 rounded-xl transition-all focus:ring-2 focus:ring-primary-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
-                  placeholder="0.5"
-                />
-                <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm">%</span>
-              </div>
-              <p className="text-xs text-gray-500 mt-2">Only enter when spread exceeds this value</p>
+              <select
+                value={numberOfPairs}
+                onChange={(e) => handleNumberOfPairsChange(Number(e.target.value))}
+                disabled={strategyEnabled}
+                className="w-full bg-slate-800/50 border border-slate-600/50 focus:border-primary-500/50 text-white px-4 py-3 rounded-xl transition-all focus:ring-2 focus:ring-primary-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => (
+                  <option key={n} value={n}>{n} {n === 1 ? 'Pair' : 'Pairs'}</option>
+                ))}
+              </select>
+              <p className="text-xs text-gray-500 mt-2">
+                Trade top {numberOfPairs} spread{numberOfPairs > 1 ? 's' : ''}
+              </p>
             </div>
+
+            {/* Rebalance Interval */}
+            <div>
+              <label className="flex items-center gap-2 text-sm font-medium text-gray-300 mb-3">
+                <Clock className="h-4 w-4 text-orange-400" />
+                Re-scan Interval (minutes)
+              </label>
+              <input
+                type="number"
+                step="1"
+                min="1"
+                max="1440"
+                value={rebalanceInterval}
+                onChange={(e) => setRebalanceInterval(Number(e.target.value))}
+                disabled={strategyEnabled}
+                className="w-full bg-slate-800/50 border border-slate-600/50 focus:border-primary-500/50 text-white px-4 py-3 rounded-xl transition-all focus:ring-2 focus:ring-primary-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
+              />
+              <p className="text-xs text-gray-500 mt-2">
+                Re-scan for top {numberOfPairs} spreads every {rebalanceInterval} minute{rebalanceInterval !== 1 ? 's' : ''} (60 = 1 hour)
+              </p>
+            </div>
+          </div>
+
+          {/* Dynamic Allocation Inputs */}
+          <div className="p-5 rounded-xl bg-gradient-to-br from-blue-500/10 to-purple-500/10 border border-blue-500/20">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <div className="h-8 w-8 rounded-lg bg-blue-500/20 flex items-center justify-center">
+                  <BarChart3 className="h-4 w-4 text-blue-400" />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-white">
+                    Position Allocations
+                  </label>
+                  <p className="text-xs text-gray-400">Percentage of capital per rank</p>
+                </div>
+              </div>
+              <div className="text-sm font-mono">
+                Sum: <span className={`font-bold ${Math.abs(allocations.reduce((s, v) => s + v, 0) - 100) < 0.01 ? 'text-green-400' : 'text-red-400'}`}>
+                  {allocations.reduce((s, v) => s + v, 0).toFixed(1)}%
+                </span>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+              {allocations.map((allocation, index) => (
+                <div key={index}>
+                  <label className="block text-xs text-gray-400 mb-1">
+                    Rank #{index + 1}
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      max="100"
+                      value={allocation}
+                      onChange={(e) => handleAllocationChange(index, Number(e.target.value))}
+                      disabled={strategyEnabled}
+                      className="w-full bg-slate-700 text-white px-3 pr-8 py-2 rounded-lg text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                    />
+                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">%</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-gray-500 mt-3">
+              💡 Allocations must sum to 100%. Higher ranks get larger positions.
+            </p>
+          </div>
+
+          {/* Minimum Spread Threshold */}
+          <div>
+            <label className="flex items-center gap-2 text-sm font-medium text-gray-300 mb-3">
+              <Target className="h-4 w-4 text-purple-400" />
+              Minimum Annual Spread (APR%)
+            </label>
+            <div className="relative">
+              <input
+                type="number"
+                step="1"
+                min="0"
+                value={minSpreadThreshold}
+                onChange={(e) => setMinSpreadThreshold(Number(e.target.value))}
+                disabled={strategyEnabled}
+                className="w-full bg-slate-800/50 border border-slate-600/50 focus:border-primary-500/50 text-white px-4 pr-8 py-3 rounded-xl transition-all focus:ring-2 focus:ring-primary-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                placeholder="50"
+              />
+              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm">% APR</span>
+            </div>
+            <p className="text-xs text-gray-500 mt-2">Only enter when annualized spread exceeds this threshold (e.g., 50 = 50% APR)</p>
           </div>
 
           {/* Wallet Addresses */}
@@ -1801,6 +2031,7 @@ export default function DalyFunding() {
             </div>
           </div>
         </div>
+        )}
       </div>
 
       {/* Active Positions */}
@@ -2274,7 +2505,7 @@ export default function DalyFunding() {
                   <div className="text-sm font-bold text-white">${totalCapital.toLocaleString()}</div>
                 </div>
                 <div>
-                  <div className="text-xs text-gray-400">Min Spread</div>
+                  <div className="text-xs text-gray-400">Min APR</div>
                   <div className="text-sm font-bold text-white">{minSpreadThreshold}%</div>
                 </div>
                 <div>
@@ -2282,68 +2513,6 @@ export default function DalyFunding() {
                   <div className="text-sm font-bold text-white">{excludedSymbols.length}</div>
                 </div>
               </div>
-            </div>
-          </div>
-
-          {/* Top 5 Spreads Analysis */}
-          <div>
-            <h3 className="text-sm font-bold text-gray-300 mb-3 flex items-center gap-2">
-              <TrendingUp className="h-4 w-4" />
-              Top 5 Spreads (Entry Candidates)
-            </h3>
-            <div className="bg-slate-700/30 rounded-lg overflow-hidden">
-              <table className="w-full text-sm">
-                <thead className="bg-slate-800/50">
-                  <tr>
-                    <th className="px-4 py-2 text-left text-xs text-gray-400">Symbol</th>
-                    <th className="px-4 py-2 text-center text-xs text-gray-400">Spread</th>
-                    <th className="px-4 py-2 text-center text-xs text-gray-400">Annual</th>
-                    <th className="px-4 py-2 text-center text-xs text-gray-400">Long</th>
-                    <th className="px-4 py-2 text-center text-xs text-gray-400">Short</th>
-                    <th className="px-4 py-2 text-center text-xs text-gray-400">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-700/50">
-                  {top5Spreads.length > 0 ? (
-                    top5Spreads.map((spread, idx) => (
-                      <tr key={spread.canonical} className={idx === 0 ? 'bg-emerald-500/5' : ''}>
-                        <td className="px-4 py-3 font-mono font-bold text-white">{spread.canonical}</td>
-                        <td className="px-4 py-3 text-center">
-                          <span className={`font-bold ${
-                            spread.spread >= minSpreadThreshold ? 'text-green-400' : 'text-yellow-400'
-                          }`}>
-                            {spread.spread.toFixed(4)}%
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-center text-gray-300">{spread.annualSpread.toFixed(2)}%</td>
-                        <td className="px-4 py-3 text-center">
-                          <span className={spread.longExchange === 'aster' ? 'text-cyan-400' : 'text-purple-400'}>
-                            {spread.longExchange}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-center">
-                          <span className={spread.shortExchange === 'aster' ? 'text-cyan-400' : 'text-purple-400'}>
-                            {spread.shortExchange}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-center">
-                          {spread.spread >= minSpreadThreshold ? (
-                            <span className="text-xs px-2 py-1 rounded bg-green-500/20 text-green-400">Qualifies</span>
-                          ) : (
-                            <span className="text-xs px-2 py-1 rounded bg-yellow-500/20 text-yellow-400">Below threshold</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
-                        No spread data available. Waiting for funding rates...
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
             </div>
           </div>
 
@@ -2377,23 +2546,23 @@ export default function DalyFunding() {
               )}
 
               {/* Spreads below threshold */}
-              {strategyEnabled && top5Spreads.length > 0 && top5Spreads.every(s => s.spread < minSpreadThreshold) && (
+              {strategyEnabled && top5Spreads.length > 0 && top5Spreads.every(s => s.annualSpread < minSpreadThreshold) && (
                 <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3 flex items-start gap-2">
                   <AlertCircle className="h-5 w-5 text-yellow-500 mt-0.5 flex-shrink-0" />
                   <div className="text-sm">
                     <strong className="text-yellow-400">No Qualifying Spreads:</strong>
-                    <span className="text-gray-300"> All spreads are below {minSpreadThreshold}% threshold. Top spread is {top5Spreads[0].spread.toFixed(4)}% ({top5Spreads[0].canonical}). Lower the threshold to {(top5Spreads[0].spread * 0.9).toFixed(2)}% or wait for higher volatility.</span>
+                    <span className="text-gray-300"> All spreads are below {minSpreadThreshold}% APR threshold. Top spread is {top5Spreads[0].annualSpread.toFixed(2)}% APR ({top5Spreads[0].canonical}). Consider lowering the threshold or wait for higher volatility.</span>
                   </div>
                 </div>
               )}
 
               {/* Strategy active with qualifying spreads */}
-              {strategyEnabled && top5Spreads.some(s => s.spread >= minSpreadThreshold) && strategyPositions.length === 0 && (
+              {strategyEnabled && top5Spreads.some(s => s.annualSpread >= minSpreadThreshold) && strategyPositions.length === 0 && (
                 <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-3 flex items-start gap-2">
                   <CheckCircle className="h-5 w-5 text-green-500 mt-0.5 flex-shrink-0" />
                   <div className="text-sm">
                     <strong className="text-green-400">Ready to Trade:</strong>
-                    <span className="text-gray-300"> {top5Spreads.filter(s => s.spread >= minSpreadThreshold).length} spreads qualify. Next rebalance in {getTimeUntilRebalance()}.</span>
+                    <span className="text-gray-300"> {top5Spreads.filter(s => s.annualSpread >= minSpreadThreshold).length} spreads qualify. Next rebalance in {getTimeUntilRebalance()}.</span>
                   </div>
                 </div>
               )}
@@ -2408,6 +2577,80 @@ export default function DalyFunding() {
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+
+          {/* Strategy Execution Log */}
+          <div className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 rounded-xl border border-slate-600/50 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <Activity className="h-5 w-5 text-emerald-400" />
+                <h3 className="text-lg font-bold text-white">Strategy Execution Log</h3>
+                <span className="text-xs text-gray-400">
+                  (Last {executionLogs.length} events)
+                </span>
+              </div>
+              <button
+                onClick={() => setExecutionLogs([])}
+                className="px-3 py-1.5 bg-slate-700/50 hover:bg-slate-700 text-gray-300 hover:text-white rounded-lg text-xs font-medium transition-colors"
+              >
+                Clear Logs
+              </button>
+            </div>
+
+            <div className="bg-slate-950/50 rounded-lg border border-slate-700/50 p-4 max-h-96 overflow-y-auto font-mono text-xs">
+              {executionLogs.length === 0 ? (
+                <div className="text-center text-gray-500 py-8">
+                  No execution logs yet. Start the strategy to see live execution details.
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  {executionLogs.map((log, idx) => {
+                    const time = new Date(log.timestamp).toLocaleTimeString('en-US', {
+                      hour12: false,
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      second: '2-digit',
+                    });
+
+                    const colorClass =
+                      log.type === 'error' ? 'text-red-400 bg-red-500/10 border-red-500/30' :
+                      log.type === 'warning' ? 'text-yellow-400 bg-yellow-500/10 border-yellow-500/30' :
+                      log.type === 'success' ? 'text-green-400 bg-green-500/10 border-green-500/30' :
+                      'text-gray-300 bg-slate-800/30 border-slate-700/30';
+
+                    const icon =
+                      log.type === 'error' ? '❌' :
+                      log.type === 'warning' ? '⚠️' :
+                      log.type === 'success' ? '✅' :
+                      log.message.includes('🎯') ? '🎯' :
+                      log.message.includes('🔄') ? '🔄' :
+                      log.message.includes('🚨') ? '🚨' :
+                      log.message.includes('💰') ? '💰' :
+                      log.message.includes('📊') ? '📊' :
+                      '📝';
+
+                    return (
+                      <div
+                        key={idx}
+                        className={`px-3 py-2 rounded border ${colorClass} transition-all`}
+                      >
+                        <div className="flex items-start gap-2">
+                          <span className="text-gray-500 select-none">[{time}]</span>
+                          <span className="select-none">{icon}</span>
+                          <span className="flex-1" style={{ whiteSpace: 'pre-wrap' }}>
+                            {log.message}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="mt-3 text-xs text-gray-500 flex items-center gap-2">
+              <span>💡 Tip: This log shows real-time strategy execution details without needing the browser console.</span>
             </div>
           </div>
 
@@ -2485,10 +2728,6 @@ export default function DalyFunding() {
                 ) : (
                   <div className="text-gray-500">No response yet - click refresh balances button</div>
                 )}
-              </div>
-              <div className="bg-slate-800/50 rounded p-2 font-mono text-xs">
-                <div className="text-gray-400 mb-1">Top 5 Spreads Data:</div>
-                <pre className="text-white overflow-x-auto">{JSON.stringify(top5Spreads, null, 2)}</pre>
               </div>
             </div>
           </details>

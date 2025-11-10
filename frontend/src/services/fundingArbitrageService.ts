@@ -72,10 +72,11 @@ export interface StrategyPosition {
 
 export interface StrategyConfig {
   enabled: boolean;
-  totalCapital: number; // Total USD allocated to strategy
-  allocations: [30, 30, 20, 10, 10]; // Fixed allocation percentages
-  rebalanceInterval: number; // In milliseconds (4 hours = 14400000)
-  minSpreadThreshold: number; // Minimum spread to enter (e.g., 0.5%)
+  totalCapital: number; // Capital PER EXCHANGE (not total combined)
+  numberOfPairs: number; // Number of positions to trade (1-10)
+  allocations: number[]; // Dynamic allocation percentages (must sum to 100%)
+  rebalanceInterval: number; // Interval in minutes to re-scan and rebalance (default: 60 = 1 hour)
+  minSpreadThreshold: number; // Minimum annualized spread to enter (e.g., 50 = 50% APR)
   fillTimeout: number; // Time to wait for both orders to fill (milliseconds)
   excludedSymbols: string[]; // Manual exclusions
   walletAddresses: {
@@ -95,10 +96,11 @@ export interface RebalanceEvent {
 class FundingArbitrageService {
   private config: StrategyConfig = {
     enabled: false,
-    totalCapital: 10000,
-    allocations: [30, 30, 20, 10, 10],
-    rebalanceInterval: 4 * 60 * 60 * 1000, // 4 hours
-    minSpreadThreshold: 0.5, // 0.5% minimum spread
+    totalCapital: 50, // Capital per exchange (e.g., $50 on Aster + $50 on HL = $100 total)
+    numberOfPairs: 3, // Trade top 3 pairs by default
+    allocations: [50, 30, 20], // Default: 50%, 30%, 20%
+    rebalanceInterval: 60, // 60 minutes (1 hour) by default
+    minSpreadThreshold: 50, // 50% APR minimum annualized spread
     fillTimeout: 30000, // 30 seconds to wait for order fills
     excludedSymbols: [],
     walletAddresses: {},
@@ -173,17 +175,14 @@ class FundingArbitrageService {
     const spread = Math.abs(asterRate.rate - hlRate.rate);
 
     // Calculate annualized spread
-    // CRITICAL FIX: Hyperliquid shows 8-hour rate but pays hourly
     // Aster: Shows and pays 8-hour rate → 3 payments/day
-    // HyperLiquid: Shows 8-hour rate but pays hourly → need to convert
+    // HyperLiquid: API returns hourly rate → 24 payments/day
 
     // Aster daily payments (8hr rate × 3 payments)
     const asterDailyPayments = asterRate.rate * 3;
 
-    // Hyperliquid hourly rate = displayed 8hr rate / 8
-    const hlHourlyRate = hlRate.rate / 8;
-    // Hyperliquid daily payments (hourly rate × 24 payments)
-    const hlDailyPayments = hlHourlyRate * 24;
+    // HyperLiquid daily payments (rate is already hourly × 24 payments)
+    const hlDailyPayments = hlRate.rate * 24;
 
     // Daily spread
     const dailySpread = Math.abs(asterDailyPayments - hlDailyPayments);
@@ -214,11 +213,12 @@ class FundingArbitrageService {
   }
 
   /**
-   * Identify top 5 funding spreads
+   * Identify top N funding spreads
    */
-  getTop5Spreads(
+  getTopSpreads(
     asterRates: Map<string, FundingRate>,
-    hlRates: Map<string, FundingRate>
+    hlRates: Map<string, FundingRate>,
+    count: number = 5
   ): FundingSpread[] {
     const spreads: FundingSpread[] = [];
 
@@ -233,10 +233,54 @@ class FundingArbitrageService {
       }
     });
 
-    // Sort by spread (descending) and take top 5
-    return spreads
-      .sort((a, b) => b.spread - a.spread)
-      .slice(0, 5);
+    // Filter out unrealistic spreads
+    // Note: High spreads (>1000%) are VALID for extreme negative funding rates
+    // Only filter if BOTH rates are extremely high (likely data error)
+    const validSpreads = spreads.filter(s => {
+      // Check if both individual rates are extreme (>10% per period = data error)
+      const asterRateExtreme = s.aster && Math.abs(s.aster.rate) > 10;
+      const hlRateExtreme = s.hyperliquid && Math.abs(s.hyperliquid.rate) > 10;
+
+      if (asterRateExtreme && hlRateExtreme) {
+        console.warn(`[FundingArbitrage] Filtering out ${s.canonical}: both rates extreme (likely data error)`);
+        return false;
+      }
+
+      // Allow high spreads - they're valid for extreme negative funding!
+      return true;
+    });
+
+    // Filter out high-price assets that won't work with available capital
+    // Rule: Exclude assets where price > (totalCapital / 0.01)
+    // Example: With $50 capital, exclude assets above $500
+    const affordableSpreads = validSpreads.filter(s => {
+      const avgPrice = ((s.aster?.markPrice || 0) + (s.hyperliquid?.markPrice || 0)) / 2;
+      const maxAffordablePrice = this.config.totalCapital / 0.01;
+
+      if (avgPrice > maxAffordablePrice) {
+        console.warn(
+          `[FundingArbitrage] Filtering out ${s.canonical}: price $${avgPrice.toFixed(2)} too high for capital $${this.config.totalCapital} ` +
+          `(max affordable: $${maxAffordablePrice.toFixed(2)})`
+        );
+        return false;
+      }
+      return true;
+    });
+
+    // Sort by annualized spread (descending) to match threshold filtering
+    return affordableSpreads
+      .sort((a, b) => b.annualSpread - a.annualSpread)
+      .slice(0, count);
+  }
+
+  /**
+   * @deprecated Use getTopSpreads instead
+   */
+  getTop5Spreads(
+    asterRates: Map<string, FundingRate>,
+    hlRates: Map<string, FundingRate>
+  ): FundingSpread[] {
+    return this.getTopSpreads(asterRates, hlRates, 5);
   }
 
   /**
@@ -265,22 +309,42 @@ class FundingArbitrageService {
     try {
       // Step 1: Place both limit orders simultaneously
       console.log(`[HedgedEntry] Placing limit orders on both exchanges...`);
+      console.log(`[HedgedEntry] Long will go to: ${longExchange}, Short will go to: ${shortExchange}`);
 
+      // Dynamically route orders based on which exchange should be long/short
       const [longOrder, shortOrder] = await Promise.all([
-        exchangeTradeService.placeAsterOrder({
-          symbol: longSymbol,
-          side: 'buy',
-          size,
-          price,
-          orderType: 'LIMIT',
-        }).catch(err => ({ success: false, error: err.message })) as Promise<any>,
-        exchangeTradeService.placeHyperliquidOrder({
-          symbol: shortSymbol,
-          side: 'sell',
-          size,
-          price,
-          orderType: 'LIMIT',
-        }).catch(err => ({ success: false, error: err.message })) as Promise<any>,
+        // Place long order on the correct exchange
+        longExchange === 'aster'
+          ? exchangeTradeService.placeAsterOrder({
+              symbol: longSymbol,
+              side: 'buy',
+              size,
+              price,
+              orderType: 'LIMIT',
+            }).catch(err => ({ success: false, error: err.message })) as Promise<any>
+          : exchangeTradeService.placeHyperliquidOrder({
+              symbol: longSymbol,
+              side: 'buy',
+              size,
+              price,
+              orderType: 'LIMIT',
+            }).catch(err => ({ success: false, error: err.message })) as Promise<any>,
+        // Place short order on the correct exchange
+        shortExchange === 'aster'
+          ? exchangeTradeService.placeAsterOrder({
+              symbol: shortSymbol,
+              side: 'sell',
+              size,
+              price,
+              orderType: 'LIMIT',
+            }).catch(err => ({ success: false, error: err.message })) as Promise<any>
+          : exchangeTradeService.placeHyperliquidOrder({
+              symbol: shortSymbol,
+              side: 'sell',
+              size,
+              price,
+              orderType: 'LIMIT',
+            }).catch(err => ({ success: false, error: err.message })) as Promise<any>,
       ]);
 
       if (!longOrder.success || !shortOrder.success) {
@@ -296,8 +360,8 @@ class FundingArbitrageService {
 
       // Step 3: Check fill status
       const [longStatus, shortStatus] = await Promise.all([
-        exchangeTradeService.getOrderStatus(longExchange, longOrder.orderId!),
-        exchangeTradeService.getOrderStatus(shortExchange, shortOrder.orderId!),
+        exchangeTradeService.getOrderStatus(longExchange, longOrder.orderId!, longSymbol),
+        exchangeTradeService.getOrderStatus(shortExchange, shortOrder.orderId!, shortSymbol),
       ]);
 
       const longFilled = longStatus === 'FILLED';
@@ -328,16 +392,25 @@ class FundingArbitrageService {
 
         if (longFilled && !shortFilled) {
           // Long filled, short didn't - cancel short and place market short to hedge
-          console.log(`[HedgedEntry] Long filled, short didn't. Cancelling short and placing market order...`);
+          console.log(`[HedgedEntry] Long filled, short didn't. Cancelling short and placing market order on ${shortExchange}...`);
           await exchangeTradeService.cancelOrder(shortExchange, shortOrder.orderId!, shortSymbol);
 
-          const marketShort = await exchangeTradeService.placeHyperliquidOrder({
-            symbol: shortSymbol,
-            side: 'sell',
-            size,
-            price, // Use last price as estimate
-            orderType: 'MARKET',
-          });
+          // Place market order on the correct exchange for the short side
+          const marketShort = shortExchange === 'aster'
+            ? await exchangeTradeService.placeAsterOrder({
+                symbol: shortSymbol,
+                side: 'sell',
+                size,
+                price, // Use last price as estimate
+                orderType: 'MARKET',
+              })
+            : await exchangeTradeService.placeHyperliquidOrder({
+                symbol: shortSymbol,
+                side: 'sell',
+                size,
+                price, // Use last price as estimate
+                orderType: 'MARKET',
+              });
 
           if (marketShort.success) {
             console.log(`[HedgedEntry] ✅ Hedged with market order: ${marketShort.orderId}`);
@@ -351,16 +424,25 @@ class FundingArbitrageService {
 
         } else if (shortFilled && !longFilled) {
           // Short filled, long didn't - cancel long and place market long to hedge
-          console.log(`[HedgedEntry] Short filled, long didn't. Cancelling long and placing market order...`);
+          console.log(`[HedgedEntry] Short filled, long didn't. Cancelling long and placing market order on ${longExchange}...`);
           await exchangeTradeService.cancelOrder(longExchange, longOrder.orderId!, longSymbol);
 
-          const marketLong = await exchangeTradeService.placeAsterOrder({
-            symbol: longSymbol,
-            side: 'buy',
-            size,
-            price, // Use last price as estimate
-            orderType: 'MARKET',
-          });
+          // Place market order on the correct exchange for the long side
+          const marketLong = longExchange === 'aster'
+            ? await exchangeTradeService.placeAsterOrder({
+                symbol: longSymbol,
+                side: 'buy',
+                size,
+                price, // Use last price as estimate
+                orderType: 'MARKET',
+              })
+            : await exchangeTradeService.placeHyperliquidOrder({
+                symbol: longSymbol,
+                side: 'buy',
+                size,
+                price, // Use last price as estimate
+                orderType: 'MARKET',
+              });
 
           if (marketLong.success) {
             console.log(`[HedgedEntry] ✅ Hedged with market order: ${marketLong.orderId}`);
@@ -389,12 +471,12 @@ class FundingArbitrageService {
   async createPosition(spread: FundingSpread, rank: number): Promise<StrategyPosition> {
     const allocation = this.config.allocations[rank - 1];
     const positionSize = this.calculatePositionSize(rank);
-    const halfSize = positionSize / 2; // Split between long and short
+    // positionSize is now the amount PER EXCHANGE (no halfSize needed)
 
     const longData = spread.longExchange === 'aster' ? spread.aster! : spread.hyperliquid!;
     const shortData = spread.shortExchange === 'aster' ? spread.aster! : spread.hyperliquid!;
 
-    console.log(`[Arbitrage] Creating position: ${spread.canonical} (Rank ${rank}, ${allocation}%, $${positionSize.toFixed(2)})`);
+    console.log(`[Arbitrage] Creating position: ${spread.canonical} (Rank ${rank}, ${allocation}%, $${positionSize.toFixed(2)} per exchange)`);
 
     // Use the same price for both sides to avoid slippage
     // Use the average of both mark prices
@@ -407,7 +489,7 @@ class FundingArbitrageService {
       longData.symbol,
       shortData.symbol,
       executionPrice,
-      halfSize
+      positionSize
     );
 
     // Check if trade execution was successful
@@ -426,7 +508,7 @@ class FundingArbitrageService {
       // Long side
       longExchange: spread.longExchange,
       longSymbol: longData.symbol,
-      longSize: halfSize,
+      longSize: positionSize,
       longEntryPrice: executionPrice,
       longCurrentPrice: executionPrice,
       longFundingRate: longData.rate,
@@ -434,7 +516,7 @@ class FundingArbitrageService {
       // Short side
       shortExchange: spread.shortExchange,
       shortSymbol: shortData.symbol,
-      shortSize: halfSize,
+      shortSize: positionSize,
       shortEntryPrice: executionPrice,
       shortCurrentPrice: executionPrice,
       shortFundingRate: shortData.rate,
@@ -636,8 +718,27 @@ class FundingArbitrageService {
     const validation = await exchangeTradeService.validateTradingReadiness(this.config.totalCapital);
 
     if (!validation.valid) {
-      console.error(`[Arbitrage] Trading validation failed:`);
-      validation.errors.forEach(error => console.error(`  ❌ ${error}`));
+      console.error(`[Arbitrage] ========================================`);
+      console.error(`[Arbitrage] ❌ TRADING VALIDATION FAILED`);
+      console.error(`[Arbitrage] ========================================`);
+      console.error(`[Arbitrage] Found ${validation.errors.length} error(s):`);
+      validation.errors.forEach((error, idx) => {
+        console.error(`[Arbitrage]   ${idx + 1}. ❌ ${error}`);
+      });
+
+      // Also show warnings to help diagnose the issue
+      if (validation.warnings.length > 0) {
+        console.warn(`[Arbitrage] ========================================`);
+        console.warn(`[Arbitrage] Warnings (${validation.warnings.length}):`);
+        validation.warnings.forEach((warning, idx) => {
+          console.warn(`[Arbitrage]   ${idx + 1}. ⚠️ ${warning}`);
+        });
+      }
+
+      console.error(`[Arbitrage] ========================================`);
+      console.error(`[Arbitrage] Fix these issues in Settings to enable trading`);
+      console.error(`[Arbitrage] Rebalance aborted - no trades will execute`);
+      console.error(`[Arbitrage] ========================================`);
 
       // Send notification about validation failure
       const errorMessage =
@@ -647,12 +748,12 @@ class FundingArbitrageService {
 
       try {
         // Use notifyError if it exists, otherwise skip notification
-        console.error('[Arbitrage] Validation failed - would send telegram alert');
+        console.error('[Arbitrage] Would send Telegram alert about validation failure');
       } catch (notifyError) {
         console.error('[Arbitrage] Could not send validation failure notification');
       }
 
-      console.log(`[Arbitrage] Rebalance aborted due to validation failure`);
+      this.isRebalancing = false;
       return;
     }
 
@@ -666,43 +767,95 @@ class FundingArbitrageService {
     console.log(`  Aster: $${validation.asterBalance?.toFixed(2)}`);
     console.log(`  Hyperliquid: $${validation.hyperliquidBalance?.toFixed(2)}`);
 
-    const top5 = this.getTop5Spreads(asterRates, hlRates);
-    const top5Symbols = new Set(top5.map(s => s.canonical));
+    // Fetch MORE spreads than needed (buffer for skipped positions)
+    // Request 3x the number needed to ensure we can backfill
+    const bufferMultiplier = 3;
+    const candidateSpreads = this.getTopSpreads(asterRates, hlRates, this.config.numberOfPairs * bufferMultiplier);
+
+    console.log(`[Arbitrage] ========================================`);
+    console.log(`[Arbitrage] REBALANCE EXECUTION`);
+    console.log(`[Arbitrage] ========================================`);
+    console.log(`[Arbitrage] Found ${candidateSpreads.length} candidate spreads (target: ${this.config.numberOfPairs} positions)`);
 
     const positionsEntered: string[] = [];
     const positionsExited: string[] = [];
 
-    // Close positions that fell out of top 5 (but only if spread is still positive)
+    // Track which positions to keep (will fill up to numberOfPairs)
+    const targetPositions: Map<string, FundingSpread> = new Map();
+    let positionsNeeded = this.config.numberOfPairs;
+
+    // First, keep existing positions that are still in top spreads
     for (const [canonical, position] of this.positions) {
-      if (!top5Symbols.has(canonical) && position.spread > 0) {
-        console.log(`[Arbitrage] ${canonical} fell out of top 5 but spread is still positive (${position.spread.toFixed(4)}%), keeping until next rebalance`);
-        // Don't exit yet - wait until next rebalance
+      const spreadIndex = candidateSpreads.findIndex(s => s.canonical === canonical);
+      if (spreadIndex >= 0 && position.spread > 0 && positionsNeeded > 0) {
+        targetPositions.set(canonical, candidateSpreads[spreadIndex]);
+        positionsNeeded--;
+        console.log(`[Arbitrage] ✅ Keeping existing position: ${canonical}`);
+      } else if (spreadIndex < 0 || position.spread <= 0) {
+        console.log(`[Arbitrage] 📉 Will close ${canonical}: ${spreadIndex < 0 ? 'fell out of top spreads' : 'negative spread'}`);
       }
     }
 
-    // Enter new positions for top 5
-    for (let i = 0; i < top5.length; i++) {
-      const spread = top5[i];
-      const rank = i + 1;
+    // Then, fill remaining slots with new positions
+    console.log(`[Arbitrage] Need ${positionsNeeded} more position(s) to reach target of ${this.config.numberOfPairs}`);
 
-      if (!this.positions.has(spread.canonical)) {
-        // Check minimum spread threshold
-        if (spread.spread >= this.config.minSpreadThreshold) {
-          await this.createPosition(spread, rank);
-          positionsEntered.push(spread.canonical);
-        } else {
-          console.log(`[Arbitrage] ${spread.canonical} spread (${spread.spread.toFixed(4)}%) below threshold (${this.config.minSpreadThreshold}%)`);
+    for (let i = 0; i < candidateSpreads.length && positionsNeeded > 0; i++) {
+      const spread = candidateSpreads[i];
+
+      // Skip if already in targetPositions
+      if (targetPositions.has(spread.canonical)) continue;
+
+      // Check minimum spread threshold
+      if (spread.annualSpread < this.config.minSpreadThreshold) {
+        console.log(`[Arbitrage] ⏭️ Skipping ${spread.canonical}: ${spread.annualSpread.toFixed(2)}% APR < ${this.config.minSpreadThreshold}% threshold`);
+        continue;
+      }
+
+      // This spread qualifies!
+      targetPositions.set(spread.canonical, spread);
+      positionsNeeded--;
+      console.log(`[Arbitrage] ✅ Selected ${spread.canonical} for entry (${this.config.numberOfPairs - positionsNeeded}/${this.config.numberOfPairs})`);
+    }
+
+    // Log final selection
+    console.log(`[Arbitrage] Final selection (${targetPositions.size} positions):`);
+    let displayRank = 1;
+    for (const [canonical, spread] of targetPositions) {
+      console.log(`[Arbitrage]   ${displayRank}. ${canonical}: ${spread.annualSpread.toFixed(2)}% APR (8hr: ${spread.spread.toFixed(4)}%)`);
+      displayRank++;
+    }
+
+    // Close positions not in target
+    for (const [canonical, position] of this.positions) {
+      if (!targetPositions.has(canonical)) {
+        console.log(`[Arbitrage] 🔴 Closing ${canonical} (no longer in target positions)`);
+        await this.closePosition(canonical, 'rebalance');
+        positionsExited.push(canonical);
+      }
+    }
+
+    // Enter new positions
+    let currentRank = 1;
+    for (const [canonical, spread] of targetPositions) {
+      if (!this.positions.has(canonical)) {
+        console.log(`[Arbitrage] 🎯 Attempting to enter ${canonical} (Rank ${currentRank})`);
+        try {
+          await this.createPosition(spread, currentRank);
+          positionsEntered.push(canonical);
+          console.log(`[Arbitrage] ✅ Successfully entered ${canonical}`);
+        } catch (error: any) {
+          console.error(`[Arbitrage] ❌ Failed to enter ${canonical}: ${error.message}`);
         }
       } else {
-        // Position exists, just update rank/allocation if changed
-        const position = this.positions.get(spread.canonical)!;
-        if (position.rank !== rank) {
-          console.log(`[Arbitrage] ${spread.canonical} rank changed: ${position.rank} → ${rank}`);
-          position.rank = rank;
-          position.allocation = this.config.allocations[rank - 1];
-          // TODO: Adjust position size if allocation changed
+        // Update existing position rank if needed
+        const position = this.positions.get(canonical)!;
+        if (position.rank !== currentRank) {
+          console.log(`[Arbitrage] ${canonical} rank changed: ${position.rank} → ${currentRank}`);
+          position.rank = currentRank;
+          position.allocation = this.config.allocations[currentRank - 1];
         }
       }
+      currentRank++;
     }
 
     // Record rebalance event
@@ -711,12 +864,19 @@ class FundingArbitrageService {
       positionsEntered,
       positionsExited,
       capitalReallocated: this.config.totalCapital,
-      spreadsAtRebalance: top5,
+      spreadsAtRebalance: Array.from(targetPositions.values()),
     });
 
     this.lastRebalanceTime = Date.now();
     this.isRebalancing = false;
-    console.log(`[Arbitrage] Rebalance complete. Entered: ${positionsEntered.length}, Exited: ${positionsExited.length}`);
+
+    console.log(`[Arbitrage] ========================================`);
+    console.log(`[Arbitrage] REBALANCE COMPLETE`);
+    console.log(`[Arbitrage] ========================================`);
+    console.log(`[Arbitrage] Positions entered: ${positionsEntered.length > 0 ? positionsEntered.join(', ') : 'None'}`);
+    console.log(`[Arbitrage] Positions exited: ${positionsExited.length > 0 ? positionsExited.join(', ') : 'None'}`);
+    console.log(`[Arbitrage] Active positions: ${this.positions.size}`);
+    console.log(`[Arbitrage] Next rebalance in ${this.config.rebalanceInterval} minutes`);
 
     // Send Telegram notification
     await telegramNotificationService.notifyRebalance(
@@ -828,7 +988,14 @@ class FundingArbitrageService {
       return;
     }
 
-    console.log(`[Arbitrage] Starting funding arbitrage strategy with $${this.config.totalCapital} capital`);
+    console.log(`[Arbitrage] ========================================`);
+    console.log(`[Arbitrage] Starting funding arbitrage strategy`);
+    console.log(`[Arbitrage] ========================================`);
+    console.log(`[Arbitrage] Capital per exchange: $${this.config.totalCapital}`);
+    console.log(`[Arbitrage] Number of pairs: ${this.config.numberOfPairs}`);
+    console.log(`[Arbitrage] Allocations: ${this.config.allocations.join(', ')}%`);
+    console.log(`[Arbitrage] Min APR threshold: ${this.config.minSpreadThreshold}%`);
+    console.log(`[Arbitrage] Rebalance interval: ${this.config.rebalanceInterval} minutes`);
     console.log(`[Arbitrage] Mode: LIVE TRADING`);
 
     this.config.enabled = true;
@@ -839,17 +1006,19 @@ class FundingArbitrageService {
     // Immediate rebalance
     this.rebalance(asterRates, hlRates);
 
-    // Schedule rebalancing every 4 hours
+    // Schedule periodic rebalancing based on interval (in minutes)
+    const intervalMs = this.config.rebalanceInterval * 60 * 1000;
     this.rebalanceTimer = setInterval(() => {
+      console.log(`[Arbitrage] Re-scanning for top ${this.config.numberOfPairs} spreads...`);
       this.rebalance(asterRates, hlRates);
-    }, this.config.rebalanceInterval);
+    }, intervalMs);
 
     // Monitor spreads every 10 seconds for negative exits
     this.spreadMonitorInterval = setInterval(() => {
       this.monitorSpreadsForExit();
     }, 10000);
 
-    console.log(`[Arbitrage] Rebalancing scheduled every ${this.config.rebalanceInterval / (60 * 60 * 1000)} hours`);
+    console.log(`[Arbitrage] Rebalancing scheduled every ${this.config.rebalanceInterval} minutes`);
   }
 
   /**
@@ -889,6 +1058,9 @@ class FundingArbitrageService {
     const totalFundingEarned = openPositions.reduce((sum, p) => sum + p.fundingEarned, 0);
     const allocatedCapital = openPositions.reduce((sum, p) => sum + (p.longSize + p.shortSize), 0);
 
+    // Calculate next rebalance time based on interval
+    const nextRebalanceTime = this.lastRebalanceTime + (this.config.rebalanceInterval * 60 * 1000);
+
     return {
       enabled: this.config.enabled,
       totalCapital: this.config.totalCapital,
@@ -898,7 +1070,7 @@ class FundingArbitrageService {
       totalPnl,
       totalFundingEarned,
       lastRebalanceTime: this.lastRebalanceTime,
-      nextRebalanceTime: this.lastRebalanceTime + this.config.rebalanceInterval,
+      nextRebalanceTime,
       positions: openPositions,
     };
   }
@@ -981,19 +1153,25 @@ class FundingArbitrageService {
       return;
     }
 
-    console.log('[Arbitrage] Resuming strategy after page reload...');
+    console.log(`[Arbitrage] ========================================`);
+    console.log(`[Arbitrage] RESUMING STRATEGY AFTER PAGE RELOAD`);
+    console.log(`[Arbitrage] ========================================`);
+    console.log(`[Arbitrage] Active positions: ${this.positions.size}`);
+    console.log(`[Arbitrage] Rebalance interval: ${this.config.rebalanceInterval} minutes`);
 
-    // Schedule rebalancing every 4 hours
+    // Schedule periodic rebalancing based on interval (in minutes)
+    const intervalMs = this.config.rebalanceInterval * 60 * 1000;
     this.rebalanceTimer = setInterval(() => {
+      console.log(`[Arbitrage] Re-scanning for top ${this.config.numberOfPairs} spreads...`);
       this.rebalance(asterRates, hlRates);
-    }, this.config.rebalanceInterval);
+    }, intervalMs);
 
     // Monitor spreads every 10 seconds for negative exits
     this.spreadMonitorInterval = setInterval(() => {
       this.monitorSpreadsForExit();
     }, 10000);
 
-    console.log('[Arbitrage] Strategy resumed successfully');
+    console.log(`[Arbitrage] Strategy resumed. Rebalancing every ${this.config.rebalanceInterval} minutes`);
   }
 }
 

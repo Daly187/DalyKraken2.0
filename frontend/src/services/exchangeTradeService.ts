@@ -1,11 +1,19 @@
 /**
  * Exchange Trade Service - PRODUCTION READY
  * Handles order execution on AsterDEX and HyperLiquid with proper signatures
+ *
+ * PRECISION MANAGEMENT:
+ * - Uses dynamic PrecisionManager service for all trading pairs
+ * - Automatically fetches precision rules from both exchanges
+ * - Supports all available trading pairs without manual configuration
  */
 
 // Production API Endpoints
 const ASTER_API = 'https://fapi.asterdex.com';
 const HL_API = 'https://api.hyperliquid.xyz';
+
+// Import precision manager for dynamic precision management
+import { precisionManager } from './precisionManager';
 
 export interface OrderParams {
   symbol: string;
@@ -32,25 +40,7 @@ export interface ValidationResult {
   hyperliquidBalance?: number;
 }
 
-// Asset precision configuration
-const ASSET_PRECISION: Record<string, number> = {
-  'BTC': 4,
-  'ETH': 3,
-  'SOL': 2,
-  'ATOM': 1,
-  'MATIC': 1,
-  'AVAX': 2,
-};
-
-// Minimum order sizes per exchange
-const MIN_ORDER_SIZES: Record<string, { aster: number; hl: number }> = {
-  'BTC': { aster: 0.001, hl: 0.0001 },
-  'ETH': { aster: 0.01, hl: 0.001 },
-  'SOL': { aster: 0.1, hl: 0.1 },
-  'ATOM': { aster: 1, hl: 0.1 },
-  'MATIC': { aster: 10, hl: 1 },
-  'AVAX': { aster: 0.1, hl: 0.1 },
-};
+// Static precision mappings removed - now using dynamic PrecisionManager
 
 /**
  * Rate Limiter for API calls
@@ -90,34 +80,79 @@ class RateLimiter {
 class ExchangeTradeService {
   private rateLimiter = new RateLimiter();
   private hlAssetCache: Map<string, number> = new Map();
+  private initialized = false;
 
   /**
-   * Format size with proper decimal precision
+   * Initialize the service (must be called before use)
    */
-  private formatSize(symbol: string, size: number): number {
-    const baseAsset = symbol.replace('USDT', '').replace('PERP', '');
-    const decimals = ASSET_PRECISION[baseAsset] || 2;
-    return Math.floor(size * Math.pow(10, decimals)) / Math.pow(10, decimals);
+  async initialize(): Promise<void> {
+    if (this.initialized) return;
+
+    console.log('[ExchangeTradeService] Initializing with dynamic precision...');
+    await precisionManager.initialize();
+    this.initialized = true;
+    console.log('[ExchangeTradeService] ✅ Initialized with dynamic precision support');
   }
 
   /**
-   * Validate minimum order size
+   * Format size with proper decimal precision using dynamic rules
    */
-  private validateOrderSize(symbol: string, size: number, exchange: 'aster' | 'hl'): boolean {
-    const baseAsset = symbol.replace('USDT', '').replace('PERP', '');
-    const min = MIN_ORDER_SIZES[baseAsset]?.[exchange] || 0;
-    return size >= min;
+  private formatSize(symbol: string, size: number, exchange: 'aster' | 'hyperliquid', orderType: 'LIMIT' | 'MARKET' = 'LIMIT'): number {
+    // Map exchange names to precisionManager format
+    const exchangeName = exchange === 'aster' ? 'asterdex' : 'hyperliquid';
+
+    // Use precision manager for dynamic precision
+    return precisionManager.roundQuantity(exchangeName, symbol, size, orderType);
+  }
+
+  /**
+   * Format price with proper decimal precision using dynamic rules
+   */
+  private formatPrice(symbol: string, price: number, exchange: 'aster' | 'hyperliquid'): string {
+    // Map exchange names to precisionManager format
+    const exchangeName = exchange === 'aster' ? 'asterdex' : 'hyperliquid';
+
+    // Use precision manager for dynamic price rounding
+    const rounded = precisionManager.roundPrice(exchangeName, symbol, price);
+    return rounded.toString();
+  }
+
+  /**
+   * Validate order size and notional using precision manager
+   */
+  private validateOrderSize(symbol: string, size: number, price: number, exchange: 'aster' | 'hyperliquid', orderType: 'LIMIT' | 'MARKET' = 'LIMIT'): boolean {
+    const exchangeName = exchange === 'aster' ? 'asterdex' : 'hyperliquid';
+
+    // Use precision manager to validate the order
+    const validation = precisionManager.validateOrder(exchangeName, symbol, price, size, orderType);
+
+    // Log any validation warnings
+    if (validation.warnings.length > 0) {
+      validation.warnings.forEach(warning =>
+        console.warn(`[ExchangeTradeService] ${warning}`)
+      );
+    }
+
+    // Log any validation errors
+    if (validation.errors.length > 0) {
+      validation.errors.forEach(error =>
+        console.error(`[ExchangeTradeService] ❌ ${error}`)
+      );
+    }
+
+    return validation.valid;
   }
 
   /**
    * Sign AsterDEX request with HMAC SHA256
    */
   private async signAsterRequest(params: any, apiSecret: string): Promise<string> {
-    const timestamp = Date.now();
+    // Don't create new timestamp - use the one from params if provided
     const queryParams = {
       ...params,
-      timestamp,
-      recvWindow: 5000,
+      // Only add timestamp if not already present
+      timestamp: params.timestamp || Date.now(),
+      recvWindow: params.recvWindow || 5000,
     };
 
     // Sort params alphabetically (critical for signature)
@@ -151,16 +186,13 @@ class ExchangeTradeService {
       const domain = {
         name: 'Exchange',
         version: '1',
-        chainId: 421614, // Arbitrum Sepolia for testnet, 42161 for mainnet
+        chainId: 1337, // HyperLiquid uses 1337 for all L1 trading actions
         verifyingContract: '0x0000000000000000000000000000000000000000',
       };
 
       // EIP-712 types for order action
+      // Note: Only include the primary type (Order) and its dependencies
       const types = {
-        Agent: [
-          { name: 'source', type: 'string' },
-          { name: 'connectionId', type: 'bytes32' },
-        ],
         Order: [
           { name: 'a', type: 'uint32' },
           { name: 'b', type: 'bool' },
@@ -269,31 +301,95 @@ class ExchangeTradeService {
     try {
       await this.rateLimiter.checkAster(5);
 
-      // Fetch Aster balance
       const timestamp = Date.now();
-      const params: any = {
-        timestamp,
-        recvWindow: 5000,
-      };
+      const params = `timestamp=${timestamp}`;
 
-      const signature = await this.signAsterRequest(params, asterApiSecret!);
-      const queryString = `timestamp=${timestamp}&recvWindow=5000&signature=${signature}`;
+      // Create signature
+      const crypto = await import('crypto-js');
+      const signature = crypto.default.HmacSHA256(params, asterApiSecret!).toString();
 
-      const asterResponse = await fetch(`${ASTER_API}/fapi/v1/account?${queryString}`, {
-        method: 'GET',
-        headers: {
-          'X-MBX-APIKEY': asterApiKey!,
-        },
-      });
+      // Check BOTH spot and futures balances on AsterDEX
+      let spotBalance = 0;
+      let futuresBalance = 0;
 
-      if (asterResponse.ok) {
-        const asterData = await asterResponse.json();
-        asterBalance = parseFloat(asterData.totalWalletBalance || asterData.totalMarginBalance || '0');
-      } else {
-        warnings.push('Could not fetch Aster balance - API error');
+      // 1. Fetch SPOT balance
+      console.log(`[Validation] Fetching AsterDEX SPOT balance...`);
+      try {
+        const spotResponse = await fetch(`https://sapi.asterdex.com/api/v1/account?${params}&signature=${signature}`, {
+          method: 'GET',
+          headers: {
+            'X-MBX-APIKEY': asterApiKey!,
+          },
+        });
+
+        if (spotResponse.ok) {
+          const spotData = await spotResponse.json();
+
+          // Sum all balances from spot wallet
+          if (spotData.balances && Array.isArray(spotData.balances)) {
+            spotBalance = spotData.balances.reduce((total: number, asset: any) => {
+              const free = parseFloat(asset.free || '0');
+              const locked = parseFloat(asset.locked || '0');
+              return total + free + locked;
+            }, 0);
+            console.log(`[Validation] ✅ Spot balance: $${spotBalance.toFixed(2)}`);
+          }
+        } else {
+          console.warn(`[Validation] Could not fetch spot balance: ${spotResponse.status}`);
+        }
+      } catch (spotError: any) {
+        console.warn(`[Validation] Spot balance fetch failed: ${spotError.message}`);
       }
-    } catch (error) {
-      warnings.push('Could not fetch Aster balance - network error');
+
+      // 2. Fetch FUTURES balance
+      console.log(`[Validation] Fetching AsterDEX FUTURES balance...`);
+      try {
+        const futuresResponse = await fetch(`https://fapi.asterdex.com/fapi/v2/account?${params}&signature=${signature}`, {
+          method: 'GET',
+          headers: {
+            'X-MBX-APIKEY': asterApiKey!,
+          },
+        });
+
+        if (futuresResponse.ok) {
+          const futuresData = await futuresResponse.json();
+
+          // Try multiple methods to extract futures balance
+          if (futuresData.totalWalletBalance !== undefined) {
+            futuresBalance = parseFloat(futuresData.totalWalletBalance);
+            console.log(`[Validation] ✅ Futures balance (totalWalletBalance): $${futuresBalance.toFixed(2)}`);
+          } else if (futuresData.totalMarginBalance !== undefined) {
+            futuresBalance = parseFloat(futuresData.totalMarginBalance);
+            console.log(`[Validation] ✅ Futures balance (totalMarginBalance): $${futuresBalance.toFixed(2)}`);
+          } else if (futuresData.assets && Array.isArray(futuresData.assets)) {
+            futuresBalance = futuresData.assets.reduce((total: number, asset: any) => {
+              const walletBalance = parseFloat(asset.walletBalance || asset.marginBalance || '0');
+              return total + walletBalance;
+            }, 0);
+            console.log(`[Validation] ✅ Futures balance (from assets): $${futuresBalance.toFixed(2)}`);
+          }
+        } else {
+          console.warn(`[Validation] Could not fetch futures balance: ${futuresResponse.status}`);
+        }
+      } catch (futuresError: any) {
+        console.warn(`[Validation] Futures balance fetch failed: ${futuresError.message}`);
+      }
+
+      // 3. Combine spot + futures balances
+      asterBalance = spotBalance + futuresBalance;
+      console.log(`[Validation] ========================================`);
+      console.log(`[Validation] AsterDEX Total Balance: $${asterBalance.toFixed(2)}`);
+      console.log(`[Validation]   - Spot:    $${spotBalance.toFixed(2)}`);
+      console.log(`[Validation]   - Futures: $${futuresBalance.toFixed(2)}`);
+      console.log(`[Validation] ========================================`);
+
+      if (asterBalance === 0) {
+        warnings.push('Could not fetch AsterDEX balance from either spot or futures wallet');
+      }
+    } catch (error: any) {
+      const errorMsg = `Could not fetch Aster balance - network error: ${error.message}`;
+      warnings.push(errorMsg);
+      console.error(`[Validation] ${errorMsg}`);
     }
 
     try {
@@ -312,15 +408,22 @@ class ExchangeTradeService {
       if (hlResponse.ok) {
         const hlData = await hlResponse.json();
         hyperliquidBalance = parseFloat(hlData.marginSummary?.accountValue || '0');
+        console.log(`[Validation] Hyperliquid balance fetched: $${hyperliquidBalance.toFixed(2)}`);
       } else {
-        warnings.push('Could not fetch Hyperliquid balance - API error');
+        const errorText = await hlResponse.text();
+        const errorMsg = `Could not fetch Hyperliquid balance - API error: ${hlResponse.status} ${errorText}`;
+        warnings.push(errorMsg);
+        console.error(`[Validation] ${errorMsg}`);
       }
-    } catch (error) {
-      warnings.push('Could not fetch Hyperliquid balance - network error');
+    } catch (error: any) {
+      const errorMsg = `Could not fetch Hyperliquid balance - network error: ${error.message}`;
+      warnings.push(errorMsg);
+      console.error(`[Validation] ${errorMsg}`);
     }
 
     // Check if balances are sufficient
-    const requiredPerExchange = requiredCapital / 2;
+    // NOTE: requiredCapital is already PER EXCHANGE (not total combined)
+    const requiredPerExchange = requiredCapital;
 
     if (asterBalance < requiredPerExchange) {
       errors.push(
@@ -355,13 +458,13 @@ class ExchangeTradeService {
   /**
    * Verify order fill status
    */
-  private async verifyOrderFill(exchange: 'aster' | 'hyperliquid', orderId: string): Promise<boolean> {
+  private async verifyOrderFill(exchange: 'aster' | 'hyperliquid', orderId: string, symbol?: string): Promise<boolean> {
     const maxAttempts = 10;
     let attempts = 0;
 
     while (attempts < maxAttempts) {
       try {
-        const status = await this.getOrderStatus(exchange, orderId);
+        const status = await this.getOrderStatus(exchange, orderId, symbol);
 
         if (status === 'FILLED') return true;
         if (status === 'CANCELLED' || status === 'REJECTED' || status === 'EXPIRED') return false;
@@ -381,7 +484,7 @@ class ExchangeTradeService {
   /**
    * Get order status (PUBLIC - used by arbitrage service)
    */
-  async getOrderStatus(exchange: 'aster' | 'hyperliquid', orderId: string): Promise<string> {
+  async getOrderStatus(exchange: 'aster' | 'hyperliquid', orderId: string, symbol?: string): Promise<string> {
     if (exchange === 'aster') {
       await this.rateLimiter.checkAster(2);
 
@@ -397,10 +500,22 @@ class ExchangeTradeService {
         recvWindow: 5000,
       };
 
-      const signature = await this.signAsterRequest(params, apiSecret);
-      const queryString = `orderId=${orderId}&timestamp=${timestamp}&recvWindow=5000&signature=${signature}`;
+      // Add symbol if provided (required for Binance-compatible APIs)
+      if (symbol) {
+        params.symbol = symbol;
+      }
 
-      const response = await fetch(`${ASTER_API}/fapi/v1/order?${queryString}`, {
+      const signature = await this.signAsterRequest(params, apiSecret);
+
+      // Build query string with all parameters including symbol
+      const queryParts = [`orderId=${orderId}`, `timestamp=${timestamp}`, `recvWindow=5000`];
+      if (symbol) {
+        queryParts.unshift(`symbol=${symbol}`); // Symbol should come first alphabetically
+      }
+      const queryString = queryParts.join('&') + `&signature=${signature}`;
+
+      // Use FUTURES API endpoint to match where orders are placed
+      const response = await fetch(`https://fapi.asterdex.com/fapi/v1/order?${queryString}`, {
         method: 'GET',
         headers: {
           'X-MBX-APIKEY': apiKey,
@@ -458,7 +573,8 @@ class ExchangeTradeService {
         const signature = await this.signAsterRequest(params, apiSecret);
         const queryString = new URLSearchParams({ ...params, signature }).toString();
 
-        const response = await fetch(`${ASTER_API}/fapi/v1/order?${queryString}`, {
+        // Use FUTURES API endpoint to match where orders are placed
+        const response = await fetch(`https://fapi.asterdex.com/fapi/v1/order?${queryString}`, {
           method: 'DELETE',
           headers: {
             'X-MBX-APIKEY': apiKey,
@@ -517,10 +633,10 @@ class ExchangeTradeService {
       // For market orders, use current market price estimate for quantity calculation
       const estimatedPrice = orderType === 'MARKET' ? (price || 1) : price!;
       const quantity = size / estimatedPrice;
-      const formattedQty = this.formatSize(symbol, quantity);
+      const formattedQty = this.formatSize(symbol, quantity, 'aster', orderType);
 
-      if (!this.validateOrderSize(symbol, formattedQty, 'aster')) {
-        throw new Error(`Order size ${formattedQty} below minimum for ${symbol} on Aster`);
+      if (!this.validateOrderSize(symbol, formattedQty, estimatedPrice, 'aster', orderType)) {
+        throw new Error(`Order validation failed for ${symbol} on AsterDEX`);
       }
 
       console.log(`[AsterDEX] Placing ${orderType} ${side} order for ${symbol}: ${formattedQty}${orderType === 'LIMIT' ? ` @ ${price}` : ''}`);
@@ -532,6 +648,8 @@ class ExchangeTradeService {
       if (!apiKey || !apiSecret) {
         throw new Error('AsterDEX API credentials not configured');
       }
+
+      console.log(`[AsterDEX] Using API key: ${apiKey?.substring(0, 8)}...${apiKey?.substring(apiKey.length - 4)}`);
 
       // Rate limit check
       await this.rateLimiter.checkAster(1);
@@ -546,18 +664,30 @@ class ExchangeTradeService {
 
       // Add price and timeInForce only for LIMIT orders
       if (orderType === 'LIMIT') {
-        orderParams.price = price!.toFixed(2);
+        orderParams.price = this.formatPrice(symbol, price!, 'aster');
         orderParams.timeInForce = 'GTC';
       }
 
-      // Sign request
+      console.log(`[AsterDEX] Order parameters before signing:`, { ...orderParams });
+
+      // Add timestamp and recvWindow BEFORE signing
+      orderParams.timestamp = Date.now();
+      orderParams.recvWindow = 5000;
+
+      // Sign request - signature is calculated on alphabetically sorted params
       const signature = await this.signAsterRequest(orderParams, apiSecret);
-      orderParams.signature = signature;
 
-      // Convert to URL-encoded form data (CRITICAL: Must be x-www-form-urlencoded)
-      const formData = new URLSearchParams(orderParams).toString();
+      // Build query string with params in alphabetical order (CRITICAL for signature validation)
+      const sortedKeys = Object.keys(orderParams).sort();
+      const queryParts = sortedKeys.map(key => `${key}=${orderParams[key]}`);
+      queryParts.push(`signature=${signature}`); // Signature goes at the end
+      const formData = queryParts.join('&');
 
-      const response = await fetch(`${ASTER_API}/fapi/v1/order`, {
+      console.log(`[AsterDEX] Signature: ${signature.substring(0, 16)}...${signature.substring(signature.length - 8)}`);
+      console.log(`[AsterDEX] Request body: ${formData}`);
+
+      // Use FUTURES API endpoint for perpetual contracts
+      const response = await fetch(`https://fapi.asterdex.com/fapi/v1/order`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
@@ -567,8 +697,32 @@ class ExchangeTradeService {
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(`AsterDEX order failed: ${error.msg || response.statusText}`);
+        // Enhanced error handling to capture all error details
+        let errorDetails = `HTTP ${response.status}: ${response.statusText}`;
+        try {
+          const errorData = await response.json();
+          console.error(`[AsterDEX] Order failed with ${response.status}:`, errorData);
+
+          // Extract error details from Binance-compatible API response
+          if (errorData.code) errorDetails += ` (Code: ${errorData.code})`;
+          if (errorData.msg) errorDetails += ` - ${errorData.msg}`;
+
+          // Common error codes to help with debugging
+          if (errorData.code === -1022) errorDetails += ' [Signature validation failed]';
+          if (errorData.code === -1021) errorDetails += ' [Timestamp out of sync]';
+          if (errorData.code === -2015) errorDetails += ' [Invalid API key]';
+          if (errorData.code === -2010) errorDetails += ' [Order rejected by exchange]';
+        } catch (parseError) {
+          // If response is not JSON (e.g., HTML error page), capture text
+          try {
+            const textError = await response.text();
+            console.error(`[AsterDEX] Non-JSON error response:`, textError.substring(0, 500));
+            errorDetails += ` - ${textError.substring(0, 200)}`;
+          } catch {
+            errorDetails += ' - Unable to parse error response';
+          }
+        }
+        throw new Error(`AsterDEX order failed: ${errorDetails}`);
       }
 
       const result = await response.json();
@@ -576,7 +730,7 @@ class ExchangeTradeService {
       console.log(`[AsterDEX] Order placed successfully:`, result);
 
       // Verify fill
-      const filled = await this.verifyOrderFill('aster', result.orderId);
+      const filled = await this.verifyOrderFill('aster', result.orderId, symbol);
 
       return {
         success: true,
@@ -586,10 +740,45 @@ class ExchangeTradeService {
         filled,
       };
     } catch (error: any) {
-      console.error(`[AsterDEX] Order failed:`, error);
+      // Capture comprehensive error details for debugging
+      const errorInfo = {
+        message: error.message,
+        name: error.name,
+        stack: error.stack,
+        cause: error.cause,
+        // Fetch-specific errors
+        type: error.type,
+        // Additional context
+        symbol,
+        side,
+        size,
+        price,
+        timestamp: new Date().toISOString(),
+      };
+
+      console.error(`[AsterDEX] Order failed for ${symbol} ${side} ${size} @ ${price}:`, errorInfo);
+
+      // Format detailed error for UI display
+      let detailedError = `❌ AsterDEX Error: ${error.message}\n`;
+      detailedError += `Type: ${error.name || 'Unknown'}\n`;
+
+      // Add helpful diagnostics based on error type
+      if (error.message === 'Failed to fetch') {
+        detailedError += `\n🔍 Diagnostics:\n`;
+        detailedError += `- Network connectivity issue OR\n`;
+        detailedError += `- CORS preflight blocked OR\n`;
+        detailedError += `- API endpoint unreachable\n`;
+        detailedError += `- Check browser Network tab for details\n`;
+      }
+
+      // Include request details for debugging
+      detailedError += `\n📋 Request Details:\n`;
+      detailedError += `Symbol: ${symbol}, Side: ${side}, Size: ${size}, Price: ${price}\n`;
+      detailedError += `Endpoint: https://fapi.asterdex.com/fapi/v1/order\n`;
+
       return {
         success: false,
-        error: error.message,
+        error: detailedError,
         filled: false,
       };
     }
@@ -608,10 +797,10 @@ class ExchangeTradeService {
       // For market orders, use current market price estimate for quantity calculation
       const estimatedPrice = orderType === 'MARKET' ? (price || 1) : price!;
       const quantity = size / estimatedPrice;
-      const formattedQty = this.formatSize(symbol, quantity);
+      const formattedQty = this.formatSize(symbol, quantity, 'hyperliquid', orderType);
 
-      if (!this.validateOrderSize(symbol, formattedQty, 'hl')) {
-        throw new Error(`Order size ${formattedQty} below minimum for ${symbol} on Hyperliquid`);
+      if (!this.validateOrderSize(symbol, formattedQty, estimatedPrice, 'hyperliquid', orderType)) {
+        throw new Error(`Order validation failed for ${symbol} on HyperLiquid`);
       }
 
       console.log(`[HyperLiquid] Placing ${orderType} ${side} order for ${symbol}: ${formattedQty}${orderType === 'LIMIT' ? ` @ ${price}` : ''}`);
@@ -623,6 +812,9 @@ class ExchangeTradeService {
       if (!walletAddress || !privateKey) {
         throw new Error('HyperLiquid wallet credentials not configured');
       }
+
+      console.log(`[HyperLiquid] Using wallet: ${walletAddress}`);
+      console.log(`[HyperLiquid] Asset index for ${symbol}: ${assetIndex}`);
 
       // Rate limit check
       await this.rateLimiter.checkHL();
@@ -648,8 +840,13 @@ class ExchangeTradeService {
         grouping: 'na',
       };
 
-      // Sign the order
-      const signature = await this.signHyperliquidOrder(action, privateKey);
+      console.log(`[HyperLiquid] Order action:`, JSON.stringify(action, null, 2));
+
+      // Sign the individual order (not the entire action wrapper)
+      const orderToSign = action.orders[0];
+      console.log(`[HyperLiquid] Order to sign:`, JSON.stringify(orderToSign, null, 2));
+      const signature = await this.signHyperliquidOrder(orderToSign, privateKey);
+      console.log(`[HyperLiquid] Signature generated:`, { r: signature.r.substring(0, 16) + '...', s: signature.s.substring(0, 16) + '...', v: signature.v });
 
       const orderRequest = {
         action,
@@ -667,8 +864,32 @@ class ExchangeTradeService {
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(`HyperLiquid order failed: ${error.message || response.statusText}`);
+        // Enhanced error handling to capture all error details
+        let errorDetails = `HTTP ${response.status}: ${response.statusText}`;
+        try {
+          const errorData = await response.json();
+          console.error(`[HyperLiquid] Order failed with ${response.status}:`, errorData);
+
+          // Extract error details from HyperLiquid API response
+          if (errorData.message) errorDetails += ` - ${errorData.message}`;
+          if (errorData.error) errorDetails += ` - ${errorData.error}`;
+          if (errorData.code) errorDetails += ` (Code: ${errorData.code})`;
+
+          // Check for specific HyperLiquid errors
+          if (errorData.message?.includes('signature')) errorDetails += ' [Signature validation failed]';
+          if (errorData.message?.includes('margin')) errorDetails += ' [Insufficient margin/collateral]';
+          if (errorData.message?.includes('not exist')) errorDetails += ' [Wallet not initialized - deposit USDC first]';
+        } catch (parseError) {
+          // If response is not JSON, capture text
+          try {
+            const textError = await response.text();
+            console.error(`[HyperLiquid] Non-JSON error response:`, textError.substring(0, 500));
+            errorDetails += ` - ${textError.substring(0, 200)}`;
+          } catch {
+            errorDetails += ' - Unable to parse error response';
+          }
+        }
+        throw new Error(`HyperLiquid order failed: ${errorDetails}`);
       }
 
       const result = await response.json();
@@ -678,7 +899,7 @@ class ExchangeTradeService {
       const orderId = result.status?.statuses?.[0]?.oid?.toString() || 'unknown';
 
       // Verify fill
-      const filled = await this.verifyOrderFill('hyperliquid', orderId);
+      const filled = await this.verifyOrderFill('hyperliquid', orderId, symbol);
 
       return {
         success: true,
@@ -688,10 +909,51 @@ class ExchangeTradeService {
         filled,
       };
     } catch (error: any) {
-      console.error(`[HyperLiquid] Order failed:`, error);
+      // Capture comprehensive error details for debugging
+      const errorInfo = {
+        message: error.message,
+        name: error.name,
+        stack: error.stack,
+        cause: error.cause,
+        // Fetch-specific errors
+        type: error.type,
+        // Additional context
+        symbol,
+        side,
+        size,
+        price,
+        timestamp: new Date().toISOString(),
+      };
+
+      console.error(`[HyperLiquid] Order failed for ${symbol} ${side} ${size} @ ${price}:`, errorInfo);
+
+      // Format detailed error for UI display
+      let detailedError = `❌ HyperLiquid Error: ${error.message}\n`;
+      detailedError += `Type: ${error.name || 'Unknown'}\n`;
+
+      // Add helpful diagnostics based on error type
+      if (error.message === 'Failed to fetch') {
+        detailedError += `\n🔍 Diagnostics:\n`;
+        detailedError += `- Network connectivity issue OR\n`;
+        detailedError += `- CORS preflight blocked OR\n`;
+        detailedError += `- API endpoint unreachable\n`;
+        detailedError += `- Check browser Network tab for details\n`;
+      }
+
+      // Include request details for debugging
+      detailedError += `\n📋 Request Details:\n`;
+      detailedError += `Symbol: ${symbol}, Side: ${side}, Size: ${size}, Price: ${price}\n`;
+      detailedError += `Endpoint: https://api.hyperliquid.xyz/exchange\n`;
+      detailedError += `Wallet: ${localStorage.getItem('hyperliquid_wallet_address') || 'Not set'}\n`;
+
+      // Add specific HyperLiquid hints
+      if (error.message.includes('signature')) {
+        detailedError += `\n💡 Hint: Check that chainId is 1337 and signature is correct\n`;
+      }
+
       return {
         success: false,
-        error: error.message,
+        error: detailedError,
         filled: false,
       };
     }

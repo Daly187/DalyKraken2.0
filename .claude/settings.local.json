@@ -25,7 +25,11 @@
       "Bash(curl:*)",
       "Bash(node:*)",
       "Bash(npx tsc)",
-      "Bash(npm run:*)"
+      "Bash(npm run:*)",
+      "Bash(node -e:*)",
+      "Bash(open -a \"Google Chrome\" https://dalydough.web.app/)",
+      "Bash(open -a \"Google Chrome\" \"https://dalydough.web.app/\")",
+      "Bash(osascript -e 'tell application \"\"Google Chrome\"\" to execute front window'\"''\"'s active tab javascript \"\"console.log('\"''\"'Checking matched pairs...'\"''\"'); \n// Get the matched pairs from the page\nconst matchedPairs = document.querySelectorAll('\"''\"'[data-matched-pair]'\"''\"');\nconsole.log('\"''\"'Matched pairs found:'\"''\"', matchedPairs.length);\"\"')"
     ],
     "deny": [],
     "ask": []

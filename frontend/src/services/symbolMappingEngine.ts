@@ -2420,7 +2420,7 @@ class SymbolMappingEngine {
    * Normalize exchange-specific symbol to canonical format
    * PUBLIC method for debugging and analysis
    */
-  public normalizeSymbol(rawSymbol: string): { canonical: string | null; multiplier: number } {
+  public normalizeSymbol(rawSymbol: string, autoDiscover: boolean = true): { canonical: string | null; multiplier: number } {
     // Remove common suffixes
     const cleaned = rawSymbol
       .toUpperCase()
@@ -2468,6 +2468,13 @@ class SymbolMappingEngine {
     const fuzzyMatch = this.fuzzyMatch(baseSymbol);
     if (fuzzyMatch && fuzzyMatch.score >= 0.8) {
       return { canonical: fuzzyMatch.canonical, multiplier: detectedMultiplier };
+    }
+
+    // AUTO-DISCOVERY MODE: If no match found and autoDiscover is enabled,
+    // use the base symbol itself as canonical (allows all pairs to be matched)
+    if (autoDiscover && baseSymbol.length > 0) {
+      console.log(`[SymbolMapping] Auto-discovered new symbol: ${baseSymbol} (from ${rawSymbol})`);
+      return { canonical: baseSymbol, multiplier: detectedMultiplier };
     }
 
     return { canonical: null, multiplier: 1 };

@@ -533,12 +533,20 @@ class MultiExchangeService {
       const asterOnlyOneExchange = asterNormalized.filter(a => a.canonical && !matchedCanonicals.has(a.canonical));
       const hlOnlyOneExchange = hlNormalized.filter(a => a.canonical && !matchedCanonicals.has(a.canonical));
 
-      console.log(`[Failed Normalization] AsterDEX: ${asterFailedNormalization.length}, HyperLiquid: ${hlFailedNormalization.length}`);
-      console.log(`[Only On One Exchange] AsterDEX: ${asterOnlyOneExchange.length}, HyperLiquid: ${hlOnlyOneExchange.length}`);
-      console.log('[Sample Failed Norm AsterDEX]:', asterFailedNormalization.slice(0, 10).map(a => a.symbol).join(', '));
-      console.log('[Sample Failed Norm HyperLiquid]:', hlFailedNormalization.slice(0, 10).map(a => a.symbol).join(', '));
-      console.log('[Sample AsterDEX Only]:', asterOnlyOneExchange.slice(0, 10).map(a => `${a.symbol}→${a.canonical}`).join(', '));
-      console.log('[Sample HyperLiquid Only]:', hlOnlyOneExchange.slice(0, 10).map(a => `${a.symbol}→${a.canonical}`).join(', '));
+      console.log(`\n========================================`);
+      console.log(`📊 MATCHED PAIRS SUMMARY`);
+      console.log(`========================================`);
+      console.log(`✅ MATCHED PAIRS: ${matchedCanonicals.size} common pairs`);
+      console.log(`📈 AsterDEX only: ${asterOnlyOneExchange.length} pairs`);
+      console.log(`📉 HyperLiquid only: ${hlOnlyOneExchange.length} pairs`);
+      console.log(`❌ Failed normalization: AsterDEX ${asterFailedNormalization.length}, HyperLiquid ${hlFailedNormalization.length}`);
+      console.log(`========================================`);
+      console.log(`\n🔗 Matched pairs available for arbitrage:`);
+      console.log(Array.from(matchedCanonicals).sort().join(', '));
+      console.log(`\n[Sample Failed Norm AsterDEX]:`, asterFailedNormalization.slice(0, 10).map(a => a.symbol).join(', '));
+      console.log(`[Sample Failed Norm HyperLiquid]:`, hlFailedNormalization.slice(0, 10).map(a => a.symbol).join(', '));
+      console.log(`[Sample AsterDEX Only]:`, asterOnlyOneExchange.slice(0, 10).map(a => `${a.symbol}→${a.canonical}`).join(', '));
+      console.log(`[Sample HyperLiquid Only]:`, hlOnlyOneExchange.slice(0, 10).map(a => `${a.symbol}→${a.canonical}`).join(', '));
     }
 
     return symbolMappingEngine.matchAssets(asterAssets, hlAssets);
