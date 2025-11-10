@@ -432,6 +432,14 @@ export class DCABotService {
 
     } catch (error: any) {
       console.error('[DCABotService] ❌ Error ensuring USD liquidity:', error);
+
+      // If it's a rate limit error, skip the liquidity check and proceed
+      // The order will fail at placement if there's truly insufficient funds
+      if (error.message && error.message.includes('Temporary lockout')) {
+        console.warn('[DCABotService] ⚠️  Rate limit hit during liquidity check - skipping and proceeding with order (will fail at placement if insufficient funds)');
+        return { success: true };
+      }
+
       return {
         success: false,
         error: `Liquidity management failed: ${error.message}`
@@ -446,11 +454,15 @@ export class DCABotService {
     bot: LiveDCABot,
     krakenService: KrakenService
   ): Promise<{ success: boolean; entry?: DCABotEntry; error?: string }> {
+    console.log(`[DCABotService] executeEntry() started for bot ${bot.id} (${bot.symbol})`);
+
     try {
       // Get current price
       // Note: Duplicate order prevention is now handled in orderQueueService.createOrder()
+      console.log(`[DCABotService] Fetching current ticker for ${bot.symbol}...`);
       const ticker = await krakenService.getTicker(bot.symbol);
       const currentPrice = ticker.price;
+      console.log(`[DCABotService] Current price: $${currentPrice}`);
 
       // Calculate order amount for the NEXT entry
       // currentEntryCount = number of filled entries (0, 1, 2, ...)
@@ -470,11 +482,21 @@ export class DCABotService {
       // CRITICAL: Ensure sufficient USD liquidity before creating order
       // This will automatically convert ETH→USD on Kraken if needed
       console.log(`[DCABotService] Checking USD liquidity for $${orderAmount} ${bot.symbol} purchase...`);
-      const liquidityCheck = await this.ensureUSDLiquidity(
-        krakenService,
-        orderAmount,
-        bot.symbol
-      );
+
+      let liquidityCheck;
+      try {
+        liquidityCheck = await this.ensureUSDLiquidity(
+          krakenService,
+          orderAmount,
+          bot.symbol
+        );
+      } catch (error: any) {
+        console.error(`[DCABotService] ❌ Liquidity check threw error:`, error);
+        return {
+          success: false,
+          error: `Liquidity check failed: ${error.message}`
+        };
+      }
 
       if (!liquidityCheck.success) {
         console.error(`[DCABotService] ❌ Liquidity check failed: ${liquidityCheck.error}`);
@@ -487,19 +509,29 @@ export class DCABotService {
       console.log(`[DCABotService] ✅ Liquidity check passed - proceeding with order creation`);
 
       // Create pending order in queue instead of executing directly
-      const pendingOrder = await orderQueueService.createOrder({
-        userId: bot.userId,
-        botId: bot.id,
-        pair: bot.symbol,
-        type: OrderType.MARKET,
-        side: 'buy',
-        volume: quantity.toFixed(8),
-        amount: orderAmount, // USD amount
-        price: currentPrice.toString(), // Expected market execution price
-        reason: 'Waiting for order queue to execute market buy',
-      });
+      console.log(`[DCABotService] Creating pending order: ${quantity.toFixed(8)} ${bot.symbol} @ $${currentPrice} (total: $${orderAmount})`);
 
-      console.log(`[DCABotService] Created pending order ${pendingOrder.id} for bot ${bot.id} - $${orderAmount} at $${currentPrice}`);
+      let pendingOrder;
+      try {
+        pendingOrder = await orderQueueService.createOrder({
+          userId: bot.userId,
+          botId: bot.id,
+          pair: bot.symbol,
+          type: OrderType.MARKET,
+          side: 'buy',
+          volume: quantity.toFixed(8),
+          amount: orderAmount, // USD amount
+          price: currentPrice.toString(), // Expected market execution price
+          reason: 'Waiting for order queue to execute market buy',
+        });
+        console.log(`[DCABotService] ✅ Created pending order ${pendingOrder.id} for bot ${bot.id}`);
+      } catch (error: any) {
+        console.error(`[DCABotService] ❌ Failed to create pending order:`, error);
+        return {
+          success: false,
+          error: `Order queue creation failed: ${error.message}`
+        };
+      }
 
       // Create entry record (marked as pending until order is executed)
       const entry: DCABotEntry = {

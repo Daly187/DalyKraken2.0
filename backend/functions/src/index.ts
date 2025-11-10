@@ -1496,7 +1496,8 @@ export const processDCABots = functions.pubsub
   .schedule('*/5 * * * *')
   .timeZone('America/New_York')
   .onRun(async (context) => {
-    console.log('[Scheduled] Processing DCA bots...');
+    const runTimestamp = new Date().toISOString();
+    console.log(`[Scheduled] ========== DCA Bot Runner Started: ${runTimestamp} ==========`);
 
     try {
       const dcaBotService = new DCABotService(db);
@@ -1504,7 +1505,7 @@ export const processDCABots = functions.pubsub
       // Get all active bots
       const activeBots = await dcaBotService.getActiveBots();
 
-      console.log(`[Scheduled] Found ${activeBots.length} active bots`);
+      console.log(`[Scheduled] Found ${activeBots.length} active bots:`, activeBots.map(b => `${b.symbol}(${b.id.substring(0, 8)})`).join(', '));
 
       // Group bots by user to get their API keys
       const botsByUser: Record<string, typeof activeBots> = {};
@@ -1519,37 +1520,98 @@ export const processDCABots = functions.pubsub
 
       // Process each user's bots with their own API keys
       const allResults: any[] = [];
+      const skipReasons: Record<string, string[]> = {};
+
       for (const [userId, userBots] of Object.entries(botsByUser)) {
+        console.log(`[Scheduled] Processing user ${userId.substring(0, 8)}... (${userBots.length} bots)`);
+
         try {
           // Get user's Kraken API keys from Firestore
           const userDoc = await db.collection('users').doc(userId).get();
           const userData = userDoc.data();
 
           if (!userData || !userData.krakenKeys || userData.krakenKeys.length === 0) {
-            console.warn(`[Scheduled] No Kraken keys for user ${userId}, skipping ${userBots.length} bots`);
+            const reason = `No Kraken API keys configured`;
+            console.warn(`[Scheduled] ⚠️  User ${userId.substring(0, 8)}: ${reason}, skipping ${userBots.length} bots`);
+            skipReasons[userId] = [reason];
+            userBots.forEach(bot => {
+              allResults.push({
+                botId: bot.id,
+                symbol: bot.symbol,
+                userId: bot.userId,
+                processed: false,
+                skipped: true,
+                reason,
+              });
+            });
             continue;
           }
 
           const activeKey = userData.krakenKeys.find((k: any) => k.isActive);
           if (!activeKey) {
-            console.warn(`[Scheduled] No active Kraken key for user ${userId}`);
+            const reason = `No active Kraken API key`;
+            console.warn(`[Scheduled] ⚠️  User ${userId.substring(0, 8)}: ${reason}`);
+            skipReasons[userId] = [reason];
+            userBots.forEach(bot => {
+              allResults.push({
+                botId: bot.id,
+                symbol: bot.symbol,
+                userId: bot.userId,
+                processed: false,
+                skipped: true,
+                reason,
+              });
+            });
             continue;
           }
 
+          console.log(`[Scheduled] ✅ User ${userId.substring(0, 8)}: API keys found (encrypted: ${activeKey.encrypted})`);
+
           const krakenApiKey = activeKey.encrypted ? decryptKey(activeKey.apiKey) : activeKey.apiKey;
           const krakenApiSecret = activeKey.encrypted ? decryptKey(activeKey.apiSecret) : activeKey.apiSecret;
+
+          // Validate decrypted keys
+          if (!krakenApiKey || !krakenApiSecret || krakenApiKey.length < 10 || krakenApiSecret.length < 10) {
+            const reason = `Invalid or corrupted API keys after decryption`;
+            console.error(`[Scheduled] ❌ User ${userId.substring(0, 8)}: ${reason}`);
+            skipReasons[userId] = [reason];
+            userBots.forEach(bot => {
+              allResults.push({
+                botId: bot.id,
+                symbol: bot.symbol,
+                userId: bot.userId,
+                processed: false,
+                skipped: true,
+                reason,
+              });
+            });
+            continue;
+          }
 
           // Process each bot for this user
           const userResults = await Promise.all(
             userBots.map(async (bot) => {
               try {
+                console.log(`[Scheduled]   → Processing bot ${bot.symbol} (${bot.id.substring(0, 8)}...)`);
+
                 const result = await dcaBotService.processBot(
                   bot.id,
                   krakenApiKey,
                   krakenApiSecret
                 );
 
-                console.log(`[Scheduled] Bot ${bot.id} (${bot.symbol}):`, result);
+                // Enhanced logging based on result
+                if (result.processed) {
+                  if (result.action === 'entry') {
+                    console.log(`[Scheduled]   ✅ Bot ${bot.symbol}: ENTRY executed - ${result.reason}`);
+                  } else if (result.action === 'exit') {
+                    console.log(`[Scheduled]   ✅ Bot ${bot.symbol}: EXIT executed - ${result.reason}`);
+                  } else {
+                    console.log(`[Scheduled]   ✅ Bot ${bot.symbol}: Action ${result.action} - ${result.reason}`);
+                  }
+                } else {
+                  console.log(`[Scheduled]   ⏸️  Bot ${bot.symbol}: Skipped - ${result.reason}`);
+                }
 
                 return {
                   botId: bot.id,
@@ -1558,13 +1620,16 @@ export const processDCABots = functions.pubsub
                   ...result,
                 };
               } catch (error: any) {
-                console.error(`[Scheduled] Error processing bot ${bot.id}:`, error);
+                console.error(`[Scheduled]   ❌ Bot ${bot.symbol}: ERROR - ${error.message}`);
+                console.error(`[Scheduled]   Stack trace:`, error.stack);
                 return {
                   botId: bot.id,
                   symbol: bot.symbol,
                   userId: bot.userId,
                   processed: false,
+                  failed: true,
                   reason: error.message,
+                  errorType: error.name || 'UnknownError',
                 };
               }
             })
@@ -1572,35 +1637,89 @@ export const processDCABots = functions.pubsub
 
           allResults.push(...userResults);
         } catch (error: any) {
-          console.error(`[Scheduled] Error processing user ${userId}:`, error.message);
+          console.error(`[Scheduled] ❌ Fatal error processing user ${userId}:`, error.message);
+          console.error(`[Scheduled] Stack trace:`, error.stack);
+          // Mark all user's bots as failed
+          userBots.forEach(bot => {
+            allResults.push({
+              botId: bot.id,
+              symbol: bot.symbol,
+              userId: bot.userId,
+              processed: false,
+              failed: true,
+              reason: `User processing failed: ${error.message}`,
+            });
+          });
         }
       }
 
       const results = allResults;
 
-      // Log summary
+      // Enhanced summary logging
       const processed = results.filter((r) => r.processed).length;
       const entries = results.filter((r: any) => r.action === 'entry').length;
       const exits = results.filter((r: any) => r.action === 'exit').length;
+      const skipped = results.filter((r: any) => r.skipped).length;
+      const failed = results.filter((r: any) => r.failed).length;
 
-      console.log(`[Scheduled] Summary: ${processed}/${activeBots.length} processed, ${entries} entries, ${exits} exits`);
+      console.log(`[Scheduled] ========== Execution Summary ==========`);
+      console.log(`[Scheduled] Total Bots: ${activeBots.length}`);
+      console.log(`[Scheduled] ✅ Processed: ${processed} (${entries} entries, ${exits} exits)`);
+      console.log(`[Scheduled] ⏸️  Skipped: ${results.length - processed - failed} (conditions not met)`);
+      console.log(`[Scheduled] ⚠️  User Errors: ${skipped} (API key issues)`);
+      console.log(`[Scheduled] ❌ Failed: ${failed} (execution errors)`);
+
+      // Group skip reasons for summary
+      const reasonCounts: Record<string, number> = {};
+      results.filter(r => !r.processed).forEach(r => {
+        const reason = r.reason || 'Unknown';
+        reasonCounts[reason] = (reasonCounts[reason] || 0) + 1;
+      });
+
+      if (Object.keys(reasonCounts).length > 0) {
+        console.log(`[Scheduled] Skip/Fail Breakdown:`);
+        Object.entries(reasonCounts)
+          .sort(([, a], [, b]) => b - a)
+          .forEach(([reason, count]) => {
+            console.log(`[Scheduled]   - ${reason}: ${count}`);
+          });
+      }
+
+      console.log(`[Scheduled] ========== Run Complete: ${new Date().toISOString()} ==========`);
 
       // Store execution summary in Firestore
       await db.collection('systemLogs').add({
         type: 'dca_bot_processing',
-        timestamp: new Date().toISOString(),
+        timestamp: runTimestamp,
+        completedAt: new Date().toISOString(),
         summary: {
           totalBots: activeBots.length,
           processed,
           entries,
           exits,
+          skipped,
+          failed,
+          reasonCounts,
         },
         details: results,
       });
 
       return null;
     } catch (error: any) {
-      console.error('[Scheduled] Error in processDCABots:', error);
+      console.error('[Scheduled] ❌ FATAL ERROR in processDCABots:', error);
+      console.error('[Scheduled] Stack trace:', error.stack);
+
+      // Store error in Firestore
+      await db.collection('systemLogs').add({
+        type: 'dca_bot_processing_error',
+        timestamp: runTimestamp,
+        error: {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        },
+      });
+
       return null;
     }
   });

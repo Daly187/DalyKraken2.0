@@ -6,8 +6,19 @@ import KrakenClient from 'kraken-api';
 import crypto from 'crypto';
 import { MarketData } from '../types.js';
 
+// Balance cache interface
+interface BalanceCache {
+  data: Record<string, string>;
+  timestamp: number;
+  apiKeyHash: string; // Hash of the API key to differentiate between users
+}
+
 export class KrakenService {
   private client: any;
+
+  // Balance cache with 30-second TTL to reduce API calls
+  private static balanceCache: Map<string, BalanceCache> = new Map();
+  private static readonly BALANCE_CACHE_TTL = 30 * 1000; // 30 seconds in milliseconds
 
   // Kraken pair mappings: Display format → Kraken API format
   // Critical: Kraken uses specific internal pair formats (e.g., XXBTZUSD not BTCUSD)
@@ -295,14 +306,34 @@ export class KrakenService {
   }
 
   /**
-   * Get account balance
+   * Generate a cache key hash from API key
+   */
+  private static generateCacheKey(apiKey: string): string {
+    return crypto.createHash('sha256').update(apiKey).digest('hex').substring(0, 16);
+  }
+
+  /**
+   * Clear expired cache entries
+   */
+  private static cleanExpiredCache(): void {
+    const now = Date.now();
+    for (const [key, cache] of KrakenService.balanceCache.entries()) {
+      if (now - cache.timestamp > KrakenService.BALANCE_CACHE_TTL) {
+        KrakenService.balanceCache.delete(key);
+      }
+    }
+  }
+
+  /**
+   * Get account balance with caching
+   * Cache TTL: 30 seconds to reduce API calls and avoid rate limiting
    * @param apiKey - Optional API key override
    * @param apiSecret - Optional API secret override
    */
   async getBalance(apiKey?: string, apiSecret?: string): Promise<Record<string, string>> {
     try {
-      // If API keys provided, create a new client instance
-      const client = (apiKey && apiSecret) ? new KrakenClient(apiKey, apiSecret) : this.client;
+      // Determine which API key to use
+      const effectiveApiKey = apiKey || (this.client?.config?.key) || process.env.KRAKEN_API_KEY;
 
       // Check if this.client has keys by checking if it was created with keys in constructor
       // this.client.config.key exists if keys were provided, otherwise it's undefined
@@ -318,13 +349,55 @@ export class KrakenService {
         };
       }
 
+      // Generate cache key from API key
+      const cacheKey = effectiveApiKey ? KrakenService.generateCacheKey(effectiveApiKey) : 'default';
+
+      // Check cache first
+      const cached = KrakenService.balanceCache.get(cacheKey);
+      const now = Date.now();
+
+      if (cached && (now - cached.timestamp) < KrakenService.BALANCE_CACHE_TTL) {
+        const age = Math.round((now - cached.timestamp) / 1000);
+        console.log(`[KrakenService] 💾 Using cached balance (age: ${age}s, TTL: ${KrakenService.BALANCE_CACHE_TTL / 1000}s)`);
+        return cached.data;
+      }
+
+      // Cache miss or expired - fetch fresh data
+      console.log(`[KrakenService] 🔄 Cache ${cached ? 'expired' : 'miss'} - fetching fresh balance from Kraken...`);
+
+      // If API keys provided, create a new client instance
+      const client = (apiKey && apiSecret) ? new KrakenClient(apiKey, apiSecret) : this.client;
+
       const response = await client.api('Balance');
-      return response.result;
+      const balanceData = response.result;
+
+      // Store in cache
+      KrakenService.balanceCache.set(cacheKey, {
+        data: balanceData,
+        timestamp: now,
+        apiKeyHash: cacheKey,
+      });
+
+      // Clean expired cache entries periodically
+      if (KrakenService.balanceCache.size > 10) {
+        KrakenService.cleanExpiredCache();
+      }
+
+      console.log(`[KrakenService] ✅ Balance fetched and cached`);
+      return balanceData;
     } catch (error) {
       console.error('[KrakenService] ❌ Error fetching balance:', error);
       // THROW the error instead of returning mock data so we can see what's failing
       throw error;
     }
+  }
+
+  /**
+   * Clear the balance cache (useful for testing or after trades)
+   */
+  static clearBalanceCache(): void {
+    KrakenService.balanceCache.clear();
+    console.log('[KrakenService] 🗑️  Balance cache cleared');
   }
 
   /**
