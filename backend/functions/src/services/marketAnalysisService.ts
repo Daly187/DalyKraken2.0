@@ -490,8 +490,9 @@ export class MarketAnalysisService {
           if (ticker.changePercent24h > 2) trendSignal = 'bullish';
           else if (ticker.changePercent24h < -2) trendSignal = 'bearish';
 
-          // Extract symbol name (remove USD suffix and X prefix)
-          const symbol = pair.replace('XXBTZ', 'BTC').replace('XETHZ', 'ETH').replace('USD', '').replace(/^X/, '');
+          // Extract symbol name (remove /USD suffix and X prefix)
+          // "BTC/USD" -> "BTC", "ETH/USD" -> "ETH"
+          const symbol = pair.replace('XXBTZ', 'BTC').replace('XETHZ', 'ETH').replace('/USD', '').replace(/^X/, '');
 
           return {
             symbol,
