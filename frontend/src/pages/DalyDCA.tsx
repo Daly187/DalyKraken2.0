@@ -359,40 +359,16 @@ export default function DalyDCA() {
     }
   };
 
-  const toggleSymbol = (symbol: string) => {
-    setSelectedSymbols((prev) => {
-      if (prev.includes(symbol)) {
-        // Don't allow deselecting all symbols
-        if (prev.length === 1) return prev;
-        return prev.filter((s) => s !== symbol);
-      } else {
-        return [...prev, symbol];
-      }
-    });
-  };
-
-  const selectAllSymbols = () => {
-    setSelectedSymbols([...availableSymbols]);
-  };
-
-  const clearAllSymbols = () => {
-    setSelectedSymbols(['BTC/USD']); // Keep at least one
-  };
-
   const handleCreateBot = async (e: React.FormEvent) => {
     e.preventDefault();
     setCreating(true);
 
     try {
-      // Create a bot for each selected symbol
-      const createPromises = selectedSymbols.map((symbol) =>
-        createDCABot({
-          symbol,
-          ...formData,
-        })
-      );
-
-      await Promise.all(createPromises);
+      // Create a bot for the selected symbol
+      await createDCABot({
+        symbol: selectedSymbols[0],
+        ...formData,
+      });
 
       // Reset form
       setSelectedSymbols(['BTC/USD']);
@@ -409,7 +385,7 @@ export default function DalyDCA() {
         trendAlignmentEnabled: true,
       });
     } catch (error) {
-      console.error('Failed to create bot(s):', error);
+      console.error('Failed to create bot:', error);
     } finally {
       setCreating(false);
     }
@@ -577,7 +553,7 @@ export default function DalyDCA() {
         }
       }
 
-      // Check if price condition is met
+      // Check if price condition is met (ONLY for re-entries)
       if (bot.nextEntryPrice && bot.currentPrice > bot.nextEntryPrice) {
         const dropNeeded = ((bot.currentPrice - bot.nextEntryPrice) / bot.currentPrice * 100).toFixed(2);
         return { message: `Waiting for ${dropNeeded}% price drop`, color: 'text-gray-400' };
@@ -947,54 +923,36 @@ export default function DalyDCA() {
             {isCreateSectionExpanded && (
 
             <form onSubmit={handleCreateBot} className="space-y-6">
-              {/* Symbol Selection */}
+              {/* Symbol Selection - Dropdown */}
               <div className="p-5 rounded-xl bg-gradient-to-br from-slate-800/50 to-slate-700/30 border border-slate-600/50">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-3">
-                    <div className="h-8 w-8 rounded-lg bg-primary-500/20 flex items-center justify-center">
-                      <Target className="h-4 w-4 text-primary-400" />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-semibold text-white">
-                        Trading Pairs
-                      </label>
-                      <p className="text-xs text-gray-400">
-                        <span className="text-primary-400 font-medium">{selectedSymbols.length}</span> selected
-                      </p>
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="h-8 w-8 rounded-lg bg-primary-500/20 flex items-center justify-center">
+                    <Target className="h-4 w-4 text-primary-400" />
+                  </div>
+                  <div className="flex-1">
+                    <label className="block text-sm font-semibold text-white mb-2">
+                      Trading Pair
+                    </label>
+                    <div className="relative">
+                      <select
+                        value={selectedSymbols[0] || 'BTC/USD'}
+                        onChange={(e) => setSelectedSymbols([e.target.value])}
+                        className="w-full px-4 py-3 pr-10 rounded-lg bg-slate-700/50 border border-slate-600/50 text-white text-sm font-medium appearance-none cursor-pointer hover:bg-slate-700/70 focus:outline-none focus:ring-2 focus:ring-primary-500/50 transition-all"
+                      >
+                        {availableSymbols.map((symbol) => {
+                          const activeBotCount = dcaBots.filter(
+                            (bot) => bot.symbol === symbol && bot.status === 'active'
+                          ).length;
+                          return (
+                            <option key={symbol} value={symbol} className="bg-slate-800 text-white py-2">
+                              {symbol.replace('/USD', '')} {activeBotCount > 0 ? `(${activeBotCount} active)` : ''}
+                            </option>
+                          );
+                        })}
+                      </select>
+                      <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400 pointer-events-none" />
                     </div>
                   </div>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={selectAllSymbols}
-                      className="px-3 py-1.5 rounded-lg bg-primary-500/10 hover:bg-primary-500/20 text-primary-400 text-xs font-medium transition-colors"
-                    >
-                      All
-                    </button>
-                    <button
-                      type="button"
-                      onClick={clearAllSymbols}
-                      className="px-3 py-1.5 rounded-lg bg-slate-600/30 hover:bg-slate-600/50 text-gray-400 text-xs font-medium transition-colors"
-                    >
-                      Clear
-                    </button>
-                  </div>
-                </div>
-                <div className="grid grid-cols-4 md:grid-cols-5 lg:grid-cols-10 gap-2">
-                  {availableSymbols.map((symbol) => (
-                    <button
-                      key={symbol}
-                      type="button"
-                      onClick={() => toggleSymbol(symbol)}
-                      className={`px-3 py-2.5 rounded-lg text-xs font-bold transition-all duration-200 ${
-                        selectedSymbols.includes(symbol)
-                          ? 'bg-gradient-to-br from-primary-500 to-primary-600 text-white shadow-lg shadow-primary-500/25 scale-105'
-                          : 'bg-slate-700/50 text-gray-400 hover:bg-slate-600/50 hover:text-gray-300'
-                      }`}
-                    >
-                      {symbol.replace('/USD', '')}
-                    </button>
-                  ))}
                 </div>
               </div>
 
@@ -1009,33 +967,33 @@ export default function DalyDCA() {
                       </div>
                       <h3 className="text-sm font-semibold text-white">Creation Preview</h3>
                       <span className="ml-auto px-2.5 py-0.5 rounded-full bg-primary-500/20 text-primary-300 text-xs font-bold">
-                        {selectedSymbols.length} Bot{selectedSymbols.length > 1 ? 's' : ''}
+                        {selectedSymbols[0]?.replace('/USD', '')}
                       </span>
                     </div>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                       <div className="space-y-1">
                         <p className="text-xs text-gray-400">Initial Capital</p>
                         <p className="text-lg font-bold text-white">
-                          ${formData.initialOrderAmount * selectedSymbols.length}
+                          ${formData.initialOrderAmount}
                         </p>
-                        <p className="text-xs text-gray-500">${formData.initialOrderAmount} × {selectedSymbols.length}</p>
+                        <p className="text-xs text-gray-500">First entry</p>
                       </div>
                       <div className="space-y-1">
-                        <p className="text-xs text-gray-400">Entries Each</p>
+                        <p className="text-xs text-gray-400">Max Entries</p>
                         <p className="text-lg font-bold text-white">{formData.reEntryCount}</p>
-                        <p className="text-xs text-gray-500">Max per bot</p>
+                        <p className="text-xs text-gray-500">Re-entries allowed</p>
                       </div>
                       <div className="space-y-1">
                         <p className="text-xs text-gray-400">Max Investment</p>
                         <p className="text-lg font-bold text-white">
-                          ${(formData.initialOrderAmount * (Math.pow(formData.tradeMultiplier, formData.reEntryCount) - 1) / (formData.tradeMultiplier - 1) * selectedSymbols.length).toFixed(0)}
+                          ${(formData.initialOrderAmount * (Math.pow(formData.tradeMultiplier, formData.reEntryCount) - 1) / (formData.tradeMultiplier - 1)).toFixed(0)}
                         </p>
                         <p className="text-xs text-gray-500">If all entries fill</p>
                       </div>
                       <div className="space-y-1">
                         <p className="text-xs text-gray-400">Target Profit</p>
                         <p className="text-lg font-bold text-green-400">+{formData.tpTarget}%</p>
-                        <p className="text-xs text-gray-500">Per bot minimum</p>
+                        <p className="text-xs text-gray-500">Exit target</p>
                       </div>
                     </div>
                   </div>
