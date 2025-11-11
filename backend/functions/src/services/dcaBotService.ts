@@ -191,7 +191,9 @@ export class DCABotService {
 
         if (cacheDoc.exists) {
           const cacheData = cacheDoc.data();
-          const cacheAge = Date.now() - (cacheData?.lastUpdate || 0);
+          // Convert ISO string to timestamp for age calculation
+          const cacheTimestamp = cacheData?.lastUpdate ? new Date(cacheData.lastUpdate).getTime() : 0;
+          const cacheAge = Date.now() - cacheTimestamp;
 
           // Use cache if less than 5 minutes old
           if (cacheData?.price && cacheAge < 5 * 60 * 1000) {
