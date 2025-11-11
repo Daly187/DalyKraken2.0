@@ -290,16 +290,28 @@ export class DCABotService {
 
   /**
    * Check if bot should enter a position
+   * Returns detailed check results for entry logging
    */
   async shouldEnterPosition(bot: LiveDCABot, currentPrice: number): Promise<{
     shouldEnter: boolean;
     reason: string;
+    entryChecks?: any;
   }> {
+    const entryChecks: any = {};
+
     // Check if max entries reached
-    if (bot.currentEntryCount >= bot.reEntryCount) {
+    const reEntryLimitMet = bot.currentEntryCount < bot.reEntryCount;
+    entryChecks.reEntryLimit = {
+      met: reEntryLimitMet,
+      currentCount: bot.currentEntryCount,
+      maxCount: bot.reEntryCount,
+      reason: reEntryLimitMet ? 'Within re-entry limit' : 'Maximum re-entries reached',
+    };
+    if (!reEntryLimitMet) {
       return {
         shouldEnter: false,
         reason: 'Maximum re-entries reached',
+        entryChecks,
       };
     }
 
@@ -308,20 +320,55 @@ export class DCABotService {
       const lastEntryTime = new Date(bot.lastEntryTime).getTime();
       const timeSinceLastEntry = Date.now() - lastEntryTime;
       const delayMs = bot.reEntryDelay * 60 * 1000; // Convert minutes to ms
+      const delayMet = timeSinceLastEntry >= delayMs;
 
-      if (timeSinceLastEntry < delayMs) {
+      entryChecks.delayCheck = {
+        met: delayMet,
+        lastEntry: bot.lastEntryTime,
+        delay: bot.reEntryDelay,
+        reason: delayMet
+          ? 'Re-entry delay satisfied'
+          : `Re-entry delay not met (${Math.round((delayMs - timeSinceLastEntry) / 60000)} minutes remaining)`,
+      };
+
+      if (!delayMet) {
         return {
           shouldEnter: false,
-          reason: `Re-entry delay not met (${Math.round((delayMs - timeSinceLastEntry) / 60000)} minutes remaining)`,
+          reason: entryChecks.delayCheck.reason,
+          entryChecks,
         };
       }
+    } else {
+      entryChecks.delayCheck = {
+        met: true,
+        reason: 'First entry - no delay check needed',
+      };
     }
 
     // Check if price has dropped enough (only for re-entries)
-    if (bot.currentEntryCount > 0 && bot.nextEntryPrice && currentPrice > bot.nextEntryPrice) {
-      return {
-        shouldEnter: false,
-        reason: `Price not low enough (current: ${currentPrice}, target: ${bot.nextEntryPrice})`,
+    if (bot.currentEntryCount > 0 && bot.nextEntryPrice) {
+      const priceMet = currentPrice <= bot.nextEntryPrice;
+      entryChecks.priceCondition = {
+        met: priceMet,
+        currentPrice,
+        targetPrice: bot.nextEntryPrice,
+        reason: priceMet
+          ? `Price dropped to target level`
+          : `Price not low enough (current: ${currentPrice}, target: ${bot.nextEntryPrice})`,
+      };
+
+      if (!priceMet) {
+        return {
+          shouldEnter: false,
+          reason: entryChecks.priceCondition.reason,
+          entryChecks,
+        };
+      }
+    } else {
+      entryChecks.priceCondition = {
+        met: true,
+        currentPrice,
+        reason: 'First entry - no price condition check needed',
       };
     }
 
@@ -337,11 +384,18 @@ export class DCABotService {
       bot.currentEntryCount
     );
 
+    entryChecks.trendAlignment = {
+      met: entryCheck.shouldEnter,
+      score: entryCheck.analysis ? (entryCheck.analysis.techScore + entryCheck.analysis.trendScore) / 2 : 50,
+      reason: entryCheck.reason,
+    };
+
     console.log(`[DCABotService] Bot ${bot.id}: Entry check result - shouldEnter=${entryCheck.shouldEnter}, reason=${entryCheck.reason}`);
 
     return {
       shouldEnter: entryCheck.shouldEnter,
       reason: entryCheck.reason,
+      entryChecks,
     };
   }
 
@@ -464,7 +518,8 @@ export class DCABotService {
    */
   async executeEntry(
     bot: LiveDCABot,
-    krakenService: KrakenService
+    krakenService: KrakenService,
+    entryChecks?: any
   ): Promise<{ success: boolean; entry?: DCABotEntry; error?: string }> {
     console.log(`[DCABotService] executeEntry() started for bot ${bot.id} (${bot.symbol})`);
 
@@ -504,6 +559,16 @@ export class DCABotService {
         );
       } catch (error: any) {
         console.error(`[DCABotService] ❌ Liquidity check threw error:`, error);
+        // Log failed entry with balance check details
+        const failedChecks = {
+          ...entryChecks,
+          balanceCheck: {
+            met: false,
+            error: error.message,
+            reason: `Liquidity check failed: ${error.message}`,
+          },
+        };
+        await this.logBlockedEntry(bot, currentPrice, `Liquidity check failed: ${error.message}`, failedChecks);
         return {
           success: false,
           error: `Liquidity check failed: ${error.message}`
@@ -512,6 +577,17 @@ export class DCABotService {
 
       if (!liquidityCheck.success) {
         console.error(`[DCABotService] ❌ Liquidity check failed: ${liquidityCheck.error}`);
+        // Log failed entry with balance check details
+        const failedChecks = {
+          ...entryChecks,
+          balanceCheck: {
+            met: false,
+            available: liquidityCheck.availableBalance,
+            required: orderAmount,
+            reason: liquidityCheck.error,
+          },
+        };
+        await this.logBlockedEntry(bot, currentPrice, liquidityCheck.error || 'Insufficient funds', failedChecks);
         return {
           success: false,
           error: liquidityCheck.error
@@ -519,6 +595,16 @@ export class DCABotService {
       }
 
       console.log(`[DCABotService] ✅ Liquidity check passed - proceeding with order creation`);
+
+      // Add balance check to entry checks
+      if (entryChecks) {
+        entryChecks.balanceCheck = {
+          met: true,
+          available: liquidityCheck.availableBalance,
+          required: orderAmount,
+          reason: 'Sufficient balance available',
+        };
+      }
 
       // Create pending order in queue instead of executing directly
       console.log(`[DCABotService] Creating pending order: ${quantity.toFixed(8)} ${bot.symbol} @ $${currentPrice} (total: $${orderAmount})`);
@@ -535,6 +621,8 @@ export class DCABotService {
           amount: orderAmount, // USD amount
           price: currentPrice.toString(), // Expected market execution price
           reason: 'Waiting for order queue to execute market buy',
+          entryConditionsMet: true,
+          entryChecks: entryChecks || {},
         });
         console.log(`[DCABotService] ✅ Created pending order ${pendingOrder.id} for bot ${bot.id}`);
       } catch (error: any) {
@@ -896,12 +984,15 @@ export class DCABotService {
       const entryCheck = await this.shouldEnterPosition(bot, currentPrice);
 
       if (entryCheck.shouldEnter) {
-        const result = await this.executeEntry(bot, krakenService);
+        const result = await this.executeEntry(bot, krakenService, entryCheck.entryChecks);
         return {
           processed: true,
           action: 'entry',
           reason: result.success ? 'Entry executed successfully' : result.error || 'Entry failed',
         };
+      } else {
+        // Log blocked entry attempt to the order queue (entry log)
+        await this.logBlockedEntry(bot, currentPrice, entryCheck.reason, entryCheck.entryChecks);
       }
 
       return {
@@ -914,6 +1005,49 @@ export class DCABotService {
         processed: false,
         reason: error.message,
       };
+    }
+  }
+
+  /**
+   * Log blocked entry attempt to pending orders (entry log)
+   */
+  private async logBlockedEntry(
+    bot: LiveDCABot,
+    currentPrice: number,
+    blockedReason: string,
+    entryChecks: any
+  ): Promise<void> {
+    try {
+      // Calculate what the order would have been
+      const orderAmount = this.calculateNextOrderAmount(
+        bot.currentEntryCount,
+        bot.initialOrderAmount,
+        bot.tradeMultiplier
+      );
+      const quantity = orderAmount / currentPrice;
+
+      console.log(`[DCABotService] Logging blocked entry for bot ${bot.id}: ${blockedReason}`);
+
+      // Create a "blocked" entry in the pending orders table for audit
+      await orderQueueService.createOrder({
+        userId: bot.userId,
+        botId: bot.id,
+        pair: bot.symbol,
+        type: OrderType.MARKET,
+        side: 'buy',
+        volume: quantity.toFixed(8),
+        amount: orderAmount,
+        price: currentPrice.toString(),
+        reason: blockedReason,
+        entryConditionsMet: false,
+        entryChecks,
+        blockedReason,
+        // Create with FAILED status since it was blocked
+        status: 'failed' as any,
+      });
+    } catch (error: any) {
+      // Don't throw - this is just for logging
+      console.error(`[DCABotService] Failed to log blocked entry:`, error);
     }
   }
 

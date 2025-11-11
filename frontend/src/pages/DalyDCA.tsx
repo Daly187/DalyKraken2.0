@@ -96,6 +96,7 @@ export default function DalyDCA() {
   const [portfolioBalances, setPortfolioBalances] = useState<Balance[]>([]);
   const [isSymbolDropdownOpen, setIsSymbolDropdownOpen] = useState(false);
 const [trendData, setTrendData] = useState<Map<string, any>>(new Map());
+  const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
 
   // Section collapse states
   const [isCreateSectionExpanded, setIsCreateSectionExpanded] = useState(true);
@@ -2258,7 +2259,7 @@ const [trendData, setTrendData] = useState<Map<string, any>>(new Map());
             </button>
             <div>
               <h2 className="text-xl font-bold flex items-center gap-2">
-                Pending Orders
+                Entry Log
                 {pendingOrders.length > 0 && (
                   <span className="px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 text-xs font-medium">
                     {pendingOrders.length}
@@ -2266,7 +2267,7 @@ const [trendData, setTrendData] = useState<Map<string, any>>(new Map());
                 )}
               </h2>
               <p className="text-xs text-gray-500 mt-1">
-                All pending orders from the order queue
+                Complete log of all entry attempts - both successful and blocked
               </p>
             </div>
           </div>
@@ -2318,59 +2319,264 @@ const [trendData, setTrendData] = useState<Map<string, any>>(new Map());
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-slate-700 text-gray-400">
+                  <th className="text-left py-3 px-2 font-medium w-8"></th>
                   <th className="text-left py-3 px-2 font-medium">Pair</th>
                   <th className="text-left py-3 px-2 font-medium">Side</th>
-                  <th className="text-right py-3 px-2 font-medium">Amount (USD)</th>
+                  <th className="text-right py-3 px-2 font-medium">Amount</th>
                   <th className="text-right py-3 px-2 font-medium">Price</th>
-                  <th className="text-right py-3 px-2 font-medium">Volume</th>
                   <th className="text-left py-3 px-2 font-medium">Status</th>
-                  <th className="text-left py-3 px-2 font-medium">Error</th>
+                  <th className="text-left py-3 px-2 font-medium">Result</th>
                   <th className="text-left py-3 px-2 font-medium">Created</th>
                 </tr>
               </thead>
               <tbody>
-                {pendingOrders.map((order) => (
-                  <tr key={order.id} className="border-b border-slate-800 hover:bg-slate-800/30">
-                    <td className="py-3 px-2">
-                      <span className="font-medium text-white">{order.pair}</span>
-                    </td>
-                    <td className="py-3 px-2">
-                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                        order.side === 'buy' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'
-                      }`}>
-                        {order.side.toUpperCase()}
-                      </span>
-                    </td>
-                    <td className="py-3 px-2 text-right">
-                      <span className="text-white font-medium">
-                        ${order.amount ? order.amount.toFixed(2) : '0.00'}
-                      </span>
-                    </td>
-                    <td className="py-3 px-2 text-right text-gray-300">
-                      {order.price ? `$${parseFloat(order.price).toFixed(2)}` : 'Market'}
-                    </td>
-                    <td className="py-3 px-2 text-right text-gray-300">
-                      {parseFloat(order.volume).toFixed(8)}
-                    </td>
-                    <td className="py-3 px-2">
-                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${getOrderStatusColor(order.status)}`}>
-                        {order.status.toUpperCase()}
-                      </span>
-                    </td>
-                    <td className="py-3 px-2 text-xs">
-                      {order.status === 'failed' || order.status === 'retry' ? (
-                        <span className="text-red-400" title={order.lastError || 'Unknown error'}>
-                          {order.lastError ? (order.lastError.length > 50 ? order.lastError.substring(0, 50) + '...' : order.lastError) : '-'}
-                        </span>
-                      ) : (
-                        <span className="text-gray-500">-</span>
+                {pendingOrders.map((order) => {
+                  const isExpanded = expandedOrderId === order.id;
+                  const isBlocked = order.entryConditionsMet === false;
+                  const hasDetails = order.entryChecks || order.blockedReason || (order.errors && order.errors.length > 0);
+
+                  return (
+                    <>
+                      <tr
+                        key={order.id}
+                        className={`border-b border-slate-800 hover:bg-slate-800/30 ${isBlocked ? 'bg-red-900/10' : ''} ${isExpanded ? 'bg-slate-800/50' : ''}`}
+                      >
+                        <td className="py-3 px-2">
+                          {hasDetails && (
+                            <button
+                              onClick={() => setExpandedOrderId(isExpanded ? null : order.id)}
+                              className="p-1 hover:bg-slate-700 rounded transition-colors"
+                            >
+                              {isExpanded ? (
+                                <ChevronUp className="h-4 w-4 text-gray-400" />
+                              ) : (
+                                <ChevronDown className="h-4 w-4 text-gray-400" />
+                              )}
+                            </button>
+                          )}
+                        </td>
+                        <td className="py-3 px-2">
+                          <span className="font-medium text-white">{order.pair}</span>
+                        </td>
+                        <td className="py-3 px-2">
+                          <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                            order.side === 'buy' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'
+                          }`}>
+                            {order.side.toUpperCase()}
+                          </span>
+                        </td>
+                        <td className="py-3 px-2 text-right">
+                          <span className="text-white font-medium">
+                            ${order.amount ? order.amount.toFixed(2) : '0.00'}
+                          </span>
+                        </td>
+                        <td className="py-3 px-2 text-right text-gray-300">
+                          {order.price ? `$${parseFloat(order.price).toFixed(2)}` : 'Market'}
+                        </td>
+                        <td className="py-3 px-2">
+                          <span className={`px-2 py-0.5 rounded text-xs font-medium ${getOrderStatusColor(order.status)}`}>
+                            {order.status.toUpperCase()}
+                          </span>
+                        </td>
+                        <td className="py-3 px-2 text-xs">
+                          {isBlocked ? (
+                            <span className="text-orange-400 flex items-center gap-1">
+                              <AlertTriangle className="h-3 w-3" />
+                              Blocked
+                            </span>
+                          ) : order.status === 'completed' ? (
+                            <span className="text-green-400 flex items-center gap-1">
+                              <CheckCircle className="h-3 w-3" />
+                              Executed
+                            </span>
+                          ) : order.status === 'failed' ? (
+                            <span className="text-red-400">
+                              {order.lastError ? (order.lastError.length > 30 ? order.lastError.substring(0, 30) + '...' : order.lastError) : 'Failed'}
+                            </span>
+                          ) : order.status === 'retry' ? (
+                            <span className="text-yellow-400 flex items-center gap-1">
+                              <Clock className="h-3 w-3" />
+                              Retrying
+                            </span>
+                          ) : (
+                            <span className="text-blue-400 flex items-center gap-1">
+                              <Clock className="h-3 w-3" />
+                              Pending
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-3 px-2 text-gray-400 text-xs">
+                          {formatTimestamp(order.createdAt)}
+                        </td>
+                      </tr>
+
+                      {/* Expanded details row */}
+                      {isExpanded && (
+                        <tr key={`${order.id}-details`} className="bg-slate-800/30 border-b border-slate-800">
+                          <td colSpan={8} className="py-4 px-4">
+                            <div className="space-y-3">
+                              {/* Blocked reason */}
+                              {order.blockedReason && (
+                                <div className="bg-orange-500/10 border border-orange-500/20 rounded-lg p-3">
+                                  <div className="flex items-start gap-2">
+                                    <AlertTriangle className="h-4 w-4 text-orange-400 mt-0.5 flex-shrink-0" />
+                                    <div>
+                                      <p className="text-xs font-semibold text-orange-400 mb-1">Entry Blocked</p>
+                                      <p className="text-xs text-orange-300">{order.blockedReason}</p>
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Entry checks */}
+                              {order.entryChecks && (
+                                <div className="bg-slate-700/30 rounded-lg p-3">
+                                  <p className="text-xs font-semibold text-gray-300 mb-2">Entry Conditions Check</p>
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                    {order.entryChecks.trendAlignment && (
+                                      <div className="flex items-start gap-2 text-xs">
+                                        {order.entryChecks.trendAlignment.met ? (
+                                          <CheckCircle className="h-3 w-3 text-green-400 mt-0.5 flex-shrink-0" />
+                                        ) : (
+                                          <X className="h-3 w-3 text-red-400 mt-0.5 flex-shrink-0" />
+                                        )}
+                                        <div>
+                                          <span className={order.entryChecks.trendAlignment.met ? 'text-green-400' : 'text-red-400'}>
+                                            Trend Alignment
+                                          </span>
+                                          {order.entryChecks.trendAlignment.score && (
+                                            <span className="text-gray-400 ml-1">
+                                              (Score: {order.entryChecks.trendAlignment.score.toFixed(0)})
+                                            </span>
+                                          )}
+                                          <p className="text-gray-400 text-xs mt-0.5">{order.entryChecks.trendAlignment.reason}</p>
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {order.entryChecks.priceCondition && (
+                                      <div className="flex items-start gap-2 text-xs">
+                                        {order.entryChecks.priceCondition.met ? (
+                                          <CheckCircle className="h-3 w-3 text-green-400 mt-0.5 flex-shrink-0" />
+                                        ) : (
+                                          <X className="h-3 w-3 text-red-400 mt-0.5 flex-shrink-0" />
+                                        )}
+                                        <div>
+                                          <span className={order.entryChecks.priceCondition.met ? 'text-green-400' : 'text-red-400'}>
+                                            Price Condition
+                                          </span>
+                                          {order.entryChecks.priceCondition.currentPrice && order.entryChecks.priceCondition.targetPrice && (
+                                            <span className="text-gray-400 ml-1">
+                                              (${order.entryChecks.priceCondition.currentPrice.toFixed(2)} / ${order.entryChecks.priceCondition.targetPrice.toFixed(2)})
+                                            </span>
+                                          )}
+                                          <p className="text-gray-400 text-xs mt-0.5">{order.entryChecks.priceCondition.reason}</p>
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {order.entryChecks.balanceCheck && (
+                                      <div className="flex items-start gap-2 text-xs">
+                                        {order.entryChecks.balanceCheck.met ? (
+                                          <CheckCircle className="h-3 w-3 text-green-400 mt-0.5 flex-shrink-0" />
+                                        ) : (
+                                          <X className="h-3 w-3 text-red-400 mt-0.5 flex-shrink-0" />
+                                        )}
+                                        <div>
+                                          <span className={order.entryChecks.balanceCheck.met ? 'text-green-400' : 'text-red-400'}>
+                                            Balance Check
+                                          </span>
+                                          {order.entryChecks.balanceCheck.available !== undefined && order.entryChecks.balanceCheck.required && (
+                                            <span className="text-gray-400 ml-1">
+                                              (${order.entryChecks.balanceCheck.available.toFixed(2)} / ${order.entryChecks.balanceCheck.required.toFixed(2)})
+                                            </span>
+                                          )}
+                                          <p className="text-gray-400 text-xs mt-0.5">{order.entryChecks.balanceCheck.reason}</p>
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {order.entryChecks.delayCheck && (
+                                      <div className="flex items-start gap-2 text-xs">
+                                        {order.entryChecks.delayCheck.met ? (
+                                          <CheckCircle className="h-3 w-3 text-green-400 mt-0.5 flex-shrink-0" />
+                                        ) : (
+                                          <X className="h-3 w-3 text-red-400 mt-0.5 flex-shrink-0" />
+                                        )}
+                                        <div>
+                                          <span className={order.entryChecks.delayCheck.met ? 'text-green-400' : 'text-red-400'}>
+                                            Re-Entry Delay
+                                          </span>
+                                          {order.entryChecks.delayCheck.delay && (
+                                            <span className="text-gray-400 ml-1">
+                                              ({order.entryChecks.delayCheck.delay} min)
+                                            </span>
+                                          )}
+                                          <p className="text-gray-400 text-xs mt-0.5">{order.entryChecks.delayCheck.reason}</p>
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {order.entryChecks.reEntryLimit && (
+                                      <div className="flex items-start gap-2 text-xs">
+                                        {order.entryChecks.reEntryLimit.met ? (
+                                          <CheckCircle className="h-3 w-3 text-green-400 mt-0.5 flex-shrink-0" />
+                                        ) : (
+                                          <X className="h-3 w-3 text-red-400 mt-0.5 flex-shrink-0" />
+                                        )}
+                                        <div>
+                                          <span className={order.entryChecks.reEntryLimit.met ? 'text-green-400' : 'text-red-400'}>
+                                            Re-Entry Limit
+                                          </span>
+                                          {order.entryChecks.reEntryLimit.currentCount !== undefined && order.entryChecks.reEntryLimit.maxCount && (
+                                            <span className="text-gray-400 ml-1">
+                                              ({order.entryChecks.reEntryLimit.currentCount} / {order.entryChecks.reEntryLimit.maxCount})
+                                            </span>
+                                          )}
+                                          <p className="text-gray-400 text-xs mt-0.5">{order.entryChecks.reEntryLimit.reason}</p>
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Error history */}
+                              {order.errors && order.errors.length > 0 && (
+                                <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3">
+                                  <p className="text-xs font-semibold text-red-400 mb-2">Error History ({order.errors.length})</p>
+                                  <div className="space-y-2 max-h-32 overflow-y-auto">
+                                    {order.errors.map((err: any, idx: number) => (
+                                      <div key={idx} className="text-xs text-red-300 bg-red-900/20 rounded p-2">
+                                        <div className="flex items-start justify-between gap-2">
+                                          <span className="flex-1">{err.error}</span>
+                                          <span className="text-gray-500 text-xs whitespace-nowrap">
+                                            {new Date(err.timestamp).toLocaleTimeString()}
+                                          </span>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Additional order details */}
+                              <div className="text-xs text-gray-400 space-y-1">
+                                <div className="flex gap-4">
+                                  <span>Order ID: <span className="text-gray-300 font-mono">{order.id}</span></span>
+                                  <span>Volume: <span className="text-gray-300">{parseFloat(order.volume).toFixed(8)}</span></span>
+                                  {order.attempts > 0 && (
+                                    <span>Attempts: <span className="text-gray-300">{order.attempts}</span></span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
                       )}
-                    </td>
-                    <td className="py-3 px-2 text-gray-400 text-xs">
-                      {formatTimestamp(order.createdAt)}
-                    </td>
-                  </tr>
-                ))}
+                    </>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -2382,8 +2588,8 @@ const [trendData, setTrendData] = useState<Map<string, any>>(new Map());
         ) : (
           <div className="text-center py-8">
             <Layers className="h-12 w-12 text-gray-600 mx-auto mb-3" />
-            <p className="text-gray-400">No recent orders</p>
-            <p className="text-xs text-gray-500 mt-1">Orders will appear here when DCA bots create trades</p>
+            <p className="text-gray-400">No entry attempts logged</p>
+            <p className="text-xs text-gray-500 mt-1">All entry attempts (successful and blocked) will be logged here for debugging</p>
           </div>
         )}
         </>

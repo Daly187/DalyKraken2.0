@@ -74,26 +74,61 @@ export class OrderQueueService {
     amount?: number;
     price?: string;
     reason?: string;
+    entryConditionsMet?: boolean;
+    entryChecks?: any;
+    blockedReason?: string;
+    status?: OrderStatus; // Allow setting initial status (for blocked entries)
   }): Promise<PendingOrder> {
     const now = new Date().toISOString();
 
-    // CRITICAL: First check if bot already has ANY active order (prevents duplicates)
-    // Only check PENDING, PROCESSING, and RETRY status
-    // FAILED orders should NOT block new orders - they serve as audit log only
-    const existingBotOrders = await db
-      .collection('pendingOrders')
-      .where('botId', '==', params.botId)
-      .where('status', 'in', [OrderStatus.PENDING, OrderStatus.PROCESSING, OrderStatus.RETRY])
-      .limit(1)
-      .get();
+    // For blocked entries (entryConditionsMet = false), skip duplicate checks
+    // We want to log every blocked attempt for audit purposes
+    const isBlockedEntry = params.entryConditionsMet === false;
 
-    if (!existingBotOrders.empty) {
-      const existingOrder = existingBotOrders.docs[0].data() as PendingOrder;
-      console.log(`[OrderQueue] Bot ${params.botId} already has a ${existingOrder.side} order in status '${existingOrder.status}' (${existingOrder.id}). Skipping duplicate.`);
-      return existingOrder;
+    if (!isBlockedEntry) {
+      // CRITICAL: First check if bot already has ANY active order (prevents duplicates)
+      // Only check PENDING, PROCESSING, and RETRY status
+      // FAILED orders should NOT block new orders - they serve as audit log only
+      const existingBotOrders = await db
+        .collection('pendingOrders')
+        .where('botId', '==', params.botId)
+        .where('status', 'in', [OrderStatus.PENDING, OrderStatus.PROCESSING, OrderStatus.RETRY])
+        .limit(1)
+        .get();
+
+      if (!existingBotOrders.empty) {
+        const existingOrder = existingBotOrders.docs[0].data() as PendingOrder;
+        console.log(`[OrderQueue] Bot ${params.botId} already has a ${existingOrder.side} order in status '${existingOrder.status}' (${existingOrder.id}). Skipping duplicate.`);
+        return existingOrder;
+      }
+
+      // Generate clientOrderId for idempotency
+      const clientOrderId = this.generateClientOrderId({
+        userId: params.userId,
+        botId: params.botId,
+        pair: params.pair,
+        side: params.side,
+        volume: params.volume,
+        timestamp: now,
+      });
+
+      // Check for duplicate orders by clientOrderId (secondary check)
+      const duplicateCheck = await db
+        .collection('pendingOrders')
+        .where('clientOrderId', '==', clientOrderId)
+        .where('status', 'in', [OrderStatus.PENDING, OrderStatus.PROCESSING, OrderStatus.RETRY, OrderStatus.COMPLETED])
+        .limit(1)
+        .get();
+
+      if (!duplicateCheck.empty) {
+        const existingOrder = duplicateCheck.docs[0].data() as PendingOrder;
+        console.log(`[OrderQueue] Duplicate order detected: ${clientOrderId} (existing: ${existingOrder.id}, status: ${existingOrder.status})`);
+        return existingOrder;
+      }
     }
 
-    // Generate clientOrderId for idempotency
+    const orderId = db.collection('pendingOrders').doc().id;
+    const executionId = this.generateExecutionId();
     const clientOrderId = this.generateClientOrderId({
       userId: params.userId,
       botId: params.botId,
@@ -102,23 +137,6 @@ export class OrderQueueService {
       volume: params.volume,
       timestamp: now,
     });
-
-    // Check for duplicate orders by clientOrderId (secondary check)
-    const duplicateCheck = await db
-      .collection('pendingOrders')
-      .where('clientOrderId', '==', clientOrderId)
-      .where('status', 'in', [OrderStatus.PENDING, OrderStatus.PROCESSING, OrderStatus.RETRY, OrderStatus.COMPLETED])
-      .limit(1)
-      .get();
-
-    if (!duplicateCheck.empty) {
-      const existingOrder = duplicateCheck.docs[0].data() as PendingOrder;
-      console.log(`[OrderQueue] Duplicate order detected: ${clientOrderId} (existing: ${existingOrder.id}, status: ${existingOrder.status})`);
-      return existingOrder;
-    }
-
-    const orderId = db.collection('pendingOrders').doc().id;
-    const executionId = this.generateExecutionId();
     const userref = this.generateUserref(clientOrderId);
 
     const order: PendingOrder = {
@@ -135,7 +153,10 @@ export class OrderQueueService {
       ...(params.amount !== undefined && { amount: params.amount }), // Include amount if defined
       ...(params.price && { price: params.price }), // Only include price if defined
       ...(params.reason && { reason: params.reason }), // Include reason if defined
-      status: OrderStatus.PENDING,
+      ...(params.entryConditionsMet !== undefined && { entryConditionsMet: params.entryConditionsMet }),
+      ...(params.entryChecks && { entryChecks: params.entryChecks }),
+      ...(params.blockedReason && { blockedReason: params.blockedReason }),
+      status: params.status || OrderStatus.PENDING,
       attempts: 0,
       maxAttempts: this.config.maxAttempts,
       errors: [],
@@ -146,7 +167,8 @@ export class OrderQueueService {
 
     await db.collection('pendingOrders').doc(orderId).set(order);
 
-    console.log(`[OrderQueue] [${executionId}] Created order ${orderId} (client: ${clientOrderId}, userref: ${userref}) for ${params.side} ${params.volume} ${params.pair} (amount: $${params.amount || 0})`);
+    const logType = isBlockedEntry ? 'BLOCKED' : 'PENDING';
+    console.log(`[OrderQueue] [${executionId}] Created ${logType} order ${orderId} (client: ${clientOrderId}, userref: ${userref}) for ${params.side} ${params.volume} ${params.pair} (amount: $${params.amount || 0})`);
 
     return order;
   }
