@@ -44,6 +44,9 @@ export interface DCABotConfig {
   exitFailureTime?: string;
   exitAttempts?: number;
   lastExitAttempt?: string;
+  // Price caching for UI display (updated during bot processing)
+  lastKnownPrice?: number;
+  priceLastUpdated?: string;
 }
 
 export interface LiveDCABot extends DCABotConfig {

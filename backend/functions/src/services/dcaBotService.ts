@@ -175,6 +175,7 @@ export class DCABotService {
     // ONLY fetch if krakenService was provided (optimization for fetching many bots)
     let currentPrice = 0;
     if (krakenService) {
+      // Execution path: Use live price from Kraken API
       try {
         const ticker = await krakenService.getTicker(botData.symbol);
         currentPrice = ticker.price;
@@ -182,8 +183,35 @@ export class DCABotService {
         console.error('[DCABotService] Error fetching current price:', error);
       }
     } else {
-      // No krakenService provided - skip live price fetch for performance
-      console.log(`[DCABotService] Bot ${botId}: Skipping live price fetch (no krakenService)`);
+      // UI display path: Use cached price from marketData collection
+      try {
+        // Check marketData cache (updated every 1 minute by scheduled function)
+        const cacheSymbol = botData.symbol.replace('/', '-');
+        const cacheDoc = await this.db.collection('marketData').doc(cacheSymbol).get();
+
+        if (cacheDoc.exists) {
+          const cacheData = cacheDoc.data();
+          const cacheAge = Date.now() - (cacheData?.lastUpdate || 0);
+
+          // Use cache if less than 5 minutes old
+          if (cacheData?.price && cacheAge < 5 * 60 * 1000) {
+            currentPrice = cacheData.price;
+            console.log(`[DCABotService] Bot ${botId}: Using cached price $${currentPrice} (${Math.floor(cacheAge / 1000)}s old)`);
+          } else {
+            // Cache stale, fallback to lastKnownPrice from bot document
+            currentPrice = botData.lastKnownPrice || 0;
+            console.log(`[DCABotService] Bot ${botId}: Using lastKnownPrice $${currentPrice} (cache stale)`);
+          }
+        } else {
+          // No cache, use lastKnownPrice from bot document
+          currentPrice = botData.lastKnownPrice || 0;
+          console.log(`[DCABotService] Bot ${botId}: Using lastKnownPrice $${currentPrice} (no cache)`);
+        }
+      } catch (error) {
+        console.error('[DCABotService] Error fetching cached price:', error);
+        // Fallback to lastKnownPrice
+        currentPrice = botData.lastKnownPrice || 0;
+      }
     }
 
     const currentValue = totalQuantity * currentPrice;
@@ -925,6 +953,18 @@ export class DCABotService {
       // Get current price
       const ticker = await krakenService.getTicker(bot.symbol);
       const currentPrice = ticker.price;
+
+      // Store last known price for UI display (update bot document)
+      try {
+        await this.db.collection('dcaBots').doc(botId).update({
+          lastKnownPrice: currentPrice,
+          priceLastUpdated: new Date().toISOString(),
+        });
+        console.log(`[DCABotService] Updated lastKnownPrice for bot ${botId}: $${currentPrice}`);
+      } catch (error) {
+        console.error('[DCABotService] Error updating lastKnownPrice:', error);
+        // Don't fail the whole process if price update fails
+      }
 
       // Check if should exit (if has positions)
       if (bot.currentEntryCount > 0 && bot.currentTpPrice) {
