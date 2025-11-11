@@ -96,6 +96,7 @@ export default function DalyDCA() {
   const [portfolioBalances, setPortfolioBalances] = useState<Balance[]>([]);
   const [isSymbolDropdownOpen, setIsSymbolDropdownOpen] = useState(false);
 const [trendData, setTrendData] = useState<Map<string, any>>(new Map());
+  const [trendDataTimestamp, setTrendDataTimestamp] = useState<number | null>(null);
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
 
   // Section collapse states
@@ -221,6 +222,7 @@ const [trendData, setTrendData] = useState<Map<string, any>>(new Map());
         const cacheData = JSON.parse(cached);
         const trendMap = new Map<string, any>(cacheData.trendMap);
         setTrendData(trendMap);
+        setTrendDataTimestamp(cacheData.timestamp);
         const cacheAge = Math.floor((Date.now() - cacheData.timestamp) / 1000 / 60);
         console.log(`[DalyDCA] Loaded cached trend data for ${trendMap.size} symbols (${cacheAge}m old)`);
         return true;
@@ -287,7 +289,9 @@ const [trendData, setTrendData] = useState<Map<string, any>>(new Map());
         });
       });
 
+      const timestamp = Date.now();
       setTrendData(trendMap);
+      setTrendDataTimestamp(timestamp);
       console.log('[DalyDCA] Loaded trend data for', trendMap.size, 'symbols');
       if (trends.length > 0) {
         console.log('[DalyDCA] Sample trend data:', trends[0]);
@@ -297,7 +301,7 @@ const [trendData, setTrendData] = useState<Map<string, any>>(new Map());
       if (trendMap.size > 0) {
         const cacheData = {
           trendMap: Array.from(trendMap.entries()),
-          timestamp: Date.now(),
+          timestamp,
         };
         localStorage.setItem('dca_trend_cache', JSON.stringify(cacheData));
         console.log('[DalyDCA] Cached trend data to localStorage');
@@ -988,6 +992,26 @@ const [trendData, setTrendData] = useState<Map<string, any>>(new Map());
       status: bot.status,
       displayText: bot.status.charAt(0).toUpperCase() + bot.status.slice(1)
     };
+  };
+
+  const formatTrendTimestamp = (timestamp: number | null) => {
+    if (!timestamp) return 'Never';
+
+    const now = Date.now();
+    const diffMs = now - timestamp;
+    const diffMinutes = Math.floor(diffMs / 60000);
+
+    if (diffMinutes < 1) return 'Just now';
+    if (diffMinutes === 1) return '1m ago';
+    if (diffMinutes < 60) return `${diffMinutes}m ago`;
+
+    const diffHours = Math.floor(diffMinutes / 60);
+    if (diffHours === 1) return '1h ago';
+    if (diffHours < 24) return `${diffHours}h ago`;
+
+    const diffDays = Math.floor(diffHours / 24);
+    if (diffDays === 1) return '1d ago';
+    return `${diffDays}d ago`;
   };
 
   const getTrendDisplay = (recommendation?: 'bullish' | 'bearish' | 'neutral') => {
@@ -1730,11 +1754,16 @@ const [trendData, setTrendData] = useState<Map<string, any>>(new Map());
                             const trend = getTrendDisplay(botWithTrend.recommendation);
                             const TrendIcon = trend.icon;
                             return (
-                              <div className={`flex items-center gap-1 px-2 py-1 rounded ${trend.bgColor} border ${trend.borderColor}`}>
-                                <TrendIcon className={`h-3 w-3 ${trend.color}`} />
-                                <span className={`text-xs font-bold ${trend.color}`}>
-                                  {trend.label}
-                                </span>
+                              <div>
+                                <div className={`flex items-center gap-1 px-2 py-1 rounded ${trend.bgColor} border ${trend.borderColor}`}>
+                                  <TrendIcon className={`h-3 w-3 ${trend.color}`} />
+                                  <span className={`text-xs font-bold ${trend.color}`}>
+                                    {trend.label}
+                                  </span>
+                                </div>
+                                <p className="text-[10px] text-gray-500 mt-1">
+                                  {formatTrendTimestamp(trendDataTimestamp)}
+                                </p>
                               </div>
                             );
                           })()}
@@ -1908,6 +1937,9 @@ const [trendData, setTrendData] = useState<Map<string, any>>(new Map());
                               <span>•</span>
                               <span>Trend: <span className={(botWithTrend.trendScore || 0) > 50 ? 'text-green-400' : 'text-red-400'}>{(botWithTrend.trendScore || 0).toFixed(1)}</span></span>
                             </div>
+                            <p className="text-[10px] text-gray-400 mt-2">
+                              Updated {formatTrendTimestamp(trendDataTimestamp)}
+                            </p>
                           </div>
                           <div>
                             <p className="text-xs text-gray-400">Current Price</p>
