@@ -51,9 +51,13 @@ export class OrderExecutorService {
     failed: number;
     stuckReset: number;
   }> {
-    console.log('[OrderExecutor] Starting order execution cycle');
+    console.log('========================================');
+    console.log('[OrderExecutor] ⚡ STARTING ORDER EXECUTION CYCLE');
+    console.log(`[OrderExecutor] Timestamp: ${new Date().toISOString()}`);
     if (directApiKey && directApiSecret) {
       console.log('[OrderExecutor] Using API keys from HTTP headers (same as manual trades)');
+    } else {
+      console.log('[OrderExecutor] Using API keys from Firestore (scheduled execution)');
     }
 
     let processed = 0;
@@ -63,22 +67,31 @@ export class OrderExecutorService {
 
     try {
       // First, reset any stuck PROCESSING orders
+      console.log('[OrderExecutor] Checking for stuck orders...');
       stuckReset = await orderQueueService.resetStuckOrders();
       if (stuckReset > 0) {
-        console.log(`[OrderExecutor] Reset ${stuckReset} stuck orders`);
+        console.log(`[OrderExecutor] ✅ Reset ${stuckReset} stuck orders`);
+      } else {
+        console.log(`[OrderExecutor] No stuck orders found`);
       }
 
       // Check concurrent execution limit
+      console.log(`[OrderExecutor] Current concurrency: ${this.executingOrders.size}/${this.config.rateLimit.maxConcurrentOrders}`);
       if (this.executingOrders.size >= this.config.rateLimit.maxConcurrentOrders) {
-        console.log(`[OrderExecutor] Max concurrent orders limit reached: ${this.executingOrders.size}`);
+        console.log(`[OrderExecutor] ⚠️  Max concurrent orders limit reached: ${this.executingOrders.size}`);
         return { processed, successful, failed, stuckReset };
       }
 
       // Get orders ready for execution
       const availableSlots = this.config.rateLimit.maxConcurrentOrders - this.executingOrders.size;
+      console.log(`[OrderExecutor] Fetching up to ${availableSlots} orders ready for execution...`);
       const orders = await orderQueueService.getOrdersReadyForExecution(availableSlots);
 
-      console.log(`[OrderExecutor] Found ${orders.length} orders ready for execution (${this.executingOrders.size} currently executing)`);
+      console.log(`[OrderExecutor] 📋 Found ${orders.length} orders ready for execution (${this.executingOrders.size} currently executing)`);
+
+      if (orders.length === 0) {
+        console.log('[OrderExecutor] No orders to process - queue is empty');
+      }
 
       for (const order of orders) {
         const execId = order.executionId || 'no-trace';
@@ -640,35 +653,59 @@ export class OrderExecutorService {
     userId: string,
     failedKeyIds: string[]
   ): Promise<KrakenApiKey[]> {
-    console.log(`[OrderExecutor] Getting API keys for user ${userId}`);
+    console.log(`[OrderExecutor] ========== GETTING API KEYS ==========`);
+    console.log(`[OrderExecutor] User ID: ${userId}`);
+    console.log(`[OrderExecutor] Failed key IDs: ${JSON.stringify(failedKeyIds)}`);
+
     const userDoc = await db.collection('users').doc(userId).get();
     const userData = userDoc.data();
 
     console.log(`[OrderExecutor] User document exists: ${userDoc.exists}`);
+
+    if (!userDoc.exists) {
+      console.error(`[OrderExecutor] ❌ User document does NOT exist for user ${userId}`);
+      console.error(`[OrderExecutor] This means the user was never created or userId is wrong`);
+      return [];
+    }
+
+    console.log(`[OrderExecutor] User data keys: ${Object.keys(userData || {}).join(', ')}`);
     console.log(`[OrderExecutor] Has krakenKeys: ${!!userData?.krakenKeys}`);
 
-    if (!userData || !userData.krakenKeys) {
-      console.warn(`[OrderExecutor] No Kraken API keys found for user ${userId}`);
+    if (userData?.krakenKeys) {
+      console.log(`[OrderExecutor] krakenKeys is array: ${Array.isArray(userData.krakenKeys)}`);
+      console.log(`[OrderExecutor] krakenKeys length: ${userData.krakenKeys.length}`);
+    }
+
+    if (!userData || !userData.krakenKeys || !Array.isArray(userData.krakenKeys) || userData.krakenKeys.length === 0) {
+      console.error(`[OrderExecutor] ❌ No Kraken API keys found for user ${userId}`);
+      console.error(`[OrderExecutor] Please add API keys in the Settings page`);
       return [];
     }
 
     const allKeys = userData.krakenKeys as KrakenApiKey[];
     console.log(`[OrderExecutor] Found ${allKeys.length} total Kraken keys`);
 
+    // Log each key (masked)
+    allKeys.forEach((key, index) => {
+      console.log(`[OrderExecutor] Key ${index + 1}: ${key.name} - Active: ${key.isActive} - ID: ${key.id}`);
+    });
+
     // Filter out inactive keys and failed keys
     const availableKeys = allKeys.filter((key) => {
       if (!key.isActive) {
-        console.log(`[OrderExecutor] Skipping inactive key: ${key.name}`);
+        console.log(`[OrderExecutor] ❌ Skipping inactive key: ${key.name}`);
         return false;
       }
       if (failedKeyIds.includes(key.id || key.name)) {
-        console.log(`[OrderExecutor] Skipping failed key: ${key.name}`);
+        console.log(`[OrderExecutor] ❌ Skipping previously failed key: ${key.name}`);
         return false;
       }
+      console.log(`[OrderExecutor] ✅ Key ${key.name} is available`);
       return true;
     });
 
-    console.log(`[OrderExecutor] ${availableKeys.length} available keys after filtering`);
+    console.log(`[OrderExecutor] RESULT: ${availableKeys.length} available keys after filtering`);
+    console.log(`[OrderExecutor] ========================================`);
     return availableKeys;
   }
 

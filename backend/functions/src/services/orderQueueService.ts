@@ -78,12 +78,12 @@ export class OrderQueueService {
     const now = new Date().toISOString();
 
     // CRITICAL: First check if bot already has ANY active order (prevents duplicates)
-    // Only ONE order (pending, processing, retry, OR failed) should exist per bot at any time
-    // Failed orders should remain visible until manually cleared
+    // Only check PENDING, PROCESSING, and RETRY status
+    // FAILED orders should NOT block new orders - they serve as audit log only
     const existingBotOrders = await db
       .collection('pendingOrders')
       .where('botId', '==', params.botId)
-      .where('status', 'in', [OrderStatus.PENDING, OrderStatus.PROCESSING, OrderStatus.RETRY, OrderStatus.FAILED])
+      .where('status', 'in', [OrderStatus.PENDING, OrderStatus.PROCESSING, OrderStatus.RETRY])
       .limit(1)
       .get();
 
