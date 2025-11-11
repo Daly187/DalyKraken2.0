@@ -13,67 +13,118 @@ import {
   BarChart3,
 } from 'lucide-react';
 
-// All available USD trading pairs on Kraken
+// Top 100 USD trading pairs on Kraken by market cap and popularity
 // Note: BTC/USD will be converted to XBT/USD internally by the service
 const KRAKEN_SYMBOLS = [
-  // Major cryptocurrencies
+  // Top 20 - Mega caps
   'BTC/USD',    // Bitcoin
   'ETH/USD',    // Ethereum
   'SOL/USD',    // Solana
+  'BNB/USD',    // Binance Coin
   'XRP/USD',    // Ripple
   'ADA/USD',    // Cardano
-  'DOGE/USD',   // Dogecoin
+  'AVAX/USD',   // Avalanche
   'DOT/USD',    // Polkadot
   'MATIC/USD',  // Polygon
-  'AVAX/USD',   // Avalanche
   'LINK/USD',   // Chainlink
-  'UNI/USD',    // Uniswap
   'ATOM/USD',   // Cosmos
+  'UNI/USD',    // Uniswap
   'LTC/USD',    // Litecoin
   'BCH/USD',    // Bitcoin Cash
-  'ETC/USD',    // Ethereum Classic
+  'NEAR/USD',   // Near Protocol
+  'APT/USD',    // Aptos
+  'ARB/USD',    // Arbitrum
+  'OP/USD',     // Optimism
+  'IMX/USD',    // Immutable X
+  'ALGO/USD',   // Algorand
 
-  // DeFi tokens
+  // 21-40 - Large caps
   'AAVE/USD',   // Aave
-  'COMP/USD',   // Compound
+  'GRT/USD',    // The Graph
+  'FIL/USD',    // Filecoin
+  'LDO/USD',    // Lido
   'MKR/USD',    // Maker
   'SNX/USD',    // Synthetix
+  'SAND/USD',   // The Sandbox
+  'MANA/USD',   // Decentraland
+  'AXS/USD',    // Axie Infinity
+  'FLOW/USD',   // Flow
+  'XTZ/USD',    // Tezos
+  'EOS/USD',    // EOS
+  'DOGE/USD',   // Dogecoin
+  'TRX/USD',    // Tron
+  'ETC/USD',    // Ethereum Classic
+  'XLM/USD',    // Stellar
+  'FTM/USD',    // Fantom
+  'MINA/USD',   // Mina
+  'APE/USD',    // ApeCoin
+  'ENJ/USD',    // Enjin
+
+  // 41-60 - Mid caps
   'CRV/USD',    // Curve
   'SUSHI/USD',  // SushiSwap
   'YFI/USD',    // Yearn Finance
+  'COMP/USD',   // Compound
   'BAL/USD',    // Balancer
   '1INCH/USD',  // 1inch
-
-  // Layer 1 & 2
-  'ALGO/USD',   // Algorand
-  'XLM/USD',    // Stellar
-  'XTZ/USD',    // Tezos
-  'EOS/USD',    // EOS
-  'TRX/USD',    // Tron
-  'FIL/USD',    // Filecoin
-  'NEAR/USD',   // Near
-  'FTM/USD',    // Fantom
-  'MINA/USD',   // Mina
-  'FLOW/USD',   // Flow
-
-  // Infrastructure & Oracles
-  'GRT/USD',    // The Graph
-  'BAND/USD',   // Band Protocol
-
-  // Metaverse & Gaming
-  'MANA/USD',   // Decentraland
-  'SAND/USD',   // The Sandbox
-  'AXS/USD',    // Axie Infinity
-  'ENJ/USD',    // Enjin
   'GALA/USD',   // Gala
-
-  // Other popular tokens
-  'APE/USD',    // ApeCoin
-  'LDO/USD',    // Lido
-  'OP/USD',     // Optimism
-  'ARB/USD',    // Arbitrum
-  'IMX/USD',    // Immutable X
   'BLUR/USD',   // Blur
+  'ANKR/USD',   // Ankr
+  'BAT/USD',    // Basic Attention Token
+  'BAND/USD',   // Band Protocol
+  'AUDIO/USD',  // Audius
+  'API3/USD',   // API3
+  'INJ/USD',    // Injective
+  'RUNE/USD',   // THORChain
+  'GLMR/USD',   // Moonbeam
+  'KSM/USD',    // Kusama
+  'KAVA/USD',   // Kava
+  'CHZ/USD',    // Chiliz
+  'ROSE/USD',   // Oasis Network
+
+  // 61-80 - Popular/Emerging
+  'BONK/USD',   // Bonk
+  'PEPE/USD',   // Pepe
+  'WIF/USD',    // dogwifhat
+  'FLOKI/USD',  // Floki
+  'JASMY/USD',  // JasmyCoin
+  'ZIL/USD',    // Zilliqa
+  'WAVES/USD',  // Waves
+  'DASH/USD',   // Dash
+  'ZEC/USD',    // Zcash
+  'IOTX/USD',   // IoTeX
+  'HBAR/USD',   // Hedera
+  'VET/USD',    // VeChain
+  'ONE/USD',    // Harmony
+  'CELO/USD',   // Celo
+  'QTUM/USD',   // Qtum
+  'ZRX/USD',    // 0x
+  'BNT/USD',    // Bancor
+  'OMG/USD',    // OMG Network
+  'SUI/USD',    // Sui
+  'SEI/USD',    // Sei
+
+  // 81-100 - Additional Popular Assets
+  'TIA/USD',    // Celestia
+  'PYTH/USD',   // Pyth Network
+  'JUP/USD',    // Jupiter
+  'BERA/USD',   // Berachain
+  'BEAM/USD',   // Beam
+  'AR/USD',     // Arweave
+  'STORJ/USD',  // Storj
+  'RENDER/USD', // Render Token
+  'FET/USD',    // Fetch.ai
+  'AGIX/USD',   // SingularityNET
+  'RLC/USD',    // iExec RLC
+  'NMR/USD',    // Numeraire
+  'CTSI/USD',   // Cartesi
+  'AMP/USD',    // Amp
+  'REQ/USD',    // Request
+  'PHA/USD',    // Phala Network
+  'ASTR/USD',   // Astar
+  'ALICE/USD',  // MyNeighborAlice
+  'ALCX/USD',   // Alchemix
+  'ALPACA/USD', // Alpaca Finance
 ];
 
 export default function CryptoMarket() {

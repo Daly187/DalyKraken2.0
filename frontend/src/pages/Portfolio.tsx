@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { krakenApiService } from '@/services/krakenApiService';
 import { useStore } from '@/store/useStore';
 import { getCommonName } from '@/utils/assetNames';
+import { globalPriceManager } from '@/services/globalPriceManager';
 import type { LivePrice } from '@/types';
 import {
   RefreshCw,
@@ -87,6 +88,16 @@ export default function Portfolio() {
       localStorage.setItem(CACHE_KEY, JSON.stringify(fetchedBalances));
       localStorage.setItem(CACHE_TIMESTAMP_KEY, now.toISOString());
 
+      // Add user's portfolio assets to global price manager for live price tracking
+      if (fetchedBalances.length > 0) {
+        const portfolioSymbols = fetchedBalances
+          .map(b => b.symbol)
+          .filter(symbol => symbol && symbol !== 'USD'); // Filter out USD and invalid symbols
+
+        console.log('[Portfolio] Adding', portfolioSymbols.length, 'portfolio symbols to price manager:', portfolioSymbols);
+        globalPriceManager.addSymbols(portfolioSymbols);
+      }
+
       // Also update backend balance cache for backend functions to use
       try {
         const balanceMap: { [asset: string]: number } = {};
@@ -166,6 +177,7 @@ export default function Portfolio() {
 
   // Calculate holdings with prices
   const holdings: HoldingWithPrice[] = balances.map((balance) => {
+    // Simple: futures like ZRX.F already converted to ZRX/USD by krakenApiService
     const livePrice = livePrices.get(balance.symbol);
     const currentPrice = livePrice?.price || 0;
     const commonName = getCommonName(balance.asset);

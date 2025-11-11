@@ -315,6 +315,13 @@ class LivePriceService {
   }
 
   private toKrakenPair(symbol: string): string | null {
+    // Strip .F suffix for futures contracts - map to spot pair
+    let cleanSymbol = symbol;
+    if (symbol.endsWith('.F')) {
+      cleanSymbol = symbol.slice(0, -2);
+      console.log(`[LivePriceService] Mapping futures ${symbol} to spot pair ${cleanSymbol}`);
+    }
+
     // Kraken uses specific naming conventions
     // Map of our symbols to Kraken WebSocket pair names
     const krakenPairMap: Record<string, string> = {
@@ -361,6 +368,7 @@ class LivePriceService {
       // Infrastructure & Oracles
       'GRT/USD': 'GRT/USD',
       'BAND/USD': 'BAND/USD',
+      'API3/USD': 'API3/USD',
 
       // Metaverse & Gaming
       'MANA/USD': 'MANA/USD',
@@ -376,9 +384,31 @@ class LivePriceService {
       'ARB/USD': 'ARB/USD',
       'IMX/USD': 'IMX/USD',
       'BLUR/USD': 'BLUR/USD',
+
+      // Additional altcoins
+      'AKT/USD': 'AKT/USD',      // Akash Network
+      'APT/USD': 'APT/USD',      // Aptos
+      'BADGER/USD': 'BADGER/USD', // Badger DAO
+      'FET/USD': 'FET/USD',      // Fetch.ai
+      'GHST/USD': 'GHST/USD',    // Aavegotchi
+      'ICX/USD': 'ICX/USD',      // ICON
+      'INJ/USD': 'INJ/USD',      // Injective
+      'KSM/USD': 'KSM/USD',      // Kusama
+      'MNGO/USD': 'MNGO/USD',    // Mango Markets
+      'ORCA/USD': 'ORCA/USD',    // Orca
+      'PAXG/USD': 'PAXG/USD',    // Paxos Gold
+      'PHA/USD': 'PHA/USD',      // Phala Network
+      'QTUM/USD': 'QTUM/USD',    // Qtum
+      'RARI/USD': 'RARI/USD',    // Rarible
+      'RAY/USD': 'RAY/USD',      // Raydium
+      'RPL/USD': 'RPL/USD',      // Rocket Pool
+      'SDN/USD': 'SDN/USD',      // Shiden Network
+      'SRM/USD': 'SRM/USD',      // Serum
+      'XRT/USD': 'XRT/USD',      // Robonomics
+      'ZRX/USD': 'ZRX/USD',      // 0x Protocol
     };
 
-    return krakenPairMap[symbol] || null;
+    return krakenPairMap[cleanSymbol] || null;
   }
 
   private handleKrakenMessage(data: any): void {

@@ -259,6 +259,7 @@ class KrakenApiService {
           if (numAmount < 0.00000001) return null;
 
           // Format asset names (Kraken uses XXBT for BTC, ZEUR for EUR, etc.)
+          // For futures (e.g., ZRX.F), strip .F and use spot symbol (ZRX/USD)
           const formattedAsset = this.formatAssetName(asset);
           const symbol = this.getSymbol(formattedAsset);
 

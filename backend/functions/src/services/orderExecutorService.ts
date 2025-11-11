@@ -1047,69 +1047,160 @@ export class OrderExecutorService {
 
       let balance = { total: 0, stables: 0 };
       try {
+        console.log('[OrderExecutor] ===== FETCHING BALANCE FOR TELEGRAM NOTIFICATION =====');
         const accountBalance = await krakenService.getBalance(decryptedApiKey, decryptedApiSecret);
-        if (accountBalance) {
-          // Get current prices for all assets
-          const assetPairs: string[] = [];
-          for (const asset of Object.keys(accountBalance)) {
-            const amountNum = typeof accountBalance[asset] === 'number'
-              ? accountBalance[asset]
-              : parseFloat(String(accountBalance[asset]));
 
-            if (amountNum > 0) {
-              // Skip USD and stablecoins - they don't need price lookup
-              if (['ZUSD', 'USD', 'USDT', 'USDC', 'DAI', 'BUSD'].includes(asset)) {
-                continue;
-              }
+        console.log('[OrderExecutor] Raw balance data:', JSON.stringify(accountBalance, null, 2));
+        console.log('[OrderExecutor] Number of assets:', Object.keys(accountBalance || {}).length);
+
+        if (!accountBalance || Object.keys(accountBalance).length === 0) {
+          console.error('[OrderExecutor] ❌ No balance data received from Kraken!');
+        } else {
+          // Log each raw balance
+          for (const [asset, amount] of Object.entries(accountBalance)) {
+            console.log(`[OrderExecutor] Raw balance: ${asset} = ${amount}`);
+          }
+
+          // Get current prices for all non-stable assets
+          const assetPairs: string[] = [];
+          const assetToPairMapping: Record<string, string> = {}; // Track original asset name
+          const stablecoins = ['ZUSD', 'USD', 'USDT', 'USDC', 'DAI', 'BUSD'];
+
+          for (const asset of Object.keys(accountBalance)) {
+            const amountNum = parseFloat(String(accountBalance[asset]));
+
+            if (amountNum > 0 && !stablecoins.includes(asset)) {
+              // Strip .F suffix for futures contracts
+              let baseAsset = asset.replace(/\.F$/, '');
+
               // Convert asset to Kraken pair format
-              const pair = asset.startsWith('X') || asset.startsWith('Z')
-                ? `${asset}ZUSD`
-                : `${asset}USD`;
+              let pair: string;
+              if (baseAsset.startsWith('X') || baseAsset.startsWith('Z')) {
+                pair = `${baseAsset}ZUSD`;
+              } else {
+                pair = `${baseAsset}USD`;
+              }
+
               assetPairs.push(pair);
+              assetToPairMapping[asset] = pair;
+
+              console.log(`[OrderExecutor] Asset ${asset} -> Pair ${pair}`);
             }
           }
 
-          // Fetch prices (only if we have non-stablecoin assets)
-          const prices = assetPairs.length > 0 ? await krakenService.getCurrentPrices(assetPairs) : {};
+          console.log('[OrderExecutor] Pairs to fetch prices for:', assetPairs);
 
-          console.log(`[OrderExecutor] Fetched prices for ${assetPairs.length} assets:`, prices);
+          // Fetch prices (only if we have non-stablecoin assets)
+          let prices: Record<string, number> = {};
+
+          if (assetPairs.length > 0) {
+            try {
+              const rawPrices = await krakenService.getCurrentPrices(assetPairs);
+              console.log('[OrderExecutor] Raw prices from getCurrentPrices:', JSON.stringify(rawPrices, null, 2));
+
+              // Map prices back to original asset names (including .F suffix)
+              for (const [asset, pair] of Object.entries(assetToPairMapping)) {
+                // The price is keyed by the base asset (without .F)
+                const baseAsset = asset.replace(/\.F$/, '');
+                if (rawPrices[baseAsset] !== undefined) {
+                  prices[asset] = rawPrices[baseAsset];
+                  console.log(`[OrderExecutor] Mapped price: ${asset} <- ${baseAsset} = $${rawPrices[baseAsset]}`);
+                }
+              }
+
+              console.log('[OrderExecutor] Prices fetched successfully:', JSON.stringify(prices, null, 2));
+            } catch (error: any) {
+              console.error('[OrderExecutor] ❌ Error fetching prices in batch:', error?.message);
+              console.error('[OrderExecutor] Will try fetching prices individually...');
+
+              // Fallback: Try fetching prices one by one
+              for (const [asset, pair] of Object.entries(assetToPairMapping)) {
+                try {
+                  const individualPrices = await krakenService.getCurrentPrices([pair]);
+                  const baseAsset = asset.replace(/\.F$/, '');
+
+                  if (individualPrices[baseAsset] !== undefined) {
+                    prices[asset] = individualPrices[baseAsset];
+                    console.log(`[OrderExecutor] ✅ Fetched price for ${asset} (${pair}): $${individualPrices[baseAsset]}`);
+                  }
+                } catch (err: any) {
+                  console.error(`[OrderExecutor] ❌ Failed to fetch price for ${asset} (${pair}):`, err?.message);
+                }
+              }
+            }
+          }
+
+          console.log('[OrderExecutor] Final prices available:', JSON.stringify(prices, null, 2));
 
           // Calculate total balance in USD
-          balance.total = Object.entries(accountBalance).reduce((sum, [asset, amount]) => {
-            const amountNum = typeof amount === 'number' ? amount : parseFloat(String(amount));
+          let calculatedTotal = 0;
+          let calculatedStables = 0;
+          const missingPrices: string[] = [];
+          const includedAssets: string[] = [];
 
-            if (amountNum <= 0) return sum;
+          for (const [asset, amount] of Object.entries(accountBalance)) {
+            const amountNum = parseFloat(String(amount));
 
-            // Handle USD and stablecoins with price = 1
-            let currentPrice = 1;
-            if (!['ZUSD', 'USD', 'USDT', 'USDC', 'DAI', 'BUSD'].includes(asset)) {
-              currentPrice = prices[asset] || 0;
-              if (!currentPrice) {
-                console.warn(`[OrderExecutor] No price found for asset ${asset}, skipping in total calculation`);
-                return sum; // Skip this asset if no price available
-              }
+            console.log(`[OrderExecutor] Processing ${asset}: amount=${amount}, parsed=${amountNum}`);
+
+            if (amountNum <= 0) {
+              console.log(`[OrderExecutor] ⏭️  Skipping ${asset} (amount <= 0)`);
+              continue;
+            }
+
+            // Check if it's a stablecoin or fiat
+            const isStable = stablecoins.includes(asset);
+            const currentPrice = isStable ? 1 : (prices[asset] || 0);
+
+            console.log(`[OrderExecutor] ${asset}: isStable=${isStable}, price=${currentPrice}`);
+
+            if (!isStable && currentPrice === 0) {
+              console.error(`[OrderExecutor] ❌ WARNING: No price found for ${asset}!`);
+              console.error(`[OrderExecutor] This asset has ${amountNum.toFixed(8)} units but will contribute $0 to portfolio total`);
+              missingPrices.push(`${asset} (${amountNum.toFixed(8)} units)`);
+              // Still include it with $0 value so the total isn't completely wrong
             }
 
             const assetValue = amountNum * currentPrice;
-            console.log(`[OrderExecutor] Asset ${asset}: ${amountNum} × $${currentPrice} = $${assetValue.toFixed(2)}`);
+            calculatedTotal += assetValue;
 
-            return sum + assetValue;
-          }, 0);
-
-          console.log(`[OrderExecutor] Total portfolio balance: $${balance.total.toFixed(2)}`);
-
-          // Calculate stables (USD, USDT, USDC, etc.)
-          balance.stables = Object.entries(accountBalance).reduce((sum, [asset, amount]) => {
-            if (asset.includes('USD') || asset.includes('USDT') || asset.includes('USDC')) {
-              const amountNum = typeof amount === 'number' ? amount : parseFloat(String(amount));
-              return sum + amountNum;
+            if (assetValue > 0) {
+              includedAssets.push(`${asset}: $${assetValue.toFixed(2)}`);
             }
-            return sum;
-          }, 0);
+
+            console.log(`[OrderExecutor] ✅ ${asset}: ${amountNum.toFixed(8)} × $${currentPrice.toFixed(2)} = $${assetValue.toFixed(2)}`);
+
+            // Add to stables if applicable
+            if (isStable) {
+              calculatedStables += amountNum;
+              console.log(`[OrderExecutor] 💵 Added $${amountNum.toFixed(2)} to stables total`);
+            }
+          }
+
+          balance.total = calculatedTotal;
+          balance.stables = calculatedStables;
+
+          console.log(`[OrderExecutor] ===== BALANCE CALCULATION COMPLETE =====`);
+          console.log(`[OrderExecutor] 💰 Total Portfolio: $${balance.total.toFixed(2)}`);
+          console.log(`[OrderExecutor] 💵 Total Stables: $${balance.stables.toFixed(2)}`);
+
+          if (missingPrices.length > 0) {
+            console.error(`[OrderExecutor] ⚠️  WARNING: ${missingPrices.length} assets missing prices!`);
+            console.error(`[OrderExecutor] Missing price assets:`, missingPrices);
+            console.error(`[OrderExecutor] Portfolio total may be UNDERSTATED due to missing prices!`);
+          }
+
+          if (includedAssets.length > 0) {
+            console.log(`[OrderExecutor] 📊 Assets included in total (${includedAssets.length}):`, includedAssets);
+          }
         }
-      } catch (error) {
-        console.warn('[OrderExecutor] Failed to fetch balance for Telegram notification:', error);
+      } catch (error: any) {
+        console.error('[OrderExecutor] ❌ CRITICAL ERROR fetching balance:', error?.message || error);
+        console.error('[OrderExecutor] Error stack:', error?.stack);
+        console.error('[OrderExecutor] Balance will be sent as $0.00');
       }
+
+      console.log(`[OrderExecutor] Final balance for Telegram: total=$${balance.total.toFixed(2)}, stables=$${balance.stables.toFixed(2)}`);
 
       // Calculate price and amount
       const price = result.executedPrice ? parseFloat(result.executedPrice) : parseFloat(order.price || '0');

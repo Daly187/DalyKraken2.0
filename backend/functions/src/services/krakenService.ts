@@ -23,26 +23,54 @@ export class KrakenService {
   // Kraken pair mappings: Display format → Kraken API format
   // Critical: Kraken uses specific internal pair formats (e.g., XXBTZUSD not BTCUSD)
   private static readonly PAIR_MAPPINGS: Record<string, string> = {
+    // Major cryptocurrencies with X prefix
     'BTC/USD': 'XXBTZUSD',
     'ETH/USD': 'XETHZUSD',
     'XRP/USD': 'XXRPZUSD',
+    'LTC/USD': 'XLTCZUSD',
+    'XLM/USD': 'XXLMZUSD',
+    'ZEC/USD': 'XZECZUSD',
+
+    // Major altcoins (standard format)
     'SOL/USD': 'SOLUSD',
     'ADA/USD': 'ADAUSD',
     'DOGE/USD': 'XDGUSD',
     'DOT/USD': 'DOTUSD',
-    'MATIC/USD': 'MATICUSD',
+    'MATIC/USD': 'POLUSD',  // MATIC was rebranded to POL
     'LINK/USD': 'LINKUSD',
     'UNI/USD': 'UNIUSD',
     'ATOM/USD': 'ATOMUSD',
-    'LTC/USD': 'XLTCZUSD',
     'BCH/USD': 'BCHUSD',
-    'XLM/USD': 'XXLMZUSD',
     'AVAX/USD': 'AVAXUSD',
     'ALGO/USD': 'ALGOUSD',
     'TRX/USD': 'TRXUSD',
+    'NEAR/USD': 'NEARUSD',
+    'ICP/USD': 'ICPUSD',
+    'FIL/USD': 'FILUSD',
+    'INJ/USD': 'INJUSD',
+
+    // DeFi tokens
     'MANA/USD': 'MANAUSD',
     'SAND/USD': 'SANDUSD',
     'APE/USD': 'APEUSD',
+    'AXS/USD': 'AXSUSD',
+    'CRV/USD': 'CRVUSD',
+    'YFI/USD': 'YFIUSD',
+    'BAL/USD': 'BALUSD',
+    'BNT/USD': 'BNTUSD',
+    'BAND/USD': 'BANDUSD',
+
+    // Other tokens
+    'LSK/USD': 'LSKUSD',
+    'KSM/USD': 'KSMUSD',
+    'DAI/USD': 'DAIUSD',
+    'XRT/USD': 'XRTUSD',
+    'PHA/USD': 'PHAUSD',
+    'AIR/USD': 'AIRUSD',
+    'MNGO/USD': 'MNGOUSD',
+    'SC/USD': 'SCUSD',
+    'REN/USD': 'RENUSD',
+    'BLUR/USD': 'BLURUSD',
   };
 
   // Asset precision limits (lot_decimals)
@@ -54,25 +82,48 @@ export class KrakenService {
     'ETH': 8,
     'XXRP': 6,  // XRP
     'XRP': 6,
+    'XLTC': 8,  // LTC
+    'LTC': 8,
+    'XXLM': 6,  // XLM
+    'XLM': 6,
+    'XZEC': 8,  // ZEC
+    'ZEC': 8,
     'SOL': 8,
     'ADA': 6,
     'DOGE': 2,
     'DOT': 8,
     'MATIC': 6,
+    'POL': 5,  // MATIC rebranded to POL
     'LINK': 8,
     'UNI': 8,
     'ATOM': 8,
-    'XLTC': 8,  // LTC
-    'LTC': 8,
     'BCH': 8,
-    'XXLM': 6,  // XLM
-    'XLM': 6,
     'AVAX': 8,
     'ALGO': 6,
     'TRX': 2,
+    'NEAR': 8,
+    'ICP': 8,
+    'FIL': 8,
+    'INJ': 8,
     'MANA': 6,
     'SAND': 6,
     'APE': 8,
+    'AXS': 8,
+    'CRV': 8,
+    'YFI': 8,
+    'BAL': 8,
+    'BNT': 8,
+    'BAND': 8,
+    'LSK': 8,
+    'KSM': 8,
+    'DAI': 8,
+    'XRT': 8,
+    'PHA': 8,
+    'AIR': 8,
+    'MNGO': 8,
+    'SC': 8,
+    'REN': 8,
+    'BLUR': 5,
     'ZUSD': 2,  // USD
     'USD': 2,
     'ZEUR': 2,  // EUR
@@ -474,7 +525,11 @@ export class KrakenService {
       const defaultPairs = ['XXBTZUSD', 'XETHZUSD', 'XLTCZUSD'];
       const pairsToFetch = pairs || defaultPairs;
 
+      console.log(`[KrakenService] Fetching prices for ${pairsToFetch.length} pairs:`, pairsToFetch);
+
       const response = await this.client.api('Ticker', { pair: pairsToFetch.join(',') });
+
+      console.log(`[KrakenService] Ticker response received with ${Object.keys(response.result || {}).length} results`);
 
       // Map response back to asset names
       const prices: Record<string, number> = {};
@@ -484,18 +539,26 @@ export class KrakenService {
         let asset = pair.replace(/ZUSD$/, '').replace(/USD$/, '').replace(/ZEUR$/, '').replace(/EUR$/, '');
 
         // Store the price with the asset name as key
-        prices[asset] = parseFloat((data as any).c[0]);
+        const price = parseFloat((data as any).c[0]);
+        prices[asset] = price;
+
+        console.log(`[KrakenService] Price for ${asset} (from ${pair}): $${price.toFixed(2)}`);
       }
 
+      console.log(`[KrakenService] Successfully fetched ${Object.keys(prices).length} prices`);
       return prices;
-    } catch (error) {
-      console.error('[KrakenService] Error fetching prices:', error);
-      // Return mock prices on error (using asset names, not pair names)
-      return {
-        'XXBT': 45000,
-        'XETH': 2500,
-        'XLTC': 80,
-      };
+    } catch (error: any) {
+      console.error('[KrakenService] Error fetching prices:', error?.message || error);
+
+      // Check if it's a "Unknown asset pair" error
+      if (error?.message?.includes('Unknown asset pair') || error?.message?.includes('EQuery:Unknown asset pair')) {
+        console.error('[KrakenService] Some pairs are invalid. Error details:', error?.message);
+        // Return empty object so individual fetches can be tried
+        return {};
+      }
+
+      // For other errors, throw so it can be handled upstream
+      throw error;
     }
   }
 

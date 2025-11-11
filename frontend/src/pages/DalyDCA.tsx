@@ -195,11 +195,13 @@ export default function DalyDCA() {
         const trends = result.data?.trends || result.trends || [];
 
         // Convert array to Map for fast lookups
-        // Key by symbol (which is already the base symbol like "BTC", not "BTC/USD")
+        // Ensure we use the full format "XXX/USD" to match bot symbols
         const trendMap = new Map();
         trends.forEach((trend: any) => {
           if (trend.symbol) {
-            trendMap.set(trend.symbol, trend);
+            // If symbol doesn't have /USD, add it to match bot format
+            const fullSymbol = trend.symbol.includes('/') ? trend.symbol : `${trend.symbol}/USD`;
+            trendMap.set(fullSymbol, trend);
           }
         });
         setTrendData(trendMap);
@@ -783,9 +785,11 @@ export default function DalyDCA() {
       b.symbol === bot.symbol
     );
 
-    // Get current price from live prices
+    // Get current price from trend data (same source as Crypto Trends page)
+    // This uses the market data updated by the scheduled function
+    const trendInfo = trendData.get(bot.symbol);
     const livePrice = livePrices.get(bot.symbol);
-    const currentPrice = livePrice?.price || bot.currentPrice || 0;
+    const currentPrice = trendInfo?.price || livePrice?.price || bot.currentPrice || 0;
 
     // Use portfolio data if available, otherwise fall back to bot data
     const actualHoldings = portfolioBalance?.amount || 0;
@@ -841,8 +845,9 @@ export default function DalyDCA() {
   };
 
   const getDisplayStatus = (bot: any): { status: string; displayText: string } => {
+    const trendInfo = trendData.get(bot.symbol);
     const livePrice = livePrices.get(bot.symbol);
-    const currentPrice = livePrice?.price || bot.currentPrice || 0;
+    const currentPrice = trendInfo?.price || livePrice?.price || bot.currentPrice || 0;
 
     // Check if bot is above TP and still active (waiting for bearish trend)
     if (bot.status === 'active' && bot.currentTpPrice && currentPrice >= bot.currentTpPrice) {

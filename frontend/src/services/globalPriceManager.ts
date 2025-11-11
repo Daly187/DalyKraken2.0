@@ -9,20 +9,37 @@
 import { livePriceService } from './livePriceService';
 import type { LivePrice } from '@/types';
 
-// All major crypto pairs to track (only pairs supported by Kraken)
+// Top 100 crypto pairs to track globally (all supported by Kraken)
 const GLOBAL_CRYPTO_PAIRS = [
-  // Major cryptocurrencies
-  'BTC/USD', 'ETH/USD', 'SOL/USD', 'XRP/USD', 'ADA/USD',
-  'DOGE/USD', 'DOT/USD', 'AVAX/USD', 'LINK/USD',
+  // Top 20 - Mega caps
+  'BTC/USD', 'ETH/USD', 'SOL/USD', 'BNB/USD', 'XRP/USD',
+  'ADA/USD', 'AVAX/USD', 'DOT/USD', 'MATIC/USD', 'LINK/USD',
+  'ATOM/USD', 'UNI/USD', 'LTC/USD', 'BCH/USD', 'NEAR/USD',
+  'APT/USD', 'ARB/USD', 'OP/USD', 'IMX/USD', 'ALGO/USD',
 
-  // DeFi & Layer 1/2
-  'UNI/USD', 'ATOM/USD', 'LTC/USD', 'BCH/USD', 'ETC/USD',
-  'AAVE/USD', 'COMP/USD', 'SNX/USD', 'CRV/USD',
+  // 21-40 - Large caps
+  'AAVE/USD', 'GRT/USD', 'FIL/USD', 'LDO/USD', 'MKR/USD',
+  'SNX/USD', 'SAND/USD', 'MANA/USD', 'AXS/USD', 'FLOW/USD',
+  'XTZ/USD', 'EOS/USD', 'DOGE/USD', 'TRX/USD', 'ETC/USD',
+  'XLM/USD', 'FTM/USD', 'MINA/USD', 'APE/USD', 'ENJ/USD',
 
-  // Additional popular tokens
-  'SUSHI/USD', 'YFI/USD', 'ALGO/USD', 'XLM/USD', 'XTZ/USD',
-  'MANA/USD', 'SAND/USD', 'GRT/USD', 'FIL/USD', 'NEAR/USD',
-  'OP/USD', 'ARB/USD', 'LDO/USD', 'APE/USD', 'IMX/USD',
+  // 41-60 - Mid caps
+  'CRV/USD', 'SUSHI/USD', 'YFI/USD', 'COMP/USD', 'BAL/USD',
+  '1INCH/USD', 'GALA/USD', 'BLUR/USD', 'ANKR/USD', 'BAT/USD',
+  'BAND/USD', 'AUDIO/USD', 'API3/USD', 'INJ/USD', 'RUNE/USD',
+  'GLMR/USD', 'KSM/USD', 'KAVA/USD', 'CHZ/USD', 'ROSE/USD',
+
+  // 61-80 - Popular/Emerging
+  'BONK/USD', 'PEPE/USD', 'WIF/USD', 'FLOKI/USD', 'JASMY/USD',
+  'ZIL/USD', 'WAVES/USD', 'DASH/USD', 'ZEC/USD', 'IOTX/USD',
+  'HBAR/USD', 'VET/USD', 'ONE/USD', 'CELO/USD', 'QTUM/USD',
+  'ZRX/USD', 'BNT/USD', 'OMG/USD', 'SUI/USD', 'SEI/USD',
+
+  // 81-100 - Additional Popular Assets
+  'TIA/USD', 'PYTH/USD', 'JUP/USD', 'BERA/USD', 'BEAM/USD',
+  'AR/USD', 'STORJ/USD', 'RENDER/USD', 'FET/USD', 'AGIX/USD',
+  'RLC/USD', 'NMR/USD', 'CTSI/USD', 'AMP/USD', 'REQ/USD',
+  'PHA/USD', 'ASTR/USD', 'ALICE/USD', 'ALCX/USD', 'PAXG/USD',
 ];
 
 type PriceUpdateCallback = (prices: Map<string, LivePrice>) => void;

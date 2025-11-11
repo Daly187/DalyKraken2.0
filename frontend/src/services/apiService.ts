@@ -361,7 +361,11 @@ class ApiService {
   }
 
   async triggerDCABots() {
-    return this.post('/dca-bots/trigger', {}, { headers: this.getKrakenHeaders() });
+    // Use longer timeout for trigger endpoint as it processes all bots
+    return this.post('/dca-bots/trigger', {}, {
+      headers: this.getKrakenHeaders(),
+      timeout: 60000 // 60 seconds to handle multiple bots
+    });
   }
 
   async getEnhancedTrends(limit: number = 20) {
