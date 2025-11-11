@@ -153,6 +153,10 @@ const [trendData, setTrendData] = useState<Map<string, any>>(new Map());
   });
 
   useEffect(() => {
+    // Load cached trend data immediately to prevent showing "Neutral" placeholder
+    loadCachedTrendData();
+
+    // Then fetch fresh data
     refreshData();
 
     // Set up automatic refresh every 5 minutes
@@ -208,6 +212,23 @@ const [trendData, setTrendData] = useState<Map<string, any>>(new Map());
         }
       }
     }
+  };
+
+  const loadCachedTrendData = () => {
+    try {
+      const cached = localStorage.getItem('dca_trend_cache');
+      if (cached) {
+        const cacheData = JSON.parse(cached);
+        const trendMap = new Map<string, any>(cacheData.trendMap);
+        setTrendData(trendMap);
+        const cacheAge = Math.floor((Date.now() - cacheData.timestamp) / 1000 / 60);
+        console.log(`[DalyDCA] Loaded cached trend data for ${trendMap.size} symbols (${cacheAge}m old)`);
+        return true;
+      }
+    } catch (error) {
+      console.error('[DalyDCA] Failed to load cached trend data:', error);
+    }
+    return false;
   };
 
   const fetchTrendData = async () => {
@@ -271,10 +292,23 @@ const [trendData, setTrendData] = useState<Map<string, any>>(new Map());
       if (trends.length > 0) {
         console.log('[DalyDCA] Sample trend data:', trends[0]);
       }
+
+      // Cache trend data to localStorage for faster subsequent loads
+      if (trendMap.size > 0) {
+        const cacheData = {
+          trendMap: Array.from(trendMap.entries()),
+          timestamp: Date.now(),
+        };
+        localStorage.setItem('dca_trend_cache', JSON.stringify(cacheData));
+        console.log('[DalyDCA] Cached trend data to localStorage');
+      }
     } catch (error: any) {
       console.error('[DalyDCA] ❌ ERROR fetching trend data:', error);
       console.error('[DalyDCA] Error message:', error?.message);
       console.error('[DalyDCA] Error stack:', error?.stack);
+
+      // Try to load cached data on error
+      loadCachedTrendData();
     }
   };
 
