@@ -64,17 +64,6 @@ export interface PendingOrder {
   krakenOrderId?: string;
   executedPrice?: string;
   executedVolume?: string;
-
-  // Entry Log fields - Track why entry was created/blocked
-  entryConditionsMet?: boolean; // Did the entry meet all requirements?
-  entryChecks?: {
-    trendAlignment?: { met: boolean; score?: number; reason?: string };
-    priceCondition?: { met: boolean; currentPrice?: number; targetPrice?: number; reason?: string };
-    balanceCheck?: { met: boolean; available?: number; required?: number; reason?: string };
-    delayCheck?: { met: boolean; lastEntry?: string; delay?: number; reason?: string };
-    reEntryLimit?: { met: boolean; currentCount?: number; maxCount?: number; reason?: string };
-  };
-  blockedReason?: string; // If entry was blocked, why?
 }
 
 export interface OrderExecutionResult {

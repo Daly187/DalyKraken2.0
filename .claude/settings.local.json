@@ -35,7 +35,12 @@
       "Bash(npx tsx:*)",
       "Bash(GOOGLE_APPLICATION_CREDENTIALS=\"../../serviceAccountKey.json\" npx tsx:*)",
       "Bash(GOOGLE_APPLICATION_CREDENTIALS=\"./serviceAccountKey.json\" npx tsx:*)",
-      "Bash(GOOGLE_APPLICATION_CREDENTIALS=\"./backend/functions/serviceAccountKey.json\" npx tsx:*)"
+      "Bash(GOOGLE_APPLICATION_CREDENTIALS=\"./backend/functions/serviceAccountKey.json\" npx tsx:*)",
+      "Bash(open -a \"Google Chrome\" \"https://dalydough.web.app/portfolio\")",
+      "Bash(firebase firestore:query:*)",
+      "Bash(firebase firestore:get:*)",
+      "Bash(gcloud functions logs read:*)",
+      "Bash(npx tsc --noEmit)"
     ],
     "deny": [],
     "ask": []
