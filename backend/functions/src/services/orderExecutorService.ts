@@ -179,19 +179,20 @@ export class OrderExecutorService {
       console.log(`[OrderExecutor] Validating ${order.side} order for ${order.pair} at current price $${currentPrice.toFixed(2)}`);
 
       if (order.side === 'buy') {
-        // ENTRY VALIDATION: Check if bullish trend still exists
+        // ENTRY VALIDATION: Only cancel if trend turned bearish (not just neutral)
+        // Neutral trends are acceptable for queued buy orders
         const analysis = await marketAnalysis.analyzeTrend(order.pair);
 
         console.log(`[OrderExecutor] Entry validation - trend: ${analysis.recommendation}, tech: ${analysis.techScore.toFixed(0)}, trend: ${analysis.trendScore.toFixed(0)}`);
 
-        if (analysis.recommendation !== 'bullish') {
+        if (analysis.recommendation === 'bearish') {
           return {
             valid: false,
-            reason: `Trend no longer bullish (${analysis.recommendation}), canceling entry order`,
+            reason: `Trend turned bearish (tech: ${analysis.techScore.toFixed(0)}, trend: ${analysis.trendScore.toFixed(0)}), canceling entry order`,
           };
         }
 
-        return { valid: true, reason: 'Bullish trend confirmed, entry still valid' };
+        return { valid: true, reason: `Trend acceptable (${analysis.recommendation}), entry still valid` };
       } else {
         // EXIT VALIDATION: Check if price is still above min TP and bearish trend exists
         const averagePrice = bot.averageEntryPrice || bot.averagePurchasePrice || 0;
