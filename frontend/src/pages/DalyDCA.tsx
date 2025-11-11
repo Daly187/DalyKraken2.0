@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useStore } from '@/store/useStore';
 import config from '@/config/env';
 import { krakenApiService } from '@/services/krakenApiService';
+import { apiService } from '@/services/apiService';
 import {
   Play,
   Pause,
@@ -37,6 +38,36 @@ interface Balance {
   lockedBalance: number;
 }
 
+const SYMBOL_ALIAS_MAP: Record<string, string[]> = {
+  BTC: ['XBT', 'XXBT'],
+  ETH: ['XETH', 'ETH2'],
+  XRP: ['XXRP'],
+  DOGE: ['XDG', 'XXDG'],
+  LTC: ['XLTC'],
+  XLM: ['XXLM'],
+  XMR: ['XXMR'],
+  ETC: ['XETC'],
+  ZEC: ['XZEC'],
+  ADA: ['XADA'],
+  DOT: ['XDOT'],
+  TRX: ['XTRX'],
+  ICX: ['XICX'],
+  OMG: ['XOMG'],
+  ENJ: ['XENJ'],
+  FTM: ['XFTM'],
+  NEAR: ['XNEAR'],
+  MINA: ['XMINA'],
+};
+
+const ALIAS_TO_CANONICAL: Record<string, string> = Object.entries(SYMBOL_ALIAS_MAP).reduce((acc, [canonical, aliases]) => {
+  aliases.forEach(alias => {
+    acc[alias] = canonical;
+  });
+  return acc;
+}, {} as Record<string, string>);
+
+const PAIR_SUFFIXES = ['USD', 'USDT', 'USDC', 'EUR', 'GBP', 'CAD', 'JPY'];
+
 export default function DalyDCA() {
   const dcaBots = useStore((state) => state.dcaBots);
   const fetchDCABots = useStore((state) => state.fetchDCABots);
@@ -64,7 +95,7 @@ export default function DalyDCA() {
   const [pendingOrders, setPendingOrders] = useState<any[]>([]);
   const [portfolioBalances, setPortfolioBalances] = useState<Balance[]>([]);
   const [isSymbolDropdownOpen, setIsSymbolDropdownOpen] = useState(false);
-  const [trendData, setTrendData] = useState<Map<string, any>>(new Map());
+const [trendData, setTrendData] = useState<Map<string, any>>(new Map());
 
   // Section collapse states
   const [isCreateSectionExpanded, setIsCreateSectionExpanded] = useState(true);
@@ -180,38 +211,69 @@ export default function DalyDCA() {
 
   const fetchTrendData = async () => {
     try {
-      const token = localStorage.getItem('auth_token');
-      const response = await fetch(`${config.api.mainUrl}/market/quantify-crypto/enhanced-trends?limit=100`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+      console.log('[DalyDCA] Fetching enhanced trends...');
+      const response = await apiService.getEnhancedTrends(100);
+      console.log('[DalyDCA] Raw API response:', response);
+      const responseData = response?.data || response;
+      console.log('[DalyDCA] Response data:', responseData);
+      const trends = responseData?.trends || [];
+      console.log('[DalyDCA] Trends array length:', trends.length);
+      const cachedFlag = responseData?.cached ?? response?.cached ?? false;
+
+      console.log('[DalyDCA] Enhanced trends response:', cachedFlag ? 'CACHED (5min)' : 'FRESH');
+
+      const trendMap = new Map<string, any>();
+
+      trends.forEach((trend: any) => {
+        if (!trend?.symbol) {
+          return;
+        }
+
+        const rawSymbol = String(trend.symbol).toUpperCase();
+        let formattedSymbol = rawSymbol;
+
+        if (!formattedSymbol.includes('/')) {
+          const suffix = PAIR_SUFFIXES.find((pairSuffix) => formattedSymbol.endsWith(pairSuffix));
+          if (suffix) {
+            formattedSymbol = `${formattedSymbol.slice(0, -suffix.length)}/${suffix}`;
+          } else {
+            formattedSymbol = `${formattedSymbol}/USD`;
+          }
+        }
+
+        const [formattedBase, formattedQuote = 'USD'] = formattedSymbol.split('/');
+        const baseSymbol = formattedBase;
+        const canonicalBase = ALIAS_TO_CANONICAL[baseSymbol] || baseSymbol;
+        const canonicalPair = `${canonicalBase}/${formattedQuote}`;
+
+        const candidateKeys = new Set<string>([
+          rawSymbol,
+          formattedSymbol,
+          baseSymbol,
+          canonicalBase,
+          canonicalPair,
+        ]);
+
+        const aliases = SYMBOL_ALIAS_MAP[canonicalBase] || [];
+        aliases.forEach((alias) => {
+          candidateKeys.add(alias);
+          candidateKeys.add(`${alias}/${formattedQuote}`);
+        });
+
+        candidateKeys.forEach((key) => {
+          trendMap.set(key.toUpperCase(), trend);
+        });
       });
 
-      if (response.ok) {
-        const result = await response.json();
-        console.log('[DalyDCA] Enhanced trends response:', result.cached ? 'CACHED (5min)' : 'FRESH');
-
-        // The response has nested structure: { data: { trends: [...] } }
-        const trends = result.data?.trends || result.trends || [];
-
-        // Convert array to Map for fast lookups
-        // Ensure we use the full format "XXX/USD" to match bot symbols
-        const trendMap = new Map();
-        trends.forEach((trend: any) => {
-          if (trend.symbol) {
-            // If symbol doesn't have /USD, add it to match bot format
-            const fullSymbol = trend.symbol.includes('/') ? trend.symbol : `${trend.symbol}/USD`;
-            trendMap.set(fullSymbol, trend);
-          }
-        });
-        setTrendData(trendMap);
-        console.log('[DalyDCA] Loaded trend data for', trendMap.size, 'symbols');
-        console.log('[DalyDCA] Sample trend data:', trends[0]); // Log first item to verify structure
-      } else {
-        console.error('[DalyDCA] Failed to fetch trend data:', response.status, response.statusText);
+      setTrendData(trendMap);
+      console.log('[DalyDCA] Loaded trend data for', trendMap.size, 'symbols');
+      if (trends.length > 0) {
+        console.log('[DalyDCA] Sample trend data:', trends[0]);
       }
-    } catch (error) {
-      console.error('[DalyDCA] Error fetching trend data:', error);
+    } catch (error: any) {
+      console.error('[DalyDCA] ❌ ERROR fetching trend data:', error);
+      console.error('[DalyDCA] Error message:', error?.message);
+      console.error('[DalyDCA] Error stack:', error?.stack);
     }
   };
 
@@ -611,11 +673,43 @@ export default function DalyDCA() {
   };
 
   // Helper function to merge bot data with trend data
+  const getTrendInfoForSymbol = (symbol?: string) => {
+    if (!symbol) return undefined;
+
+    const normalizedSymbol = symbol.toUpperCase();
+    const parts = normalizedSymbol.split('/');
+    const baseSymbol = parts[0];
+    const quoteSymbol = parts[1] || 'USD';
+    const canonicalBase = ALIAS_TO_CANONICAL[baseSymbol] || baseSymbol;
+    const canonicalPair = `${canonicalBase}/${quoteSymbol}`;
+
+    const candidates: string[] = [
+      normalizedSymbol,
+      baseSymbol,
+      canonicalBase,
+      canonicalPair,
+      `${canonicalBase}/USD`,
+    ];
+
+    const aliases = SYMBOL_ALIAS_MAP[canonicalBase] || [];
+    aliases.forEach((alias) => {
+      candidates.push(alias);
+      candidates.push(`${alias}/${quoteSymbol}`);
+      candidates.push(`${alias}/USD`);
+    });
+
+    for (const key of candidates) {
+      const trend = trendData.get(key.toUpperCase());
+      if (trend) {
+        return trend;
+      }
+    }
+
+    return undefined;
+  };
+
   const getBotWithTrend = (bot: any) => {
-    // Bot symbols are like "BTC/USD", trend data keys are like "BTC"
-    // Extract the base symbol (e.g., "BTC" from "BTC/USD")
-    const baseSymbol = bot.symbol.split('/')[0];
-    const trend = trendData.get(baseSymbol);
+    const trend = getTrendInfoForSymbol(bot.symbol);
 
     if (trend) {
       return {
@@ -785,11 +879,11 @@ export default function DalyDCA() {
       b.symbol === bot.symbol
     );
 
-    // Get current price from trend data (same source as Crypto Trends page)
-    // This uses the market data updated by the scheduled function
-    const trendInfo = trendData.get(bot.symbol);
+    // Get current price - prioritize live WebSocket data (covers ALL symbols),
+    // then trend data (only top 100), matching Crypto Trends page approach
     const livePrice = livePrices.get(bot.symbol);
-    const currentPrice = trendInfo?.price || livePrice?.price || bot.currentPrice || 0;
+    const trendInfo = getTrendInfoForSymbol(bot.symbol);
+    const currentPrice = livePrice?.price || trendInfo?.price || bot.currentPrice || 0;
 
     // Use portfolio data if available, otherwise fall back to bot data
     const actualHoldings = portfolioBalance?.amount || 0;
@@ -845,9 +939,9 @@ export default function DalyDCA() {
   };
 
   const getDisplayStatus = (bot: any): { status: string; displayText: string } => {
-    const trendInfo = trendData.get(bot.symbol);
     const livePrice = livePrices.get(bot.symbol);
-    const currentPrice = trendInfo?.price || livePrice?.price || bot.currentPrice || 0;
+    const trendInfo = getTrendInfoForSymbol(bot.symbol);
+    const currentPrice = livePrice?.price || trendInfo?.price || bot.currentPrice || 0;
 
     // Check if bot is above TP and still active (waiting for bearish trend)
     if (bot.status === 'active' && bot.currentTpPrice && currentPrice >= bot.currentTpPrice) {
@@ -1775,9 +1869,9 @@ export default function DalyDCA() {
                               );
                             })()}
                             <div className="mt-2 flex gap-2 text-xs text-gray-500">
-                              <span>Tech: <span className={(botWithTrend.techScore || 0) > 50 ? 'text-green-400' : 'text-red-400'}>{botWithTrend.techScore || 0}</span></span>
+                              <span>Tech: <span className={(botWithTrend.techScore || 0) > 50 ? 'text-green-400' : 'text-red-400'}>{(botWithTrend.techScore || 0).toFixed(1)}</span></span>
                               <span>•</span>
-                              <span>Trend: <span className={(botWithTrend.trendScore || 0) > 50 ? 'text-green-400' : 'text-red-400'}>{botWithTrend.trendScore || 0}</span></span>
+                              <span>Trend: <span className={(botWithTrend.trendScore || 0) > 50 ? 'text-green-400' : 'text-red-400'}>{(botWithTrend.trendScore || 0).toFixed(1)}</span></span>
                             </div>
                           </div>
                           <div>

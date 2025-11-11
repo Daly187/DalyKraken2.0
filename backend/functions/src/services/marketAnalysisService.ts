@@ -485,10 +485,16 @@ export class MarketAnalysisService {
           if (macd > signal && macd > 0) macdState = 'bullish';
           else if (macd < signal && macd < 0) macdState = 'bearish';
 
-          // Determine trend signal
+          // Determine trend signal based on comprehensive technical analysis
+          // Use both trend_score and technical_score for accurate signal
           let trendSignal: 'bullish' | 'bearish' | 'neutral' = 'neutral';
-          if (ticker.changePercent24h > 2) trendSignal = 'bullish';
-          else if (ticker.changePercent24h < -2) trendSignal = 'bearish';
+          if (trendScore >= 50 && techScore >= 50) {
+            trendSignal = 'bullish';
+          } else if (trendScore < 40 && techScore < 40) {
+            trendSignal = 'bearish';
+          } else {
+            trendSignal = 'neutral';
+          }
 
           // Extract symbol name (remove /USD suffix and X prefix)
           // "BTC/USD" -> "BTC", "ETH/USD" -> "ETH"
