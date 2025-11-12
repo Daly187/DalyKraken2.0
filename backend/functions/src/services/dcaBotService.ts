@@ -588,6 +588,24 @@ export class DCABotService {
         );
       } catch (error: any) {
         console.error(`[DCABotService] ❌ Liquidity check threw error:`, error);
+
+        // Log failed execution
+        await this.logExecution({
+          id: `${bot.id}_exec_${Date.now()}`,
+          botId: bot.id,
+          action: 'entry',
+          symbol: bot.symbol,
+          price: currentPrice,
+          quantity,
+          amount: orderAmount,
+          reason: 'Liquidity check failed',
+          techScore: bot.techScore,
+          trendScore: bot.trendScore,
+          timestamp: new Date().toISOString(),
+          success: false,
+          error: error.message,
+        });
+
         return {
           success: false,
           error: `Liquidity check failed: ${error.message}`
@@ -596,6 +614,24 @@ export class DCABotService {
 
       if (!liquidityCheck.success) {
         console.error(`[DCABotService] ❌ Liquidity check failed: ${liquidityCheck.error}`);
+
+        // Log failed execution
+        await this.logExecution({
+          id: `${bot.id}_exec_${Date.now()}`,
+          botId: bot.id,
+          action: 'entry',
+          symbol: bot.symbol,
+          price: currentPrice,
+          quantity,
+          amount: orderAmount,
+          reason: 'Insufficient funds',
+          techScore: bot.techScore,
+          trendScore: bot.trendScore,
+          timestamp: new Date().toISOString(),
+          success: false,
+          error: liquidityCheck.error,
+        });
+
         return {
           success: false,
           error: liquidityCheck.error
@@ -623,6 +659,24 @@ export class DCABotService {
         console.log(`[DCABotService] ✅ Created pending order ${pendingOrder.id} for bot ${bot.id}`);
       } catch (error: any) {
         console.error(`[DCABotService] ❌ Failed to create pending order:`, error);
+
+        // Log failed execution
+        await this.logExecution({
+          id: `${bot.id}_exec_${Date.now()}`,
+          botId: bot.id,
+          action: 'entry',
+          symbol: bot.symbol,
+          price: currentPrice,
+          quantity,
+          amount: orderAmount,
+          reason: 'Order queue creation failed',
+          techScore: bot.techScore,
+          trendScore: bot.trendScore,
+          timestamp: new Date().toISOString(),
+          success: false,
+          error: error.message,
+        });
+
         return {
           success: false,
           error: `Order queue creation failed: ${error.message}`
