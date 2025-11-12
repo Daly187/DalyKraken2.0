@@ -173,23 +173,43 @@ const [trendData, setTrendData] = useState<Map<string, any>>(new Map());
   const fetchPendingOrders = async () => {
     try {
       const token = localStorage.getItem('auth_token');
-      if (!token) return;
+      if (!token || dcaBots.length === 0) return;
 
-      const response = await fetch(`${config.api.mainUrl}/order-queue`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
+      // Fetch execution logs from all active bots
+      const executionLogs: any[] = [];
 
-      if (response.ok) {
-        const data = await response.json();
-        // Get ALL orders, sorted by most recent
-        const allOrders = (data.orders || [])
-          .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-        setPendingOrders(allOrders);
+      for (const bot of dcaBots.filter(b => b.status === 'active')) {
+        try {
+          const response = await fetch(`${config.api.mainUrl}/dca-bots/${bot.id}/executions?limit=10`, {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+            },
+          });
+
+          if (response.ok) {
+            const data = await response.json();
+            if (data.executions && data.executions.length > 0) {
+              // Add bot symbol to each execution for display
+              executionLogs.push(...data.executions.map((exec: any) => ({
+                ...exec,
+                botSymbol: bot.symbol,
+              })));
+            }
+          }
+        } catch (error) {
+          console.error(`Failed to fetch executions for bot ${bot.id}:`, error);
+        }
       }
+
+      // Sort by timestamp descending (most recent first)
+      const sortedLogs = executionLogs.sort((a, b) =>
+        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+      );
+
+      // Limit to most recent 50 entries
+      setPendingOrders(sortedLogs.slice(0, 50));
     } catch (error) {
-      console.error('Failed to fetch pending orders:', error);
+      console.error('Failed to fetch entry audit logs:', error);
     }
   };
 
@@ -2309,7 +2329,7 @@ const [trendData, setTrendData] = useState<Map<string, any>>(new Map());
         )}
       </div>
 
-      {/* Pending Orders Section */}
+      {/* Entry Audit Log Section */}
       <div className="card">
         <div className="flex justify-between items-center mb-4">
           <div className="flex items-center gap-3 flex-1">
@@ -2325,7 +2345,7 @@ const [trendData, setTrendData] = useState<Map<string, any>>(new Map());
             </button>
             <div>
               <h2 className="text-xl font-bold flex items-center gap-2">
-                Pending Orders
+                Entry Audit Log
                 {pendingOrders.length > 0 && (
                   <span className="px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 text-xs font-medium">
                     {pendingOrders.length}
@@ -2333,7 +2353,7 @@ const [trendData, setTrendData] = useState<Map<string, any>>(new Map());
                 )}
               </h2>
               <p className="text-xs text-gray-500 mt-1">
-                Orders that met entry requirements and are being executed
+                Entry decisions and execution results for all bots
               </p>
             </div>
           </div>
@@ -2342,28 +2362,10 @@ const [trendData, setTrendData] = useState<Map<string, any>>(new Map());
               onClick={handleRefresh}
               disabled={refreshing}
               className="btn btn-secondary btn-sm flex items-center gap-2"
-              title="Refresh pending orders list"
+              title="Refresh entry audit log"
             >
               <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
               {refreshing ? 'Refreshing...' : 'Refresh'}
-            </button>
-            <button
-              onClick={handleDeleteAll}
-              disabled={deletingAll}
-              className="btn btn-sm flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white"
-              title="Delete ALL pending orders (WARNING: Cannot be undone)"
-            >
-              <X className={`h-4 w-4 ${deletingAll ? 'animate-pulse' : ''}`} />
-              {deletingAll ? 'Deleting...' : 'Delete All'}
-            </button>
-            <button
-              onClick={handleExecuteNow}
-              disabled={executing || pendingOrders.length === 0}
-              className="btn btn-success btn-sm flex items-center gap-2"
-              title="Manually execute all pending orders now"
-            >
-              <Zap className={`h-4 w-4 ${executing ? 'animate-pulse' : ''}`} />
-              {executing ? 'Executing...' : 'Execute Now'}
             </button>
             <button
               onClick={handleTrigger}
@@ -2385,120 +2387,57 @@ const [trendData, setTrendData] = useState<Map<string, any>>(new Map());
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-slate-700 text-gray-400">
-                  <th className="text-left py-3 px-2 font-medium w-8"></th>
-                  <th className="text-left py-3 px-2 font-medium">Pair</th>
-                  <th className="text-left py-3 px-2 font-medium">Side</th>
-                  <th className="text-right py-3 px-2 font-medium">Amount (USD)</th>
+                  <th className="text-left py-3 px-2 font-medium">Time</th>
+                  <th className="text-left py-3 px-2 font-medium">Bot</th>
+                  <th className="text-left py-3 px-2 font-medium">Action</th>
+                  <th className="text-left py-3 px-2 font-medium">Result</th>
+                  <th className="text-left py-3 px-2 font-medium">Reason</th>
                   <th className="text-right py-3 px-2 font-medium">Price</th>
-                  <th className="text-right py-3 px-2 font-medium">Volume</th>
-                  <th className="text-left py-3 px-2 font-medium">Status</th>
-                  <th className="text-left py-3 px-2 font-medium">Error</th>
-                  <th className="text-left py-3 px-2 font-medium">Created</th>
+                  <th className="text-right py-3 px-2 font-medium">Amount</th>
                 </tr>
               </thead>
               <tbody>
-                {pendingOrders.map((order) => {
-                  const isExpanded = expandedOrderId === order.id;
-                  const hasDetails = (order.errors && order.errors.length > 0);
+                {pendingOrders.map((log, idx) => {
+                  const wasProcessed = log.processed || false;
+                  const actionText = log.action || 'check';
 
                   return (
-                    <>
-                      <tr
-                        key={order.id}
-                        className={`border-b border-slate-800 hover:bg-slate-800/30 ${isExpanded ? 'bg-slate-800/50' : ''}`}
-                      >
-                        <td className="py-3 px-2">
-                          {hasDetails && (
-                            <button
-                              onClick={() => setExpandedOrderId(isExpanded ? null : order.id)}
-                              className="p-1 hover:bg-slate-700 rounded transition-colors"
-                            >
-                              {isExpanded ? (
-                                <ChevronUp className="h-4 w-4 text-gray-400" />
-                              ) : (
-                                <ChevronDown className="h-4 w-4 text-gray-400" />
-                              )}
-                            </button>
-                          )}
-                        </td>
-                        <td className="py-3 px-2">
-                          <span className="font-medium text-white">{order.pair}</span>
-                        </td>
-                        <td className="py-3 px-2">
-                          <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                            order.side === 'buy' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'
-                          }`}>
-                            {order.side.toUpperCase()}
-                          </span>
-                        </td>
-                        <td className="py-3 px-2 text-right">
-                          <span className="text-white font-medium">
-                            ${order.amount ? order.amount.toFixed(2) : '0.00'}
-                          </span>
-                        </td>
-                        <td className="py-3 px-2 text-right text-gray-300">
-                          {order.price ? `$${parseFloat(order.price).toFixed(2)}` : 'Market'}
-                        </td>
-                        <td className="py-3 px-2 text-right text-gray-300">
-                          {parseFloat(order.volume).toFixed(8)}
-                        </td>
-                        <td className="py-3 px-2">
-                          <span className={`px-2 py-0.5 rounded text-xs font-medium ${getOrderStatusColor(order.status)}`}>
-                            {order.status.toUpperCase()}
-                          </span>
-                        </td>
-                        <td className="py-3 px-2 text-xs">
-                          {order.status === 'failed' || order.status === 'retry' ? (
-                            <span className="text-red-400" title={order.lastError || 'Unknown error'}>
-                              {order.lastError ? (order.lastError.length > 50 ? order.lastError.substring(0, 50) + '...' : order.lastError) : '-'}
-                            </span>
-                          ) : (
-                            <span className="text-gray-500">-</span>
-                          )}
-                        </td>
-                        <td className="py-3 px-2 text-gray-400 text-xs">
-                          {formatTimestamp(order.createdAt)}
-                        </td>
-                      </tr>
-
-                      {/* Expanded details row - Error history only */}
-                      {isExpanded && (
-                        <tr key={`${order.id}-details`} className="bg-slate-800/30 border-b border-slate-800">
-                          <td colSpan={9} className="py-4 px-4">
-                            <div className="space-y-3">
-                              {/* Error history */}
-                              {order.errors && order.errors.length > 0 && (
-                                <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3">
-                                  <p className="text-xs font-semibold text-red-400 mb-2">Error History ({order.errors.length})</p>
-                                  <div className="space-y-2 max-h-32 overflow-y-auto">
-                                    {order.errors.map((err: any, idx: number) => (
-                                      <div key={idx} className="text-xs text-red-300 bg-red-900/20 rounded p-2">
-                                        <div className="flex items-start justify-between gap-2">
-                                          <span className="flex-1">{err.error}</span>
-                                          <span className="text-gray-500 text-xs whitespace-nowrap">
-                                            {new Date(err.timestamp).toLocaleTimeString()}
-                                          </span>
-                                        </div>
-                                      </div>
-                                    ))}
-                                  </div>
-                                </div>
-                              )}
-
-                              {/* Additional order details */}
-                              <div className="text-xs text-gray-400 space-y-1">
-                                <div className="flex gap-4">
-                                  <span>Order ID: <span className="text-gray-300 font-mono">{order.id}</span></span>
-                                  {order.attempts > 0 && (
-                                    <span>Attempts: <span className="text-gray-300">{order.attempts}</span></span>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                    </>
+                    <tr
+                      key={log.id || `log-${idx}`}
+                      className="border-b border-slate-800 hover:bg-slate-800/30"
+                    >
+                      <td className="py-3 px-2 text-gray-400 text-xs">
+                        {new Date(log.timestamp).toLocaleString()}
+                      </td>
+                      <td className="py-3 px-2">
+                        <span className="font-medium text-white">{log.botSymbol || 'Unknown'}</span>
+                      </td>
+                      <td className="py-3 px-2">
+                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                          actionText === 'entry' ? 'bg-green-500/10 text-green-400' :
+                          actionText === 'exit' ? 'bg-red-500/10 text-red-400' :
+                          'bg-gray-500/10 text-gray-400'
+                        }`}>
+                          {actionText.toUpperCase()}
+                        </span>
+                      </td>
+                      <td className="py-3 px-2">
+                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                          wasProcessed ? 'bg-green-500/10 text-green-400' : 'bg-yellow-500/10 text-yellow-400'
+                        }`}>
+                          {wasProcessed ? 'EXECUTED' : 'BLOCKED'}
+                        </span>
+                      </td>
+                      <td className="py-3 px-2 text-xs text-gray-300 max-w-md truncate" title={log.reason}>
+                        {log.reason || 'No reason provided'}
+                      </td>
+                      <td className="py-3 px-2 text-right text-gray-300">
+                        {log.currentPrice ? `$${parseFloat(log.currentPrice).toFixed(2)}` : '-'}
+                      </td>
+                      <td className="py-3 px-2 text-right text-gray-300">
+                        {log.orderAmount ? `$${parseFloat(log.orderAmount).toFixed(2)}` : '-'}
+                      </td>
+                    </tr>
                   );
                 })}
               </tbody>
@@ -2507,13 +2446,13 @@ const [trendData, setTrendData] = useState<Map<string, any>>(new Map());
         ) : loading ? (
           <div className="text-center py-8">
             <Activity className="h-8 w-8 text-blue-400 animate-spin mx-auto mb-2" />
-            <p className="text-gray-400 text-sm">Loading orders...</p>
+            <p className="text-gray-400 text-sm">Loading execution logs...</p>
           </div>
         ) : (
           <div className="text-center py-8">
             <Layers className="h-12 w-12 text-gray-600 mx-auto mb-3" />
-            <p className="text-gray-400">No pending orders</p>
-            <p className="text-xs text-gray-500 mt-1">Orders will appear here when DCA bots meet entry requirements</p>
+            <p className="text-gray-400">No execution logs yet</p>
+            <p className="text-xs text-gray-500 mt-1">Bot entry decisions and results will appear here after bots are processed</p>
           </div>
         )}
         </>
