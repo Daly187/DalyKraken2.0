@@ -39,7 +39,7 @@ export const config = {
 
     // Timeout settings
     timeout: {
-      main: 10000,
+      main: 30000, // Increased to 30s to handle large bot collections (100+ bots)
       cache: 5000,
       snapshot: 5000,
     },
