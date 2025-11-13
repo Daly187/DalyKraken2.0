@@ -102,10 +102,10 @@ const [trendData, setTrendData] = useState<Map<string, any>>(new Map());
   const [trendDataTimestamp, setTrendDataTimestamp] = useState<number | null>(null);
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
 
-  // Section collapse states
-  const [isCreateSectionExpanded, setIsCreateSectionExpanded] = useState(true);
-  const [isLiveBotsSectionExpanded, setIsLiveBotsSectionExpanded] = useState(true);
-  const [isPendingOrdersSectionExpanded, setIsPendingOrdersSectionExpanded] = useState(true);
+  // Section collapse states - all sections start collapsed for cleaner initial view
+  const [isCreateSectionExpanded, setIsCreateSectionExpanded] = useState(false);
+  const [isLiveBotsSectionExpanded, setIsLiveBotsSectionExpanded] = useState(false);
+  const [isPendingOrdersSectionExpanded, setIsPendingOrdersSectionExpanded] = useState(false);
 
   // Available trading pairs (ordered by market cap - top 100 on Kraken)
   const availableSymbols = [
