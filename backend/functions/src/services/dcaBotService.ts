@@ -442,14 +442,47 @@ export class DCABotService {
     symbol: string
   ): Promise<{ success: boolean; error?: string }> {
     try {
-      // 1. Get current USD balance
+      // 1. Get current USD balance (including stablecoins)
       const balances = await krakenService.getBalance();
-      const usdBalance = parseFloat(balances['ZUSD'] || '0');
+
+      // DEBUG: Log ALL balance keys to see what Kraken actually returns
+      const allBalanceKeys = Object.keys(balances);
+      console.log(`[DCABotService] 🔍 DEBUG: ALL Kraken balance keys (${allBalanceKeys.length} total): ${allBalanceKeys.join(', ')}`);
+      console.log(`[DCABotService] 🔍 DEBUG: Full balances object:`, JSON.stringify(balances));
+
+      // Check USD and stablecoin balances - check ALL keys that contain USD or are stablecoins
+      const possibleUsdKeys = ['ZUSD', 'USD', 'USDT', 'ZUSDT', 'USDC', 'ZUSDC', 'DAI', 'XDAI', 'USD.HOLD', 'USD.M', 'KUSD'];
+      let usdBalance = 0;
+      const foundUsdKeys: string[] = [];
+
+      // First, check our known keys
+      for (const key of possibleUsdKeys) {
+        if (balances[key]) {
+          const keyBalance = parseFloat(balances[key]);
+          if (keyBalance > 0) {
+            usdBalance += keyBalance;
+            foundUsdKeys.push(`${key}=$${keyBalance.toFixed(2)}`);
+          }
+        }
+      }
+
+      // Also check any key containing "USD" that we might have missed
+      for (const key of allBalanceKeys) {
+        if (key.includes('USD') && !possibleUsdKeys.includes(key)) {
+          const keyBalance = parseFloat(balances[key]);
+          if (keyBalance > 0) {
+            console.log(`[DCABotService] 🎯 FOUND UNKNOWN USD KEY: ${key} = ${keyBalance}`);
+            usdBalance += keyBalance;
+            foundUsdKeys.push(`${key}=$${keyBalance.toFixed(2)}`);
+          }
+        }
+      }
 
       console.log(`[DCABotService] USD liquidity check for ${symbol}: required=$${requiredUSD.toFixed(2)}, available=$${usdBalance.toFixed(2)}`);
+      console.log(`[DCABotService] 💰 USD/Stablecoin balance sources: ${foundUsdKeys.length > 0 ? foundUsdKeys.join(', ') : 'none found'}`);
 
       if (usdBalance >= requiredUSD) {
-        console.log(`[DCABotService] ✅ Sufficient USD balance - no conversion needed`);
+        console.log(`[DCABotService] ✅ Sufficient USD/stablecoin balance - no conversion needed`);
         return { success: true }; // Sufficient USD
       }
 
@@ -486,7 +519,7 @@ export class DCABotService {
         const totalAvailable = usdBalance + (ethBalance * ethPrice);
         return {
           success: false,
-          error: `Insufficient funds: need $${requiredUSD.toFixed(2)} USD, but only have $${usdBalance.toFixed(2)} USD + ${ethBalance.toFixed(6)} ETH ($${(ethBalance * ethPrice).toFixed(2)}) = $${totalAvailable.toFixed(2)} total`
+          error: `Insufficient funds: need $${requiredUSD.toFixed(2)} USD, but only have $${usdBalance.toFixed(2)} USD/Stablecoins (${foundUsdKeys.join(', ')}) + ${ethBalance.toFixed(6)} ETH ($${(ethBalance * ethPrice).toFixed(2)}) = $${totalAvailable.toFixed(2)} total`
         };
       }
 
