@@ -90,7 +90,7 @@ export default function DalyDCA() {
   const [expandedBotId, setExpandedBotId] = useState<string | null>(null);
   const [editingBotId, setEditingBotId] = useState<string | null>(null);
   const [editFormData, setEditFormData] = useState<any>({});
-  const [sortBy, setSortBy] = useState<'name' | 'invested' | 'pnl'>('name');
+  const [sortBy, setSortBy] = useState<'name' | 'invested' | 'pnl' | 'trend'>('name');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const [pendingOrders, setPendingOrders] = useState<any[]>([]);
   const [portfolioBalances, setPortfolioBalances] = useState<Balance[]>([]);
@@ -1085,12 +1085,17 @@ const [trendData, setTrendData] = useState<Map<string, any>>(new Map());
       compareValue = (a.totalInvested || 0) - (b.totalInvested || 0);
     } else if (sortBy === 'pnl') {
       compareValue = (a.unrealizedPnL || 0) - (b.unrealizedPnL || 0);
+    } else if (sortBy === 'trend') {
+      // Merge with trend data for sorting
+      const aWithTrend = getBotWithTrend(a);
+      const bWithTrend = getBotWithTrend(b);
+      compareValue = (aWithTrend.trendScore || 50) - (bWithTrend.trendScore || 50);
     }
 
     return sortDirection === 'asc' ? compareValue : -compareValue;
   });
 
-  const handleSortChange = (newSortBy: 'name' | 'invested' | 'pnl') => {
+  const handleSortChange = (newSortBy: 'name' | 'invested' | 'pnl' | 'trend') => {
     if (sortBy === newSortBy) {
       // Toggle direction if same sort criteria
       setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
@@ -1675,6 +1680,16 @@ const [trendData, setTrendData] = useState<Map<string, any>>(new Map());
               }`}
             >
               P&L {sortBy === 'pnl' && (sortDirection === 'asc' ? '↑' : '↓')}
+            </button>
+            <button
+              onClick={() => handleSortChange('trend')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                sortBy === 'trend'
+                  ? 'bg-primary-500/20 text-primary-300'
+                  : 'bg-slate-700/50 text-gray-400 hover:bg-slate-700'
+              }`}
+            >
+              Market Trend {sortBy === 'trend' && (sortDirection === 'asc' ? '↑' : '↓')}
             </button>
           </div>
         )}
@@ -2398,7 +2413,7 @@ const [trendData, setTrendData] = useState<Map<string, any>>(new Map());
               </thead>
               <tbody>
                 {pendingOrders.map((log, idx) => {
-                  const wasProcessed = log.processed || false;
+                  const wasSuccessful = log.success || false;
                   const actionText = log.action || 'check';
 
                   return (
@@ -2423,19 +2438,19 @@ const [trendData, setTrendData] = useState<Map<string, any>>(new Map());
                       </td>
                       <td className="py-3 px-2">
                         <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                          wasProcessed ? 'bg-green-500/10 text-green-400' : 'bg-yellow-500/10 text-yellow-400'
+                          wasSuccessful ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'
                         }`}>
-                          {wasProcessed ? 'EXECUTED' : 'BLOCKED'}
+                          {wasSuccessful ? 'SUCCESS' : 'FAILED'}
                         </span>
                       </td>
                       <td className="py-3 px-2 text-xs text-gray-300 max-w-md truncate" title={log.reason}>
                         {log.reason || 'No reason provided'}
                       </td>
                       <td className="py-3 px-2 text-right text-gray-300">
-                        {log.currentPrice ? `$${parseFloat(log.currentPrice).toFixed(2)}` : '-'}
+                        {log.price ? `$${parseFloat(log.price).toFixed(2)}` : '-'}
                       </td>
                       <td className="py-3 px-2 text-right text-gray-300">
-                        {log.orderAmount ? `$${parseFloat(log.orderAmount).toFixed(2)}` : '-'}
+                        {log.amount ? `$${parseFloat(log.amount).toFixed(2)}` : '-'}
                       </td>
                     </tr>
                   );
