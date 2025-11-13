@@ -27,6 +27,7 @@ import {
   Layers,
   RefreshCw,
   LogOut,
+  Search,
 } from 'lucide-react';
 import type { DCABotConfig } from '@/types';
 
@@ -92,6 +93,8 @@ export default function DalyDCA() {
   const [editFormData, setEditFormData] = useState<any>({});
   const [sortBy, setSortBy] = useState<'name' | 'invested' | 'pnl' | 'trend'>('name');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
   const [pendingOrders, setPendingOrders] = useState<any[]>([]);
   const [portfolioBalances, setPortfolioBalances] = useState<Balance[]>([]);
   const [isSymbolDropdownOpen, setIsSymbolDropdownOpen] = useState(false);
@@ -157,6 +160,18 @@ const [trendData, setTrendData] = useState<Map<string, any>>(new Map());
     // Load cached trend data immediately to prevent showing "Neutral" placeholder
     loadCachedTrendData();
 
+    // Load cached entry audit logs immediately for instant UI
+    const cachedLogs = localStorage.getItem('entry_audit_logs_cache');
+    if (cachedLogs) {
+      try {
+        const logs = JSON.parse(cachedLogs);
+        setPendingOrders(logs);
+        console.log('[DalyDCA] Pre-loaded cached entry audit logs on mount:', logs.length);
+      } catch (e) {
+        console.error('[DalyDCA] Failed to parse cached entry audit logs on mount:', e);
+      }
+    }
+
     // Then fetch fresh data
     refreshData();
 
@@ -174,6 +189,18 @@ const [trendData, setTrendData] = useState<Map<string, any>>(new Map());
     try {
       const token = localStorage.getItem('auth_token');
       if (!token || dcaBots.length === 0) return;
+
+      // Load cached data immediately for instant UI update
+      const cached = localStorage.getItem('entry_audit_logs_cache');
+      if (cached) {
+        try {
+          const cachedLogs = JSON.parse(cached);
+          setPendingOrders(cachedLogs);
+          console.log('[DalyDCA] Loaded cached entry audit logs:', cachedLogs.length);
+        } catch (e) {
+          console.error('[DalyDCA] Failed to parse cached entry audit logs:', e);
+        }
+      }
 
       // Fetch execution logs from all active bots
       const executionLogs: any[] = [];
@@ -207,7 +234,12 @@ const [trendData, setTrendData] = useState<Map<string, any>>(new Map());
       );
 
       // Limit to most recent 50 entries
-      setPendingOrders(sortedLogs.slice(0, 50));
+      const finalLogs = sortedLogs.slice(0, 50);
+      setPendingOrders(finalLogs);
+
+      // Cache the fresh data
+      localStorage.setItem('entry_audit_logs_cache', JSON.stringify(finalLogs));
+      console.log('[DalyDCA] Cached', finalLogs.length, 'entry audit logs');
     } catch (error) {
       console.error('Failed to fetch entry audit logs:', error);
     }
@@ -358,6 +390,12 @@ const [trendData, setTrendData] = useState<Map<string, any>>(new Map());
     try {
       await triggerDCABots();
       setLastRefreshTime(new Date());
+
+      // Fetch entry audit logs immediately after triggering to show new results
+      // Use a small delay to ensure backend has processed and saved execution logs
+      setTimeout(() => {
+        fetchPendingOrders();
+      }, 1500);
     } catch (error) {
       console.error('Failed to trigger bot processing:', error);
     } finally {
@@ -1075,8 +1113,21 @@ const [trendData, setTrendData] = useState<Map<string, any>>(new Map());
   const totalCurrentValue = totalInvested + totalUnrealizedPnL;
   const totalPnLPercent = totalInvested > 0 ? (totalUnrealizedPnL / totalInvested) * 100 : 0;
 
-  // Sort enriched bots based on selected criteria
-  const sortedBots = [...enrichedBots].sort((a, b) => {
+  // Filter bots based on search query and status
+  const filteredBots = enrichedBots.filter((bot) => {
+    // Search filter - search by symbol (asset name)
+    const searchMatch = searchQuery.trim() === '' ||
+      bot.symbol.toLowerCase().includes(searchQuery.toLowerCase());
+
+    // Status filter
+    const displayStatus = getDisplayStatus(bot).status;
+    const statusMatch = statusFilter === 'all' || displayStatus === statusFilter;
+
+    return searchMatch && statusMatch;
+  });
+
+  // Sort filtered bots based on selected criteria
+  const sortedBots = [...filteredBots].sort((a, b) => {
     let compareValue = 0;
 
     if (sortBy === 'name') {
@@ -1694,7 +1745,54 @@ const [trendData, setTrendData] = useState<Map<string, any>>(new Map());
           </div>
         )}
 
-        {dcaBots.length > 0 ? (
+        {/* Filter Controls */}
+        {dcaBots.length > 0 && (
+          <div className="flex flex-col sm:flex-row gap-3 mb-4 pb-4 border-b border-slate-700">
+            {/* Search Input */}
+            <div className="flex-1 relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search by asset (e.g., BTC, ETH)..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 bg-slate-700/50 border border-slate-600 rounded-lg text-sm text-white placeholder-gray-400 focus:outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500"
+              />
+            </div>
+
+            {/* Status Filter */}
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-400 whitespace-nowrap">Status:</span>
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="px-3 py-2 bg-slate-700/50 border border-slate-600 rounded-lg text-sm text-white focus:outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500"
+              >
+                <option value="all">All</option>
+                <option value="active">Active</option>
+                <option value="paused">Paused</option>
+                <option value="exiting">Exiting</option>
+                <option value="completed">Completed</option>
+                <option value="stopped">Stopped</option>
+                <option value="waiting_for_exit">Waiting for Exit</option>
+              </select>
+            </div>
+          </div>
+        )}
+
+        {/* Filter Results Indicator */}
+        {dcaBots.length > 0 && (searchQuery || statusFilter !== 'all') && (
+          <div className="mb-3 text-sm text-gray-400">
+            Showing {sortedBots.length} of {dcaBots.length} bot{dcaBots.length !== 1 ? 's' : ''}
+            {sortedBots.length === 0 && (
+              <span className="text-yellow-400 ml-2">
+                No bots match your filters. Try adjusting your search or status filter.
+              </span>
+            )}
+          </div>
+        )}
+
+        {dcaBots.length > 0 && sortedBots.length > 0 ? (
           <div className="space-y-3">
             {sortedBots.map((bot) => {
               // Merge with trend data to show latest market trends
