@@ -40,6 +40,16 @@ const GLOBAL_CRYPTO_PAIRS = [
   'AR/USD', 'STORJ/USD', 'RENDER/USD', 'FET/USD', 'AGIX/USD',
   'RLC/USD', 'NMR/USD', 'CTSI/USD', 'AMP/USD', 'REQ/USD',
   'PHA/USD', 'ASTR/USD', 'ALICE/USD', 'ALCX/USD', 'PAXG/USD',
+
+  // User Portfolio & DCA Bot Assets - Additional coverage
+  'ICP/USD', 'ICX/USD', 'REP/USD', 'MLN/USD', 'USDT/USD', 'USDC/USD', 'DAI/USD',
+  'RAY/USD', 'ORCA/USD', 'MNGO/USD', 'SRM/USD', // Solana ecosystem
+  'MOVR/USD', 'SDN/USD', 'CFG/USD', 'KILT/USD', 'KINT/USD', // Polkadot ecosystem
+  'KNC/USD', 'RPL/USD', 'PERP/USD', 'RARI/USD', 'LPT/USD', // DeFi
+  'BADGER/USD', 'KEEP/USD', 'REN/USD', 'SPELL/USD', 'OXT/USD',
+  'EWT/USD', 'OCEAN/USD', 'GHST/USD', 'GLM/USD', 'SC/USD',
+  'AKT/USD', 'ANT/USD', 'AIR/USD', 'T/USD', 'TBTC/USD',
+  'ETH2/USD', 'XRT/USD', 'LSK/USD',
 ];
 
 type PriceUpdateCallback = (prices: Map<string, LivePrice>) => void;
