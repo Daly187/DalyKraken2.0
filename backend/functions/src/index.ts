@@ -13,10 +13,13 @@ import { createDepegRouter } from './routes/depeg.js';
 import { createMigrateRouter } from './routes/migrate.js';
 import { createTradingRouter } from './routes/trading.js';
 import { createTrackerRouter } from './routes/tracker.js';
+import { createNewsRouter } from './routes/news.js';
+import { createPolymarketRouter } from './routes/polymarket.js';
 import { authenticateToken } from './middleware/auth.js';
 import { DCABotService } from './services/dcaBotService.js';
 import { KrakenService } from './services/krakenService.js';
 import { MarketAnalysisService } from './services/marketAnalysisService.js';
+import { calculateMarketTrend } from './services/marketTrendService.js';
 import { CostBasisService } from './services/costBasisService.js';
 import { quantifyCryptoService } from './services/quantifyCryptoService.js';
 import { settingsStore, encryptKey, decryptKey, maskApiKey } from './services/settingsStore.js';
@@ -126,6 +129,12 @@ app.use('/trading', authenticateToken, createTradingRouter());
 
 // Mount Tracker routes (protected)
 app.use('/tracker', authenticateToken, createTrackerRouter());
+
+// Mount News routes (protected)
+app.use('/news', authenticateToken, createNewsRouter(db));
+
+// Mount Polymarket/Gambling routes (protected)
+app.use('/polymarket', authenticateToken, createPolymarketRouter());
 
 // ============================================
 // ACCOUNT ROUTES (Protected)
@@ -1452,6 +1461,169 @@ app.post('/audit/sync-trades', authenticateToken, async (req, res) => {
 });
 
 // ============================================
+// ADMIN - MARKET TREND BACKFILL
+// ============================================
+
+/**
+ * POST /admin/backfill-market-trends
+ * One-time backfill of market_trend for all existing bots
+ * Requires authentication
+ */
+app.post('/admin/backfill-market-trends', authenticateToken, async (req, res) => {
+  const startTime = Date.now();
+  console.log('[Admin] ========== Market Trend Backfill Started ==========');
+
+  try {
+    const userId = req.user!.userId;
+    console.log(`[Admin] Backfill triggered by user: ${userId}`);
+
+    // Get ALL bot documents (not just active)
+    const snapshot = await db.collection('dcaBots').get();
+
+    if (snapshot.empty) {
+      return res.json({
+        success: true,
+        message: 'No bots found to backfill',
+        totalBots: 0,
+        updated: 0,
+        skipped: 0,
+        elapsed: `${Date.now() - startTime}ms`,
+      });
+    }
+
+    const allBots = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+    })) as any[];
+
+    console.log(`[Admin] Found ${allBots.length} total bots to backfill`);
+
+    // Get unique symbols to minimize API calls
+    const uniqueSymbols = [...new Set(allBots.map(bot => bot.symbol))];
+    console.log(`[Admin] Fetching trend data for ${uniqueSymbols.length} unique symbols`);
+
+    // Fetch trend data for all unique symbols in parallel
+    const trendDataMap = new Map<string, { trendScore: number; techScore: number }>();
+
+    await Promise.all(
+      uniqueSymbols.map(async (symbol) => {
+        try {
+          const analysis = await marketAnalysisService.analyzeTrend(symbol);
+          trendDataMap.set(symbol, {
+            trendScore: analysis.trendScore,
+            techScore: analysis.techScore,
+          });
+        } catch (error: any) {
+          console.warn(`[Admin] Failed to get trend data for ${symbol}:`, error.message);
+        }
+      })
+    );
+
+    console.log(`[Admin] Got trend data for ${trendDataMap.size}/${uniqueSymbols.length} symbols`);
+
+    // Update each bot's market_trend in batches
+    const BATCH_SIZE = 500;
+    let updatedCount = 0;
+    let skippedCount = 0;
+    let batch = db.batch();
+    let batchCount = 0;
+    const now = new Date().toISOString();
+
+    const trendCounts = { bullish: 0, bearish: 0, neutral: 0 };
+    const updatedBots: { id: string; symbol: string; market_trend: string }[] = [];
+
+    for (const bot of allBots) {
+      const trendData = trendDataMap.get(bot.symbol);
+
+      if (!trendData) {
+        console.log(`[Admin] Skipping bot ${bot.id} (${bot.symbol}) - no trend data`);
+        skippedCount++;
+        continue;
+      }
+
+      const trendResult = calculateMarketTrend(trendData.trendScore, trendData.techScore);
+      trendCounts[trendResult.market_trend]++;
+
+      const botRef = db.collection('dcaBots').doc(bot.id);
+      batch.update(botRef, {
+        market_trend: trendResult.market_trend,
+        market_trend_updated: now,
+      });
+
+      updatedBots.push({
+        id: bot.id,
+        symbol: bot.symbol,
+        market_trend: trendResult.market_trend,
+      });
+
+      batchCount++;
+      updatedCount++;
+
+      // Log progress every 50 bots
+      if (updatedCount % 50 === 0) {
+        console.log(`[Admin] Progress: ${updatedCount}/${allBots.length} bots updated`);
+      }
+
+      // Commit batch when it reaches the limit
+      if (batchCount >= BATCH_SIZE) {
+        await batch.commit();
+        console.log(`[Admin] Committed batch of ${batchCount} updates`);
+        batch = db.batch();
+        batchCount = 0;
+      }
+    }
+
+    // Commit any remaining updates
+    if (batchCount > 0) {
+      await batch.commit();
+      console.log(`[Admin] Committed final batch of ${batchCount} updates`);
+    }
+
+    const elapsed = Date.now() - startTime;
+    console.log(`[Admin] ========== Backfill Summary ==========`);
+    console.log(`[Admin] Total bots: ${allBots.length}`);
+    console.log(`[Admin] Updated: ${updatedCount}`);
+    console.log(`[Admin] Skipped (no trend data): ${skippedCount}`);
+    console.log(`[Admin] Trend distribution: Bullish=${trendCounts.bullish}, Bearish=${trendCounts.bearish}, Neutral=${trendCounts.neutral}`);
+    console.log(`[Admin] Elapsed time: ${elapsed}ms`);
+    console.log(`[Admin] ========== Backfill Complete ==========`);
+
+    // Store backfill log in Firestore
+    await db.collection('systemLogs').add({
+      type: 'market_trend_backfill',
+      triggeredBy: userId,
+      timestamp: now,
+      completedAt: new Date().toISOString(),
+      summary: {
+        totalBots: allBots.length,
+        updated: updatedCount,
+        skipped: skippedCount,
+        trendCounts,
+        elapsed: `${elapsed}ms`,
+      },
+    });
+
+    res.json({
+      success: true,
+      message: 'Market trend backfill completed',
+      totalBots: allBots.length,
+      updated: updatedCount,
+      skipped: skippedCount,
+      trendCounts,
+      elapsed: `${elapsed}ms`,
+      updatedBots: updatedBots.slice(0, 20), // Return first 20 for verification
+    });
+  } catch (error: any) {
+    console.error('[Admin] ❌ Error in market trend backfill:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      elapsed: `${Date.now() - startTime}ms`,
+    });
+  }
+});
+
+// ============================================
 // DCA ROUTES
 // ============================================
 
@@ -1772,6 +1944,142 @@ export const updateMarketData = functions.pubsub
       return null;
     } catch (error: any) {
       console.error('[Scheduled] Error in updateMarketData:', error);
+      return null;
+    }
+  });
+
+/**
+ * Scheduled function to update market_trend for all active DCA bots
+ * Runs every 10 minutes (aligned with trends data cache TTL of 5 minutes)
+ */
+export const updateBotMarketTrends = functions.pubsub
+  .schedule('*/10 * * * *')
+  .timeZone('America/New_York')
+  .onRun(async (context) => {
+    const runTimestamp = new Date().toISOString();
+    console.log(`[Scheduled] ========== Market Trend Update Started: ${runTimestamp} ==========`);
+
+    try {
+      const dcaBotService = new DCABotService(db);
+      const marketAnalysis = new MarketAnalysisService();
+
+      // Get all active bots
+      const activeBots = await dcaBotService.getActiveBots();
+
+      if (activeBots.length === 0) {
+        console.log('[Scheduled] No active bots to update market_trend');
+        return null;
+      }
+
+      console.log(`[Scheduled] Updating market_trend for ${activeBots.length} active bots`);
+
+      // Get unique symbols to minimize API calls
+      const uniqueSymbols = [...new Set(activeBots.map(bot => bot.symbol))];
+      console.log(`[Scheduled] Fetching trend data for ${uniqueSymbols.length} unique symbols`);
+
+      // Fetch trend data for all unique symbols in parallel
+      const trendDataMap = new Map<string, { trendScore: number; techScore: number }>();
+
+      await Promise.all(
+        uniqueSymbols.map(async (symbol) => {
+          try {
+            const analysis = await marketAnalysis.analyzeTrend(symbol);
+            trendDataMap.set(symbol, {
+              trendScore: analysis.trendScore,
+              techScore: analysis.techScore,
+            });
+          } catch (error: any) {
+            console.warn(`[Scheduled] Failed to get trend data for ${symbol}:`, error.message);
+          }
+        })
+      );
+
+      console.log(`[Scheduled] Got trend data for ${trendDataMap.size}/${uniqueSymbols.length} symbols`);
+
+      // Update each bot's market_trend in batches
+      const BATCH_SIZE = 500; // Firestore batch limit
+      let updatedCount = 0;
+      let skippedCount = 0;
+      let batch = db.batch();
+      let batchCount = 0;
+
+      const trendCounts = { bullish: 0, bearish: 0, neutral: 0 };
+
+      for (const bot of activeBots) {
+        const trendData = trendDataMap.get(bot.symbol);
+
+        if (!trendData) {
+          skippedCount++;
+          continue;
+        }
+
+        const trendResult = calculateMarketTrend(trendData.trendScore, trendData.techScore);
+        trendCounts[trendResult.market_trend]++;
+
+        // Only update if market_trend has changed or is not set
+        if (bot.market_trend !== trendResult.market_trend) {
+          const botRef = db.collection('dcaBots').doc(bot.id);
+          batch.update(botRef, {
+            market_trend: trendResult.market_trend,
+            market_trend_updated: runTimestamp,
+          });
+
+          batchCount++;
+          updatedCount++;
+
+          // Commit batch when it reaches the limit
+          if (batchCount >= BATCH_SIZE) {
+            await batch.commit();
+            console.log(`[Scheduled] Committed batch of ${batchCount} updates`);
+            batch = db.batch();
+            batchCount = 0;
+          }
+        }
+      }
+
+      // Commit any remaining updates
+      if (batchCount > 0) {
+        await batch.commit();
+        console.log(`[Scheduled] Committed final batch of ${batchCount} updates`);
+      }
+
+      console.log(`[Scheduled] ========== Market Trend Update Summary ==========`);
+      console.log(`[Scheduled] Total active bots: ${activeBots.length}`);
+      console.log(`[Scheduled] Updated: ${updatedCount}`);
+      console.log(`[Scheduled] Skipped (no trend data): ${skippedCount}`);
+      console.log(`[Scheduled] Unchanged: ${activeBots.length - updatedCount - skippedCount}`);
+      console.log(`[Scheduled] Trend distribution: Bullish=${trendCounts.bullish}, Bearish=${trendCounts.bearish}, Neutral=${trendCounts.neutral}`);
+      console.log(`[Scheduled] ========== Market Trend Update Complete: ${new Date().toISOString()} ==========`);
+
+      // Store execution summary in Firestore
+      await db.collection('systemLogs').add({
+        type: 'market_trend_update',
+        timestamp: runTimestamp,
+        completedAt: new Date().toISOString(),
+        summary: {
+          totalBots: activeBots.length,
+          updated: updatedCount,
+          skipped: skippedCount,
+          trendCounts,
+        },
+      });
+
+      return null;
+    } catch (error: any) {
+      console.error('[Scheduled] ❌ FATAL ERROR in updateBotMarketTrends:', error);
+      console.error('[Scheduled] Stack trace:', error.stack);
+
+      // Store error in Firestore
+      await db.collection('systemLogs').add({
+        type: 'market_trend_update_error',
+        timestamp: runTimestamp,
+        error: {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        },
+      });
+
       return null;
     }
   });
@@ -2511,6 +2819,65 @@ app.post('/order-queue/circuit-breakers/:keyId/reset', authenticateToken, async 
   }
 });
 
+// Admin: Migrate orphan bots to authenticated user
+// This fixes bots that don't have a userId or have 'default-user'
+app.post('/admin/migrate-orphan-bots', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user!.userId;
+    console.log(`[API] Migrating orphan bots to user ${userId}`);
+
+    // Get ALL bots from the collection (without userId filter)
+    const allBotsSnapshot = await db.collection('dcaBots').get();
+    console.log(`[API] Found ${allBotsSnapshot.size} total bots in collection`);
+
+    let migratedCount = 0;
+    let alreadyOwnedCount = 0;
+    const migratedBots: string[] = [];
+
+    const batch = db.batch();
+
+    for (const doc of allBotsSnapshot.docs) {
+      const botData = doc.data();
+      const currentUserId = botData.userId;
+
+      // If bot doesn't have userId, or has 'default-user', migrate it
+      if (!currentUserId || currentUserId === 'default-user') {
+        batch.update(doc.ref, {
+          userId: userId,
+          updatedAt: new Date().toISOString(),
+        });
+        migratedCount++;
+        migratedBots.push(`${botData.symbol || doc.id}`);
+      } else if (currentUserId === userId) {
+        alreadyOwnedCount++;
+      }
+    }
+
+    if (migratedCount > 0) {
+      await batch.commit();
+    }
+
+    console.log(`[API] Migration complete: ${migratedCount} migrated, ${alreadyOwnedCount} already owned`);
+
+    res.json({
+      success: true,
+      message: `Migrated ${migratedCount} bots to your account`,
+      details: {
+        totalBotsInCollection: allBotsSnapshot.size,
+        migratedCount,
+        alreadyOwnedCount,
+        migratedBots: migratedBots.slice(0, 20), // Show first 20
+      },
+    });
+  } catch (error: any) {
+    console.error('[API] Error migrating orphan bots:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
 /**
  * Scheduled function to process pending orders
  * Runs every minute
@@ -2695,3 +3062,114 @@ export const monitorTrackedWallets = functions.pubsub
 
 // Export funding strategy functions from the separate module
 export { monitorFundingPositions, recordFundingRates } from './funding-strategy-monitor.js';
+
+/**
+ * Scheduled function to aggregate daily crypto news
+ * Runs at 9:00 AM ET (14:00 UTC) daily
+ */
+export const aggregateDailyNews = functions.pubsub
+  .schedule('0 14 * * *') // 9 AM ET = 14:00 UTC
+  .timeZone('America/New_York')
+  .onRun(async (context) => {
+    console.log('[DailyNews] Starting daily news aggregation...');
+
+    const today = new Date().toISOString().split('T')[0];
+
+    try {
+      // Import services dynamically to avoid circular dependencies
+      const { NewsAggregatorService } = await import('./services/newsAggregatorService.js');
+      const { NewsMarketDataService } = await import('./services/newsMarketDataService.js');
+      const { AISummaryService } = await import('./services/aiSummaryService.js');
+
+      const newsAggregator = new NewsAggregatorService(db);
+      const marketDataService = new NewsMarketDataService(db);
+      const aiSummaryService = new AISummaryService(db);
+
+      // 1. Fetch all RSS feeds
+      console.log('[DailyNews] Fetching RSS feeds...');
+      const articles = await newsAggregator.fetchAllFeeds();
+      console.log(`[DailyNews] Fetched ${articles.length} articles`);
+
+      // 2. Fetch market data
+      console.log('[DailyNews] Fetching market data...');
+      const marketData = await marketDataService.getMarketOverview();
+      console.log(`[DailyNews] Market data: F&G=${marketData.fearGreedIndex}, BTC Dom=${marketData.btcDominance.toFixed(1)}%`);
+
+      // 3. Generate AI summary
+      console.log('[DailyNews] Generating AI summary...');
+      const aiSummary = await aiSummaryService.generateDailySummary(articles, marketData);
+      console.log(`[DailyNews] AI Summary: "${aiSummary.title}" (${aiSummary.sentiment})`);
+
+      // 4. Store everything
+      console.log('[DailyNews] Storing data...');
+      await Promise.all([
+        newsAggregator.storeArticles(today, articles),
+        marketDataService.storeMarketData(today, marketData),
+        aiSummaryService.storeSummary(today, aiSummary),
+      ]);
+
+      // 5. Update main document
+      await db.collection('dailyNews').doc(today).set({
+        date: today,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }, { merge: true });
+
+      // 6. Log to system logs
+      await db.collection('systemLogs').add({
+        type: 'daily_news_aggregation',
+        timestamp: new Date().toISOString(),
+        summary: {
+          date: today,
+          articlesCount: articles.length,
+          fearGreedIndex: marketData.fearGreedIndex,
+          sentiment: aiSummary.sentiment,
+          model: aiSummary.model,
+        },
+      });
+
+      console.log(`[DailyNews] ✅ Daily aggregation complete for ${today}`);
+      return { success: true, date: today, articlesCount: articles.length };
+
+    } catch (error: any) {
+      console.error('[DailyNews] ❌ Aggregation failed:', error.message);
+
+      await db.collection('systemLogs').add({
+        type: 'daily_news_aggregation_error',
+        timestamp: new Date().toISOString(),
+        error: {
+          message: error.message,
+          stack: error.stack,
+        },
+      });
+
+      return { success: false, error: error.message };
+    }
+  });
+
+/**
+ * Scheduled function to update news market data more frequently
+ * Runs every 30 minutes during market hours
+ */
+export const updateNewsMarketData = functions.pubsub
+  .schedule('*/30 * * * *')
+  .onRun(async (context) => {
+    console.log('[NewsMarketData] Updating market data...');
+
+    try {
+      const { NewsMarketDataService } = await import('./services/newsMarketDataService.js');
+      const marketDataService = new NewsMarketDataService(db);
+
+      const today = new Date().toISOString().split('T')[0];
+      const marketData = await marketDataService.getMarketOverview();
+
+      await marketDataService.storeMarketData(today, marketData);
+
+      console.log(`[NewsMarketData] ✅ Updated: F&G=${marketData.fearGreedIndex} (${marketData.fearGreedLabel})`);
+      return { success: true };
+
+    } catch (error: any) {
+      console.error('[NewsMarketData] ❌ Update failed:', error.message);
+      return { success: false, error: error.message };
+    }
+  });

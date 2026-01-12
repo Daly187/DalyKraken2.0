@@ -29,6 +29,7 @@ export interface MatchedPair {
   spread?: number; // Funding rate difference
   annualSpread?: number; // Annual rate difference
   opportunity: 'long_aster_short_hl' | 'short_aster_long_hl' | 'none';
+  marketCap?: number | null; // Market cap in USD
 }
 
 export interface AssetInfo {

@@ -1,9 +1,13 @@
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { krakenApiService } from '@/services/krakenApiService';
 import { useStore } from '@/store/useStore';
 import { getCommonName } from '@/utils/assetNames';
 import { globalPriceManager } from '@/services/globalPriceManager';
 import type { LivePrice } from '@/types';
+import KrakenPortfolio from './KrakenPortfolio';
+import AsterPortfolio from './AsterPortfolio';
+import HyperliquidPortfolio from './HyperliquidPortfolio';
 import {
   RefreshCw,
   TrendingUp,
@@ -39,8 +43,21 @@ const CACHE_TIMESTAMP_KEY = 'portfolio_balances_timestamp';
 
 type SortField = 'asset' | 'holdings' | 'price' | 'value' | 'change' | 'weight';
 type SortDirection = 'asc' | 'desc';
+type TabType = 'overview' | 'kraken' | 'aster' | 'hyperliquid';
 
 export default function Portfolio() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [activeTab, setActiveTab] = useState<TabType>(() => {
+    const tab = searchParams.get('tab');
+    if (tab === 'kraken' || tab === 'aster' || tab === 'hyperliquid') return tab;
+    return 'overview';
+  });
+
+  const handleTabChange = (tab: TabType) => {
+    setActiveTab(tab);
+    setSearchParams({ tab });
+  };
+
   // Get global live prices from store
   const livePrices = useStore((state) => state.livePrices);
 
@@ -298,14 +315,93 @@ export default function Portfolio() {
     return 'just now';
   };
 
+  // Tab Navigation component
+  const TabNavigation = () => (
+    <div className="flex border-b border-slate-200 dark:border-slate-700">
+      <button
+        onClick={() => handleTabChange('overview')}
+        className={`px-6 py-3 text-sm font-medium transition-colors border-b-2 -mb-px ${
+          activeTab === 'overview'
+            ? 'border-primary-500 text-primary-500'
+            : 'border-transparent text-slate-500 dark:text-gray-400 hover:text-slate-700 dark:hover:text-gray-200 hover:border-slate-300 dark:hover:border-gray-500'
+        }`}
+      >
+        Overview
+      </button>
+      <button
+        onClick={() => handleTabChange('kraken')}
+        className={`px-6 py-3 text-sm font-medium transition-colors border-b-2 -mb-px ${
+          activeTab === 'kraken'
+            ? 'border-primary-500 text-primary-500'
+            : 'border-transparent text-slate-500 dark:text-gray-400 hover:text-slate-700 dark:hover:text-gray-200 hover:border-slate-300 dark:hover:border-gray-500'
+        }`}
+      >
+        Kraken
+      </button>
+      <button
+        onClick={() => handleTabChange('aster')}
+        className={`px-6 py-3 text-sm font-medium transition-colors border-b-2 -mb-px ${
+          activeTab === 'aster'
+            ? 'border-primary-500 text-primary-500'
+            : 'border-transparent text-slate-500 dark:text-gray-400 hover:text-slate-700 dark:hover:text-gray-200 hover:border-slate-300 dark:hover:border-gray-500'
+        }`}
+      >
+        Aster
+      </button>
+      <button
+        onClick={() => handleTabChange('hyperliquid')}
+        className={`px-6 py-3 text-sm font-medium transition-colors border-b-2 -mb-px ${
+          activeTab === 'hyperliquid'
+            ? 'border-primary-500 text-primary-500'
+            : 'border-transparent text-slate-500 dark:text-gray-400 hover:text-slate-700 dark:hover:text-gray-200 hover:border-slate-300 dark:hover:border-gray-500'
+        }`}
+      >
+        Hyperliquid
+      </button>
+    </div>
+  );
+
+  // Render Kraken tab
+  if (activeTab === 'kraken') {
+    return (
+      <div className="space-y-6">
+        <TabNavigation />
+        <KrakenPortfolio />
+      </div>
+    );
+  }
+
+  // Render Aster tab
+  if (activeTab === 'aster') {
+    return (
+      <div className="space-y-6">
+        <TabNavigation />
+        <AsterPortfolio />
+      </div>
+    );
+  }
+
+  // Render Hyperliquid tab
+  if (activeTab === 'hyperliquid') {
+    return (
+      <div className="space-y-6">
+        <TabNavigation />
+        <HyperliquidPortfolio />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
+      {/* Tab Navigation */}
+      <TabNavigation />
+
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold">Portfolio</h1>
+          <h1 className="text-3xl font-bold">Portfolio Overview</h1>
           <div className="flex items-center gap-3 mt-1">
-            <p className="text-sm text-gray-400">
+            <p className="text-sm text-slate-500 dark:text-gray-400">
               Your Kraken account holdings and balances
             </p>
             {livePrices.size > 0 && (
@@ -351,7 +447,7 @@ export default function Portfolio() {
                   ? 'API Unavailable - Using Cache'
                   : 'Error Loading Portfolio'}
               </p>
-              <p className="text-sm text-gray-300 mt-1">{error}</p>
+              <p className="text-sm text-slate-600 dark:text-gray-300 mt-1">{error}</p>
               {!error.includes('rate limit') && !error.includes('backend') && !error.includes('Showing cached') && (
                 <p className="text-xs text-gray-500 mt-2">
                   Make sure you've added your Kraken API keys in Settings with "Query Funds" permission.
@@ -372,7 +468,7 @@ export default function Portfolio() {
         <div className="card">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-400">Total Value</p>
+              <p className="text-sm text-slate-500 dark:text-gray-400">Total Value</p>
               <p className="text-2xl font-bold">{formatCurrency(totalValue)}</p>
               {lastUpdate && (
                 <p className="text-xs text-gray-500 mt-1">
@@ -389,7 +485,7 @@ export default function Portfolio() {
         <div className="card">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-400">24h Change</p>
+              <p className="text-sm text-slate-500 dark:text-gray-400">24h Change</p>
               <p className={`text-2xl font-bold ${
                 totalChange24h >= 0 ? 'text-green-500' : 'text-red-500'
               }`}>
@@ -412,9 +508,9 @@ export default function Portfolio() {
         <div className="card">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-400">USD + Stables</p>
+              <p className="text-sm text-slate-500 dark:text-gray-400">USD + Stables</p>
               <p className="text-2xl font-bold">{formatCurrency(stableValue)}</p>
-              <p className="text-sm text-gray-400">
+              <p className="text-sm text-slate-500 dark:text-gray-400">
                 {formatPercent((stableValue / totalValue) * 100)} of portfolio
               </p>
             </div>
@@ -425,9 +521,9 @@ export default function Portfolio() {
         <div className="card">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-400">Holdings</p>
+              <p className="text-sm text-slate-500 dark:text-gray-400">Holdings</p>
               <p className="text-2xl font-bold">{holdings.length}</p>
-              <p className="text-sm text-gray-400">
+              <p className="text-sm text-slate-500 dark:text-gray-400">
                 {holdings.filter(h => h.value > 1).length} &gt; $1
               </p>
             </div>
@@ -449,11 +545,11 @@ export default function Portfolio() {
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
-                <tr className="text-left text-gray-400 text-sm">
+                <tr className="text-left text-slate-500 dark:text-gray-400 text-sm">
                   <th className="pb-3">
                     <button
                       onClick={() => handleSort('asset')}
-                      className="flex items-center gap-1 hover:text-gray-200 transition-colors"
+                      className="flex items-center gap-1 hover:text-slate-700 dark:hover:text-gray-200 transition-colors"
                     >
                       Asset
                       {sortField === 'asset' && (
@@ -465,7 +561,7 @@ export default function Portfolio() {
                   <th className="pb-3">
                     <button
                       onClick={() => handleSort('holdings')}
-                      className="flex items-center gap-1 hover:text-gray-200 transition-colors"
+                      className="flex items-center gap-1 hover:text-slate-700 dark:hover:text-gray-200 transition-colors"
                     >
                       Holdings
                       {sortField === 'holdings' && (
@@ -477,7 +573,7 @@ export default function Portfolio() {
                   <th className="pb-3">
                     <button
                       onClick={() => handleSort('price')}
-                      className="flex items-center gap-1 hover:text-gray-200 transition-colors"
+                      className="flex items-center gap-1 hover:text-slate-700 dark:hover:text-gray-200 transition-colors"
                     >
                       Price
                       {sortField === 'price' && (
@@ -489,7 +585,7 @@ export default function Portfolio() {
                   <th className="pb-3">
                     <button
                       onClick={() => handleSort('value')}
-                      className="flex items-center gap-1 hover:text-gray-200 transition-colors"
+                      className="flex items-center gap-1 hover:text-slate-700 dark:hover:text-gray-200 transition-colors"
                     >
                       Value
                       {sortField === 'value' && (
@@ -501,7 +597,7 @@ export default function Portfolio() {
                   <th className="pb-3">
                     <button
                       onClick={() => handleSort('change')}
-                      className="flex items-center gap-1 hover:text-gray-200 transition-colors"
+                      className="flex items-center gap-1 hover:text-slate-700 dark:hover:text-gray-200 transition-colors"
                     >
                       24h Change
                       {sortField === 'change' && (
@@ -513,7 +609,7 @@ export default function Portfolio() {
                   <th className="pb-3">
                     <button
                       onClick={() => handleSort('weight')}
-                      className="flex items-center gap-1 hover:text-gray-200 transition-colors"
+                      className="flex items-center gap-1 hover:text-slate-700 dark:hover:text-gray-200 transition-colors"
                     >
                       Weight
                       {sortField === 'weight' && (
@@ -534,7 +630,7 @@ export default function Portfolio() {
                   return (
                     <tr
                       key={holding.asset}
-                      className="border-t border-slate-700 hover:bg-slate-700/30 transition-colors"
+                      className="border-t border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors"
                     >
                       <td className="py-3">
                         <div className="flex items-center gap-2">
@@ -572,13 +668,13 @@ export default function Portfolio() {
                       </td>
                       <td className="py-3">
                         <div className="flex items-center gap-2">
-                          <div className="w-20 bg-slate-700 rounded-full h-2">
+                          <div className="w-20 bg-slate-200 dark:bg-slate-700 rounded-full h-2">
                             <div
                               className="bg-primary-500 h-2 rounded-full"
                               style={{ width: `${Math.min(holding.weight, 100)}%` }}
                             />
                           </div>
-                          <span className="text-sm text-gray-400 min-w-[3rem]">
+                          <span className="text-sm text-slate-500 dark:text-gray-400 min-w-[3rem]">
                             {holding.weight.toFixed(1)}%
                           </span>
                         </div>
@@ -600,9 +696,9 @@ export default function Portfolio() {
           </div>
         ) : (
           <div className="text-center py-12">
-            <PieChart className="h-12 w-12 text-gray-500 mx-auto mb-4" />
-            <p className="text-gray-400">No holdings found</p>
-            <p className="text-sm text-gray-500 mt-2">
+            <PieChart className="h-12 w-12 text-slate-400 dark:text-gray-500 mx-auto mb-4" />
+            <p className="text-slate-600 dark:text-gray-400">No holdings found</p>
+            <p className="text-sm text-slate-500 dark:text-gray-500 mt-2">
               Make sure your Kraken API key has "Query Funds" permission
             </p>
           </div>

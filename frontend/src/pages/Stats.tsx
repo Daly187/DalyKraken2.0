@@ -35,13 +35,18 @@ export default function Stats() {
 
   const loadData = async () => {
     setIsLoading(true);
-    await Promise.all([
-      fetchPortfolio().catch(console.error),
-      fetchDCAStatus().catch(console.error),
-      fetchDCABots().catch(console.error),
-      fetchTransactions().catch(console.error),
-      fetchAuditSummary().catch(console.error),
-    ]);
+    try {
+      // Use Promise.allSettled to prevent one failure from stopping others
+      await Promise.allSettled([
+        fetchPortfolio(),
+        fetchDCAStatus(),
+        fetchDCABots(),
+        fetchTransactions(),
+        fetchAuditSummary(),
+      ]);
+    } catch (error) {
+      console.error('[Stats] Error loading data:', error);
+    }
     setIsLoading(false);
   };
 
@@ -138,21 +143,21 @@ export default function Stats() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
-      {/* Animated background gradients */}
-      <div className="fixed inset-0 overflow-hidden pointer-events-none">
+    <div className="min-h-screen">
+      {/* Animated background gradients - only visible in dark mode */}
+      <div className="fixed inset-0 overflow-hidden pointer-events-none dark:block hidden">
         <div className="absolute top-0 left-1/4 w-96 h-96 bg-blue-500/20 rounded-full blur-3xl animate-pulse" />
         <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-purple-500/20 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '1s' }} />
       </div>
 
-      <div className="relative space-y-6 p-6">
+      <div className="relative space-y-6">
         {/* Header */}
         <div className="mb-8 flex items-start justify-between">
           <div>
-            <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">
+            <h1 className="text-4xl font-bold text-slate-800 dark:bg-gradient-to-r dark:from-blue-400 dark:via-purple-400 dark:to-pink-400 dark:bg-clip-text dark:text-transparent">
               Statistics & Analytics
             </h1>
-            <p className="text-slate-400 mt-2">Comprehensive overview of your trading performance</p>
+            <p className="text-slate-500 dark:text-slate-400 mt-2">Comprehensive overview of your trading performance</p>
             {isLoading && (
               <div className="mt-2 flex items-center gap-2 text-sm text-blue-400">
                 <Activity className="h-4 w-4 animate-pulse" />
@@ -171,11 +176,11 @@ export default function Stats() {
         </div>
 
         {/* Overall Performance Summary */}
-        <div className="relative overflow-hidden rounded-xl bg-gradient-to-br from-blue-500/10 via-purple-500/10 to-pink-500/10 backdrop-blur-xl border border-blue-500/20 p-8">
+        <div className="relative overflow-hidden rounded-xl bg-white dark:bg-gradient-to-br dark:from-blue-500/10 dark:via-purple-500/10 dark:to-pink-500/10 backdrop-blur-xl border border-blue-200 dark:border-blue-500/20 p-8 shadow-sm">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
             <div className="text-center">
-              <p className="text-sm text-slate-400 mb-2">Portfolio Value</p>
-              <p className="text-3xl font-bold text-white mb-1">{formatCurrency(portfolioTotalValue)}</p>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mb-2">Portfolio Value</p>
+              <p className="text-3xl font-bold text-slate-800 dark:text-white mb-1">{formatCurrency(portfolioTotalValue)}</p>
               <p className={`text-sm font-semibold ${
                 portfolioTotalProfitLoss >= 0 ? 'text-green-400' : 'text-red-400'
               }`}>
@@ -183,7 +188,7 @@ export default function Stats() {
               </p>
             </div>
             <div className="text-center">
-              <p className="text-sm text-slate-400 mb-2">DCA Bots P&L</p>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mb-2">DCA Bots P&L</p>
               <p className={`text-3xl font-bold ${botStats.totalUnrealizedPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                 {formatCurrency(botStats.totalUnrealizedPnL)}
               </p>
@@ -192,22 +197,22 @@ export default function Stats() {
               </p>
             </div>
             <div className="text-center">
-              <p className="text-sm text-slate-400 mb-2">Trading Volume</p>
-              <p className="text-3xl font-bold text-white mb-1">
+              <p className="text-sm text-slate-500 dark:text-slate-400 mb-2">Trading Volume</p>
+              <p className="text-3xl font-bold text-slate-800 dark:text-white mb-1">
                 {formatCurrency(txStats.buyVolume + txStats.sellVolume)}
               </p>
-              <p className="text-sm text-slate-400">
+              <p className="text-sm text-slate-500 dark:text-slate-400">
                 {txStats.totalTransactions} trades
               </p>
             </div>
             <div className="text-center">
-              <p className="text-sm text-slate-400 mb-2">Win Rate</p>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mb-2">Win Rate</p>
               <p className="text-3xl font-bold text-purple-400">
                 {portfolioStats.totalAssets > 0
                   ? ((portfolioStats.profitableAssets / portfolioStats.totalAssets) * 100).toFixed(1)
                   : '0.0'}%
               </p>
-              <p className="text-sm text-slate-400">
+              <p className="text-sm text-slate-500 dark:text-slate-400">
                 {portfolioStats.profitableAssets} / {portfolioStats.totalAssets} assets
               </p>
             </div>
@@ -217,99 +222,99 @@ export default function Stats() {
         {/* Key Metrics Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           {/* Total Portfolio Value */}
-          <div className="group relative overflow-hidden rounded-xl bg-gradient-to-br from-blue-500/10 via-slate-800/50 to-slate-900/50 backdrop-blur-xl border border-blue-500/20 p-6 hover:border-blue-500/40 transition-all duration-300">
+          <div className="group relative overflow-hidden rounded-xl bg-white dark:bg-gradient-to-br dark:from-blue-500/10 dark:via-slate-800/50 dark:to-slate-900/50 backdrop-blur-xl border border-blue-200 dark:border-blue-500/20 p-6 hover:border-blue-400 dark:hover:border-blue-500/40 transition-all duration-300 shadow-sm">
             <div className="flex items-center justify-between mb-4">
-              <div className="p-3 bg-blue-500/20 rounded-xl ring-1 ring-blue-500/30">
-                <DollarSign className="h-6 w-6 text-blue-400" />
+              <div className="p-3 bg-blue-100 dark:bg-blue-500/20 rounded-xl ring-1 ring-blue-200 dark:ring-blue-500/30">
+                <DollarSign className="h-6 w-6 text-blue-500 dark:text-blue-400" />
               </div>
             </div>
-            <p className="text-sm text-slate-400 mb-1">Total Value</p>
-            <p className="text-2xl font-bold text-white">{formatCurrency(portfolioTotalValue)}</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mb-1">Total Value</p>
+            <p className="text-2xl font-bold text-slate-800 dark:text-white">{formatCurrency(portfolioTotalValue)}</p>
           </div>
 
           {/* Total Invested */}
-          <div className="group relative overflow-hidden rounded-xl bg-gradient-to-br from-purple-500/10 via-slate-800/50 to-slate-900/50 backdrop-blur-xl border border-purple-500/20 p-6 hover:border-purple-500/40 transition-all duration-300">
+          <div className="group relative overflow-hidden rounded-xl bg-white dark:bg-gradient-to-br dark:from-purple-500/10 dark:via-slate-800/50 dark:to-slate-900/50 backdrop-blur-xl border border-purple-200 dark:border-purple-500/20 p-6 hover:border-purple-400 dark:hover:border-purple-500/40 transition-all duration-300 shadow-sm">
             <div className="flex items-center justify-between mb-4">
-              <div className="p-3 bg-purple-500/20 rounded-xl ring-1 ring-purple-500/30">
-                <Target className="h-6 w-6 text-purple-400" />
+              <div className="p-3 bg-purple-100 dark:bg-purple-500/20 rounded-xl ring-1 ring-purple-200 dark:ring-purple-500/30">
+                <Target className="h-6 w-6 text-purple-500 dark:text-purple-400" />
               </div>
             </div>
-            <p className="text-sm text-slate-400 mb-1">Total Invested</p>
-            <p className="text-2xl font-bold text-white">{formatCurrency(portfolioStats.totalInvested)}</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mb-1">Total Invested</p>
+            <p className="text-2xl font-bold text-slate-800 dark:text-white">{formatCurrency(portfolioStats.totalInvested)}</p>
           </div>
 
           {/* Average Return */}
-          <div className="group relative overflow-hidden rounded-xl bg-gradient-to-br from-green-500/10 via-slate-800/50 to-slate-900/50 backdrop-blur-xl border border-green-500/20 p-6 hover:border-green-500/40 transition-all duration-300">
+          <div className="group relative overflow-hidden rounded-xl bg-white dark:bg-gradient-to-br dark:from-green-500/10 dark:via-slate-800/50 dark:to-slate-900/50 backdrop-blur-xl border border-green-200 dark:border-green-500/20 p-6 hover:border-green-400 dark:hover:border-green-500/40 transition-all duration-300 shadow-sm">
             <div className="flex items-center justify-between mb-4">
-              <div className="p-3 bg-green-500/20 rounded-xl ring-1 ring-green-500/30">
-                <Percent className="h-6 w-6 text-green-400" />
+              <div className="p-3 bg-green-100 dark:bg-green-500/20 rounded-xl ring-1 ring-green-200 dark:ring-green-500/30">
+                <Percent className="h-6 w-6 text-green-500 dark:text-green-400" />
               </div>
             </div>
-            <p className="text-sm text-slate-400 mb-1">Avg Return</p>
-            <p className={`text-2xl font-bold ${portfolioStats.avgReturn >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mb-1">Avg Return</p>
+            <p className={`text-2xl font-bold ${portfolioStats.avgReturn >= 0 ? 'text-green-500 dark:text-green-400' : 'text-red-500 dark:text-red-400'}`}>
               {formatPercent(portfolioStats.avgReturn)}
             </p>
           </div>
 
           {/* Total Assets */}
-          <div className="group relative overflow-hidden rounded-xl bg-gradient-to-br from-pink-500/10 via-slate-800/50 to-slate-900/50 backdrop-blur-xl border border-pink-500/20 p-6 hover:border-pink-500/40 transition-all duration-300">
+          <div className="group relative overflow-hidden rounded-xl bg-white dark:bg-gradient-to-br dark:from-pink-500/10 dark:via-slate-800/50 dark:to-slate-900/50 backdrop-blur-xl border border-pink-200 dark:border-pink-500/20 p-6 hover:border-pink-400 dark:hover:border-pink-500/40 transition-all duration-300 shadow-sm">
             <div className="flex items-center justify-between mb-4">
-              <div className="p-3 bg-pink-500/20 rounded-xl ring-1 ring-pink-500/30">
-                <PieChart className="h-6 w-6 text-pink-400" />
+              <div className="p-3 bg-pink-100 dark:bg-pink-500/20 rounded-xl ring-1 ring-pink-200 dark:ring-pink-500/30">
+                <PieChart className="h-6 w-6 text-pink-500 dark:text-pink-400" />
               </div>
             </div>
-            <p className="text-sm text-slate-400 mb-1">Total Assets</p>
-            <p className="text-2xl font-bold text-white">{portfolioStats.totalAssets}</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mb-1">Total Assets</p>
+            <p className="text-2xl font-bold text-slate-800 dark:text-white">{portfolioStats.totalAssets}</p>
           </div>
         </div>
 
         {/* Trading Overview Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           {/* Total Trades */}
-          <div className="relative overflow-hidden rounded-xl bg-gradient-to-br from-cyan-500/10 via-slate-800/50 to-slate-900/50 backdrop-blur-xl border border-cyan-500/20 p-6 hover:border-cyan-500/40 transition-all duration-300">
+          <div className="relative overflow-hidden rounded-xl bg-white dark:bg-gradient-to-br dark:from-cyan-500/10 dark:via-slate-800/50 dark:to-slate-900/50 backdrop-blur-xl border border-cyan-200 dark:border-cyan-500/20 p-6 hover:border-cyan-400 dark:hover:border-cyan-500/40 transition-all duration-300 shadow-sm">
             <div className="flex items-center justify-between mb-4">
-              <div className="p-3 bg-cyan-500/20 rounded-xl ring-1 ring-cyan-500/30">
-                <Activity className="h-6 w-6 text-cyan-400" />
+              <div className="p-3 bg-cyan-100 dark:bg-cyan-500/20 rounded-xl ring-1 ring-cyan-200 dark:ring-cyan-500/30">
+                <Activity className="h-6 w-6 text-cyan-500 dark:text-cyan-400" />
               </div>
             </div>
-            <p className="text-sm text-slate-400 mb-1">Total Trades</p>
-            <p className="text-2xl font-bold text-white">{txStats.totalTransactions}</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mb-1">Total Trades</p>
+            <p className="text-2xl font-bold text-slate-800 dark:text-white">{txStats.totalTransactions}</p>
             <p className="text-xs text-slate-500 mt-1">{txStats.totalBuys} buys / {txStats.totalSells} sells</p>
           </div>
 
           {/* Trade Volume */}
-          <div className="relative overflow-hidden rounded-xl bg-gradient-to-br from-emerald-500/10 via-slate-800/50 to-slate-900/50 backdrop-blur-xl border border-emerald-500/20 p-6 hover:border-emerald-500/40 transition-all duration-300">
+          <div className="relative overflow-hidden rounded-xl bg-white dark:bg-gradient-to-br dark:from-emerald-500/10 dark:via-slate-800/50 dark:to-slate-900/50 backdrop-blur-xl border border-emerald-200 dark:border-emerald-500/20 p-6 hover:border-emerald-400 dark:hover:border-emerald-500/40 transition-all duration-300 shadow-sm">
             <div className="flex items-center justify-between mb-4">
-              <div className="p-3 bg-emerald-500/20 rounded-xl ring-1 ring-emerald-500/30">
-                <BarChart3 className="h-6 w-6 text-emerald-400" />
+              <div className="p-3 bg-emerald-100 dark:bg-emerald-500/20 rounded-xl ring-1 ring-emerald-200 dark:ring-emerald-500/30">
+                <BarChart3 className="h-6 w-6 text-emerald-500 dark:text-emerald-400" />
               </div>
             </div>
-            <p className="text-sm text-slate-400 mb-1">Trade Volume</p>
-            <p className="text-2xl font-bold text-white">{formatCurrency(txStats.buyVolume + txStats.sellVolume)}</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mb-1">Trade Volume</p>
+            <p className="text-2xl font-bold text-slate-800 dark:text-white">{formatCurrency(txStats.buyVolume + txStats.sellVolume)}</p>
             <p className="text-xs text-slate-500 mt-1">Buy: {formatCurrency(txStats.buyVolume)}</p>
           </div>
 
           {/* Total Fees Paid */}
-          <div className="relative overflow-hidden rounded-xl bg-gradient-to-br from-orange-500/10 via-slate-800/50 to-slate-900/50 backdrop-blur-xl border border-orange-500/20 p-6 hover:border-orange-500/40 transition-all duration-300">
+          <div className="relative overflow-hidden rounded-xl bg-white dark:bg-gradient-to-br dark:from-orange-500/10 dark:via-slate-800/50 dark:to-slate-900/50 backdrop-blur-xl border border-orange-200 dark:border-orange-500/20 p-6 hover:border-orange-400 dark:hover:border-orange-500/40 transition-all duration-300 shadow-sm">
             <div className="flex items-center justify-between mb-4">
-              <div className="p-3 bg-orange-500/20 rounded-xl ring-1 ring-orange-500/30">
-                <DollarSign className="h-6 w-6 text-orange-400" />
+              <div className="p-3 bg-orange-100 dark:bg-orange-500/20 rounded-xl ring-1 ring-orange-200 dark:ring-orange-500/30">
+                <DollarSign className="h-6 w-6 text-orange-500 dark:text-orange-400" />
               </div>
             </div>
-            <p className="text-sm text-slate-400 mb-1">Total Fees</p>
-            <p className="text-2xl font-bold text-white">{formatCurrency(txStats.totalFees)}</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mb-1">Total Fees</p>
+            <p className="text-2xl font-bold text-slate-800 dark:text-white">{formatCurrency(txStats.totalFees)}</p>
             <p className="text-xs text-slate-500 mt-1">Cumulative trading fees</p>
           </div>
 
           {/* Net P&L */}
-          <div className="relative overflow-hidden rounded-xl bg-gradient-to-br from-violet-500/10 via-slate-800/50 to-slate-900/50 backdrop-blur-xl border border-violet-500/20 p-6 hover:border-violet-500/40 transition-all duration-300">
+          <div className="relative overflow-hidden rounded-xl bg-white dark:bg-gradient-to-br dark:from-violet-500/10 dark:via-slate-800/50 dark:to-slate-900/50 backdrop-blur-xl border border-violet-200 dark:border-violet-500/20 p-6 hover:border-violet-400 dark:hover:border-violet-500/40 transition-all duration-300 shadow-sm">
             <div className="flex items-center justify-between mb-4">
-              <div className="p-3 bg-violet-500/20 rounded-xl ring-1 ring-violet-500/30">
-                <TrendingUp className="h-6 w-6 text-violet-400" />
+              <div className="p-3 bg-violet-100 dark:bg-violet-500/20 rounded-xl ring-1 ring-violet-200 dark:ring-violet-500/30">
+                <TrendingUp className="h-6 w-6 text-violet-500 dark:text-violet-400" />
               </div>
             </div>
-            <p className="text-sm text-slate-400 mb-1">Net Realized P&L</p>
-            <p className={`text-2xl font-bold ${txStats.netProfitLoss >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mb-1">Net Realized P&L</p>
+            <p className={`text-2xl font-bold ${txStats.netProfitLoss >= 0 ? 'text-green-500 dark:text-green-400' : 'text-red-500 dark:text-red-400'}`}>
               {formatCurrency(txStats.netProfitLoss)}
             </p>
             <p className="text-xs text-slate-500 mt-1">From completed trades</p>
@@ -319,32 +324,32 @@ export default function Stats() {
         {/* Performance Overview */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Portfolio Performance */}
-          <div className="relative overflow-hidden rounded-xl bg-slate-800/40 backdrop-blur-xl border border-slate-700/50">
-            <div className="p-6 border-b border-slate-700/50">
-              <h2 className="text-xl font-bold text-white flex items-center">
+          <div className="relative overflow-hidden rounded-xl bg-white dark:bg-slate-800/40 backdrop-blur-xl border border-gray-100 dark:border-slate-700/50">
+            <div className="p-6 border-b border-gray-100 dark:border-slate-700/50">
+              <h2 className="text-xl font-bold text-slate-800 dark:text-white flex items-center">
                 <BarChart3 className="h-5 w-5 mr-2 text-blue-400" />
                 Portfolio Performance
               </h2>
             </div>
             <div className="p-6 space-y-4">
-              <div className="flex items-center justify-between p-4 rounded-lg bg-slate-900/50 border border-slate-700/30">
+              <div className="flex items-center justify-between p-4 rounded-lg bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-slate-700/30">
                 <div className="flex items-center space-x-3">
                   <TrendingUp className="h-5 w-5 text-green-400" />
-                  <span className="text-slate-300">Profitable Assets</span>
+                  <span className="text-slate-600 dark:text-slate-300">Profitable Assets</span>
                 </div>
                 <span className="text-2xl font-bold text-green-400">{portfolioStats.profitableAssets}</span>
               </div>
-              <div className="flex items-center justify-between p-4 rounded-lg bg-slate-900/50 border border-slate-700/30">
+              <div className="flex items-center justify-between p-4 rounded-lg bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-slate-700/30">
                 <div className="flex items-center space-x-3">
                   <TrendingDown className="h-5 w-5 text-red-400" />
-                  <span className="text-slate-300">Losing Assets</span>
+                  <span className="text-slate-600 dark:text-slate-300">Losing Assets</span>
                 </div>
                 <span className="text-2xl font-bold text-red-400">{portfolioStats.losingAssets}</span>
               </div>
-              <div className="flex items-center justify-between p-4 rounded-lg bg-slate-900/50 border border-slate-700/30">
+              <div className="flex items-center justify-between p-4 rounded-lg bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-slate-700/30">
                 <div className="flex items-center space-x-3">
                   <Activity className="h-5 w-5 text-purple-400" />
-                  <span className="text-slate-300">Win Rate</span>
+                  <span className="text-slate-600 dark:text-slate-300">Win Rate</span>
                 </div>
                 <span className="text-2xl font-bold text-purple-400">
                   {portfolioStats.totalAssets > 0
@@ -356,32 +361,32 @@ export default function Stats() {
           </div>
 
           {/* DCA Performance */}
-          <div className="relative overflow-hidden rounded-xl bg-slate-800/40 backdrop-blur-xl border border-slate-700/50">
-            <div className="p-6 border-b border-slate-700/50">
-              <h2 className="text-xl font-bold text-white flex items-center">
+          <div className="relative overflow-hidden rounded-xl bg-white dark:bg-slate-800/40 backdrop-blur-xl border border-gray-100 dark:border-slate-700/50">
+            <div className="p-6 border-b border-gray-100 dark:border-slate-700/50">
+              <h2 className="text-xl font-bold text-slate-800 dark:text-white flex items-center">
                 <Activity className="h-5 w-5 mr-2 text-purple-400" />
                 DCA Performance
               </h2>
             </div>
             <div className="p-6 space-y-4">
-              <div className="flex items-center justify-between p-4 rounded-lg bg-slate-900/50 border border-slate-700/30">
+              <div className="flex items-center justify-between p-4 rounded-lg bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-slate-700/30">
                 <div className="flex items-center space-x-3">
                   <Target className="h-5 w-5 text-blue-400" />
-                  <span className="text-slate-300">Total Orders</span>
+                  <span className="text-slate-600 dark:text-slate-300">Total Orders</span>
                 </div>
                 <span className="text-2xl font-bold text-blue-400">{dcaStats.totalOrders}</span>
               </div>
-              <div className="flex items-center justify-between p-4 rounded-lg bg-slate-900/50 border border-slate-700/30">
+              <div className="flex items-center justify-between p-4 rounded-lg bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-slate-700/30">
                 <div className="flex items-center space-x-3">
                   <DollarSign className="h-5 w-5 text-green-400" />
-                  <span className="text-slate-300">Total Deployed</span>
+                  <span className="text-slate-600 dark:text-slate-300">Total Deployed</span>
                 </div>
                 <span className="text-2xl font-bold text-green-400">{formatCurrency(dcaStats.totalDeployed)}</span>
               </div>
-              <div className="flex items-center justify-between p-4 rounded-lg bg-slate-900/50 border border-slate-700/30">
+              <div className="flex items-center justify-between p-4 rounded-lg bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-slate-700/30">
                 <div className="flex items-center space-x-3">
                   <Percent className="h-5 w-5 text-purple-400" />
-                  <span className="text-slate-300">Success Rate</span>
+                  <span className="text-slate-600 dark:text-slate-300">Success Rate</span>
                 </div>
                 <span className="text-2xl font-bold text-purple-400">{dcaStats.successRate.toFixed(1)}%</span>
               </div>
@@ -389,36 +394,36 @@ export default function Stats() {
           </div>
 
           {/* DCA Bot Performance */}
-          <div className="relative overflow-hidden rounded-xl bg-slate-800/40 backdrop-blur-xl border border-slate-700/50">
-            <div className="p-6 border-b border-slate-700/50">
-              <h2 className="text-xl font-bold text-white flex items-center">
+          <div className="relative overflow-hidden rounded-xl bg-white dark:bg-slate-800/40 backdrop-blur-xl border border-gray-100 dark:border-slate-700/50">
+            <div className="p-6 border-b border-gray-100 dark:border-slate-700/50">
+              <h2 className="text-xl font-bold text-slate-800 dark:text-white flex items-center">
                 <Target className="h-5 w-5 mr-2 text-cyan-400" />
                 DCA Bot Performance
               </h2>
             </div>
             <div className="p-6 space-y-4">
-              <div className="flex items-center justify-between p-4 rounded-lg bg-slate-900/50 border border-slate-700/30">
+              <div className="flex items-center justify-between p-4 rounded-lg bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-slate-700/30">
                 <div className="flex items-center space-x-3">
                   <Activity className="h-5 w-5 text-cyan-400" />
-                  <span className="text-slate-300">Active Bots</span>
+                  <span className="text-slate-600 dark:text-slate-300">Active Bots</span>
                 </div>
                 <span className="text-2xl font-bold text-cyan-400">{botStats.activeBots} / {botStats.totalBots}</span>
               </div>
-              <div className="flex items-center justify-between p-4 rounded-lg bg-slate-900/50 border border-slate-700/30">
+              <div className="flex items-center justify-between p-4 rounded-lg bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-slate-700/30">
                 <div className="flex items-center space-x-3">
                   <DollarSign className="h-5 w-5 text-blue-400" />
-                  <span className="text-slate-300">Total Invested</span>
+                  <span className="text-slate-600 dark:text-slate-300">Total Invested</span>
                 </div>
                 <span className="text-2xl font-bold text-blue-400">{formatCurrency(botStats.totalInvested)}</span>
               </div>
-              <div className="flex items-center justify-between p-4 rounded-lg bg-slate-900/50 border border-slate-700/30">
+              <div className="flex items-center justify-between p-4 rounded-lg bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-slate-700/30">
                 <div className="flex items-center space-x-3">
                   {botStats.totalUnrealizedPnL >= 0 ? (
                     <TrendingUp className="h-5 w-5 text-green-400" />
                   ) : (
                     <TrendingDown className="h-5 w-5 text-red-400" />
                   )}
-                  <span className="text-slate-300">Unrealized P&L</span>
+                  <span className="text-slate-600 dark:text-slate-300">Unrealized P&L</span>
                 </div>
                 <div className="text-right">
                   <span className={`text-2xl font-bold ${botStats.totalUnrealizedPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
@@ -431,11 +436,11 @@ export default function Stats() {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="p-4 rounded-lg bg-green-500/10 border border-green-500/20">
-                  <p className="text-sm text-slate-400 mb-1">Profitable</p>
+                  <p className="text-sm text-slate-500 dark:text-slate-400 mb-1">Profitable</p>
                   <p className="text-xl font-bold text-green-400">{botStats.profitableBots}</p>
                 </div>
                 <div className="p-4 rounded-lg bg-red-500/10 border border-red-500/20">
-                  <p className="text-sm text-slate-400 mb-1">Losing</p>
+                  <p className="text-sm text-slate-500 dark:text-slate-400 mb-1">Losing</p>
                   <p className="text-xl font-bold text-red-400">{botStats.losingBots}</p>
                 </div>
               </div>
@@ -445,14 +450,14 @@ export default function Stats() {
 
         {/* Top Performing DCA Bots */}
         {dcaBots.length > 0 && (
-          <div className="relative overflow-hidden rounded-xl bg-slate-800/40 backdrop-blur-xl border border-slate-700/50">
-            <div className="p-6 border-b border-slate-700/50">
-              <h2 className="text-xl font-bold text-white">Top Performing Bots</h2>
+          <div className="relative overflow-hidden rounded-xl bg-white dark:bg-slate-800/40 backdrop-blur-xl border border-gray-100 dark:border-slate-700/50">
+            <div className="p-6 border-b border-gray-100 dark:border-slate-700/50">
+              <h2 className="text-xl font-bold text-slate-800 dark:text-white">Top Performing Bots</h2>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
-                  <tr className="text-left text-slate-400 text-sm border-b border-slate-700/50">
+                  <tr className="text-left text-slate-400 text-sm border-b border-gray-100 dark:border-slate-700/50">
                     <th className="pb-4 pt-4 pl-6 font-semibold">Symbol</th>
                     <th className="pb-4 pt-4 font-semibold">Status</th>
                     <th className="pb-4 pt-4 font-semibold">Invested</th>
@@ -470,10 +475,10 @@ export default function Stats() {
                     .map((bot) => (
                       <tr
                         key={bot.id}
-                        className="border-b border-slate-700/30 hover:bg-slate-700/20 transition-colors duration-200"
+                        className="border-b border-slate-100 dark:border-slate-700/30 hover:bg-slate-50 dark:hover:bg-slate-700/20 transition-colors duration-200"
                       >
                         <td className="py-4 pl-6">
-                          <span className="font-semibold text-white">{bot.symbol}</span>
+                          <span className="font-semibold text-slate-800 dark:text-white">{bot.symbol}</span>
                         </td>
                         <td className="py-4">
                           <span className={`text-xs px-2 py-1 rounded-full font-semibold ${
@@ -488,16 +493,16 @@ export default function Stats() {
                             {bot.status}
                           </span>
                         </td>
-                        <td className="py-4 text-slate-300 font-mono">
+                        <td className="py-4 text-slate-600 dark:text-slate-300 font-mono">
                           {formatCurrency(bot.totalInvested || 0)}
                         </td>
-                        <td className="py-4 text-slate-300">
+                        <td className="py-4 text-slate-600 dark:text-slate-300">
                           {bot.currentEntryCount} / {bot.reEntryCount + 1}
                         </td>
-                        <td className="py-4 text-slate-300 font-mono">
+                        <td className="py-4 text-slate-600 dark:text-slate-300 font-mono">
                           {formatCurrency(bot.averagePurchasePrice || 0)}
                         </td>
-                        <td className="py-4 text-slate-300 font-mono">
+                        <td className="py-4 text-slate-600 dark:text-slate-300 font-mono">
                           {formatCurrency(bot.currentPrice || 0)}
                         </td>
                         <td className="py-4">
@@ -528,46 +533,46 @@ export default function Stats() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Largest Holding */}
           {portfolioStats.largestHolding && (
-            <div className="relative overflow-hidden rounded-xl bg-gradient-to-br from-slate-800/40 via-slate-800/60 to-slate-800/40 backdrop-blur-xl border border-slate-700/50 p-6">
+            <div className="relative overflow-hidden rounded-xl bg-white dark:bg-gradient-to-br dark:from-slate-800/40 dark:via-slate-800/60 dark:to-slate-800/40 backdrop-blur-xl border border-gray-100 dark:border-slate-700/50 p-6 shadow-sm">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wider">Largest Holding</h3>
-                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center text-white font-bold">
+                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center text-slate-800 dark:text-white font-bold">
                   {portfolioStats.largestHolding.asset?.substring(0, 2) || '??'}
                 </div>
               </div>
-              <p className="text-2xl font-bold text-white mb-1">{portfolioStats.largestHolding.asset}</p>
+              <p className="text-2xl font-bold text-slate-800 dark:text-white mb-1">{portfolioStats.largestHolding.asset}</p>
               <p className="text-3xl font-bold text-blue-400 mb-2">{formatCurrency(portfolioStats.largestHolding.value)}</p>
-              <p className="text-sm text-slate-400">{portfolioStats.largestHolding.allocation?.toFixed(1)}% of portfolio</p>
+              <p className="text-sm text-slate-500 dark:text-slate-400">{portfolioStats.largestHolding.allocation?.toFixed(1)}% of portfolio</p>
             </div>
           )}
 
           {/* Best Performer */}
           {portfolioStats.bestPerformer && (
-            <div className="relative overflow-hidden rounded-xl bg-gradient-to-br from-slate-800/40 via-slate-800/60 to-slate-800/40 backdrop-blur-xl border border-green-500/20 p-6">
+            <div className="relative overflow-hidden rounded-xl bg-white dark:bg-gradient-to-br dark:from-slate-800/40 dark:via-slate-800/60 dark:to-slate-800/40 backdrop-blur-xl border border-green-200 dark:border-green-500/20 p-6 shadow-sm">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wider">Best Performer</h3>
-                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-green-500 to-emerald-500 flex items-center justify-center text-white font-bold">
+                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-green-500 to-emerald-500 flex items-center justify-center text-slate-800 dark:text-white font-bold">
                   {portfolioStats.bestPerformer.asset?.substring(0, 2) || '??'}
                 </div>
               </div>
-              <p className="text-2xl font-bold text-white mb-1">{portfolioStats.bestPerformer.asset}</p>
+              <p className="text-2xl font-bold text-slate-800 dark:text-white mb-1">{portfolioStats.bestPerformer.asset}</p>
               <p className="text-3xl font-bold text-green-400 mb-2">{formatPercent(portfolioStats.bestPerformer.profitLossPercent)}</p>
-              <p className="text-sm text-slate-400">{formatCurrency(portfolioStats.bestPerformer.profitLoss)} profit</p>
+              <p className="text-sm text-slate-500 dark:text-slate-400">{formatCurrency(portfolioStats.bestPerformer.profitLoss)} profit</p>
             </div>
           )}
 
           {/* Worst Performer */}
           {portfolioStats.worstPerformer && (
-            <div className="relative overflow-hidden rounded-xl bg-gradient-to-br from-slate-800/40 via-slate-800/60 to-slate-800/40 backdrop-blur-xl border border-red-500/20 p-6">
+            <div className="relative overflow-hidden rounded-xl bg-white dark:bg-gradient-to-br dark:from-slate-800/40 dark:via-slate-800/60 dark:to-slate-800/40 backdrop-blur-xl border border-red-200 dark:border-red-500/20 p-6 shadow-sm">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wider">Worst Performer</h3>
-                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-red-500 to-rose-500 flex items-center justify-center text-white font-bold">
+                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-red-500 to-rose-500 flex items-center justify-center text-slate-800 dark:text-white font-bold">
                   {portfolioStats.worstPerformer.asset?.substring(0, 2) || '??'}
                 </div>
               </div>
-              <p className="text-2xl font-bold text-white mb-1">{portfolioStats.worstPerformer.asset}</p>
+              <p className="text-2xl font-bold text-slate-800 dark:text-white mb-1">{portfolioStats.worstPerformer.asset}</p>
               <p className="text-3xl font-bold text-red-400 mb-2">{formatPercent(portfolioStats.worstPerformer.profitLossPercent)}</p>
-              <p className="text-sm text-slate-400">{formatCurrency(portfolioStats.worstPerformer.profitLoss)} loss</p>
+              <p className="text-sm text-slate-500 dark:text-slate-400">{formatCurrency(portfolioStats.worstPerformer.profitLoss)} loss</p>
             </div>
           )}
         </div>
@@ -575,9 +580,9 @@ export default function Stats() {
         {/* Recent Transactions & Time Metrics */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Recent Transactions */}
-          <div className="relative overflow-hidden rounded-xl bg-slate-800/40 backdrop-blur-xl border border-slate-700/50">
-            <div className="p-6 border-b border-slate-700/50">
-              <h2 className="text-xl font-bold text-white flex items-center">
+          <div className="relative overflow-hidden rounded-xl bg-white dark:bg-slate-800/40 backdrop-blur-xl border border-gray-100 dark:border-slate-700/50">
+            <div className="p-6 border-b border-gray-100 dark:border-slate-700/50">
+              <h2 className="text-xl font-bold text-slate-800 dark:text-white flex items-center">
                 <Clock className="h-5 w-5 mr-2 text-cyan-400" />
                 Recent Transactions
               </h2>
@@ -588,7 +593,7 @@ export default function Stats() {
                   {transactions.slice(0, 5).map((tx) => (
                     <div
                       key={tx.id}
-                      className="flex items-center justify-between p-3 rounded-lg bg-slate-900/50 border border-slate-700/30 hover:bg-slate-700/30 transition-colors"
+                      className="flex items-center justify-between p-3 rounded-lg bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-slate-700/30 hover:bg-slate-700/30 transition-colors"
                     >
                       <div className="flex items-center gap-3">
                         <div className={`p-2 rounded-lg ${
@@ -607,7 +612,7 @@ export default function Stats() {
                           )}
                         </div>
                         <div>
-                          <p className="text-sm font-semibold text-white">
+                          <p className="text-sm font-semibold text-slate-800 dark:text-white">
                             {tx.type.toUpperCase()} {tx.symbol}
                           </p>
                           <p className="text-xs text-slate-400">
@@ -616,7 +621,7 @@ export default function Stats() {
                         </div>
                       </div>
                       <div className="text-right">
-                        <p className="text-sm font-semibold text-white">{formatCurrency(tx.total)}</p>
+                        <p className="text-sm font-semibold text-slate-800 dark:text-white">{formatCurrency(tx.total)}</p>
                         <p className="text-xs text-slate-400">{tx.amount.toFixed(4)} @ {formatCurrency(tx.price)}</p>
                       </div>
                     </div>
@@ -632,40 +637,40 @@ export default function Stats() {
           </div>
 
           {/* Time-based Metrics */}
-          <div className="relative overflow-hidden rounded-xl bg-slate-800/40 backdrop-blur-xl border border-slate-700/50">
-            <div className="p-6 border-b border-slate-700/50">
-              <h2 className="text-xl font-bold text-white flex items-center">
+          <div className="relative overflow-hidden rounded-xl bg-white dark:bg-slate-800/40 backdrop-blur-xl border border-gray-100 dark:border-slate-700/50">
+            <div className="p-6 border-b border-gray-100 dark:border-slate-700/50">
+              <h2 className="text-xl font-bold text-slate-800 dark:text-white flex items-center">
                 <Calendar className="h-5 w-5 mr-2 text-cyan-400" />
                 Time Metrics
               </h2>
             </div>
             <div className="p-6 space-y-4">
-              <div className="flex items-center justify-between p-4 rounded-lg bg-slate-900/50 border border-slate-700/30">
+              <div className="flex items-center justify-between p-4 rounded-lg bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-slate-700/30">
                 <div className="flex items-center space-x-3">
                   <Calendar className="h-5 w-5 text-cyan-400" />
-                  <span className="text-slate-300">Portfolio Age</span>
+                  <span className="text-slate-600 dark:text-slate-300">Portfolio Age</span>
                 </div>
-                <span className="text-xl font-bold text-white">{timeMetrics.portfolioAge}</span>
+                <span className="text-xl font-bold text-slate-800 dark:text-white">{timeMetrics.portfolioAge}</span>
               </div>
-              <div className="flex items-center justify-between p-4 rounded-lg bg-slate-900/50 border border-slate-700/30">
+              <div className="flex items-center justify-between p-4 rounded-lg bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-slate-700/30">
                 <div className="flex items-center space-x-3">
                   <Activity className="h-5 w-5 text-purple-400" />
-                  <span className="text-slate-300">Trading Days</span>
+                  <span className="text-slate-600 dark:text-slate-300">Trading Days</span>
                 </div>
-                <span className="text-xl font-bold text-white">{timeMetrics.tradingDays}</span>
+                <span className="text-xl font-bold text-slate-800 dark:text-white">{timeMetrics.tradingDays}</span>
               </div>
-              <div className="flex items-center justify-between p-4 rounded-lg bg-slate-900/50 border border-slate-700/30">
+              <div className="flex items-center justify-between p-4 rounded-lg bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-slate-700/30">
                 <div className="flex items-center space-x-3">
                   <Clock className="h-5 w-5 text-blue-400" />
-                  <span className="text-slate-300">Last Update</span>
+                  <span className="text-slate-600 dark:text-slate-300">Last Update</span>
                 </div>
-                <span className="text-sm font-semibold text-white">{timeMetrics.lastUpdate}</span>
+                <span className="text-sm font-semibold text-slate-800 dark:text-white">{timeMetrics.lastUpdate}</span>
               </div>
               {dcaBots.length > 0 && activeBots.length > 0 && (
                 <div className="flex items-center justify-between p-4 rounded-lg bg-green-500/10 border border-green-500/20">
                   <div className="flex items-center space-x-3">
                     <Activity className="h-5 w-5 text-green-400 animate-pulse" />
-                    <span className="text-slate-300">Active Bots</span>
+                    <span className="text-slate-600 dark:text-slate-300">Active Bots</span>
                   </div>
                   <span className="text-xl font-bold text-green-400">{activeBots.length} Running</span>
                 </div>
@@ -675,14 +680,14 @@ export default function Stats() {
         </div>
 
         {/* All Holdings Table */}
-        <div className="relative overflow-hidden rounded-xl bg-slate-800/40 backdrop-blur-xl border border-slate-700/50">
-          <div className="p-6 border-b border-slate-700/50">
-            <h2 className="text-xl font-bold text-white">All Holdings</h2>
+        <div className="relative overflow-hidden rounded-xl bg-white dark:bg-slate-800/40 backdrop-blur-xl border border-gray-100 dark:border-slate-700/50">
+          <div className="p-6 border-b border-gray-100 dark:border-slate-700/50">
+            <h2 className="text-xl font-bold text-slate-800 dark:text-white">All Holdings</h2>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
-                <tr className="text-left text-slate-400 text-sm border-b border-slate-700/50">
+                <tr className="text-left text-slate-400 text-sm border-b border-gray-100 dark:border-slate-700/50">
                   <th className="pb-4 pt-4 pl-6 font-semibold">Asset</th>
                   <th className="pb-4 pt-4 font-semibold">Amount</th>
                   <th className="pb-4 pt-4 font-semibold">Value</th>
@@ -695,22 +700,22 @@ export default function Stats() {
                 {holdings.map((holding, idx) => (
                   <tr
                     key={holding.symbol || holding.asset}
-                    className="border-b border-slate-700/30 hover:bg-slate-700/20 transition-colors duration-200"
+                    className="border-b border-slate-100 dark:border-slate-700/30 hover:bg-slate-50 dark:hover:bg-slate-700/20 transition-colors duration-200"
                   >
                     <td className="py-4 pl-6">
                       <div className="flex items-center space-x-3">
-                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-cyan-500 flex items-center justify-center text-white font-bold text-sm">
+                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-cyan-500 flex items-center justify-center text-slate-800 dark:text-white font-bold text-sm">
                           {holding.asset?.substring(0, 2) || '??'}
                         </div>
-                        <span className="font-semibold text-white">{holding.asset || 'N/A'}</span>
+                        <span className="font-semibold text-slate-800 dark:text-white">{holding.asset || 'N/A'}</span>
                       </div>
                     </td>
-                    <td className="py-4 text-slate-300 font-mono">
+                    <td className="py-4 text-slate-600 dark:text-slate-300 font-mono">
                       {holding.amount !== undefined && holding.amount !== null
                         ? holding.amount.toFixed(6)
                         : '0.000000'}
                     </td>
-                    <td className="py-4 text-white font-semibold">
+                    <td className="py-4 text-slate-800 dark:text-white font-semibold">
                       {formatCurrency(holding.value)}
                     </td>
                     <td className="py-4">
@@ -731,13 +736,13 @@ export default function Stats() {
                     </td>
                     <td className="py-4 pr-6">
                       <div className="flex items-center space-x-3">
-                        <div className="flex-1 h-2 bg-slate-700/50 rounded-full overflow-hidden">
+                        <div className="flex-1 h-2 bg-slate-200 dark:bg-slate-700/50 rounded-full overflow-hidden">
                           <div
                             className="h-full bg-gradient-to-r from-purple-500 via-pink-500 to-cyan-500 rounded-full"
                             style={{ width: `${holding.allocation}%` }}
                           />
                         </div>
-                        <span className="text-sm text-slate-400 font-semibold min-w-[3rem] text-right">
+                        <span className="text-sm text-slate-500 dark:text-slate-400 font-semibold min-w-[3rem] text-right">
                           {holding.allocation?.toFixed(1) || '0.0'}%
                         </span>
                       </div>

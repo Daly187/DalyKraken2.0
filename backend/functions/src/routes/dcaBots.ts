@@ -8,10 +8,13 @@ import * as functions from 'firebase-functions';
 import { DCABotConfig } from '../types.js';
 import { DCABotService } from '../services/dcaBotService.js';
 import { KrakenService } from '../services/krakenService.js';
+import { MarketAnalysisService } from '../services/marketAnalysisService.js';
+import { calculateMarketTrend, normalizeSymbolForTrends } from '../services/marketTrendService.js';
 
 export function createDCABotsRouter(db: Firestore): Router {
   const router = Router();
   const dcaBotService = new DCABotService(db);
+  const marketAnalysisService = new MarketAnalysisService();
 
   /**
    * GET /dca-bots
@@ -23,15 +26,17 @@ export function createDCABotsRouter(db: Firestore): Router {
     try {
       // Get userId from authenticated user
       const userId = req.user!.userId;
+      const username = req.user!.username;
 
-      console.log(`[DCABots API] Fetching all bots for user ${userId}`);
+      console.log(`[DCABots API] Fetching all bots for user ${userId} (${username})`);
+      console.log(`[DCABots API] Request headers Authorization present: ${!!req.headers.authorization}`);
 
       const snapshot = await db
         .collection('dcaBots')
         .where('userId', '==', userId)
         .get();
 
-      console.log(`[DCABots API] Found ${snapshot.size} bots for user ${userId}`);
+      console.log(`[DCABots API] Found ${snapshot.size} bots for userId="${userId}"`);
 
       // OPTIMIZATION: Don't pass krakenService to avoid fetching live prices for all bots
       // This prevents timeout when there are many bots (e.g., 100+)
@@ -115,6 +120,18 @@ export function createDCABotsRouter(db: Firestore): Router {
       const now = new Date().toISOString();
       const cycleId = `cycle_${Date.now()}`;
 
+      // Calculate initial market_trend from current trend data
+      let market_trend: 'bullish' | 'bearish' | 'neutral' = 'neutral';
+      try {
+        const trendAnalysis = await marketAnalysisService.analyzeTrend(req.body.symbol);
+        const trendResult = calculateMarketTrend(trendAnalysis.trendScore, trendAnalysis.techScore);
+        market_trend = trendResult.market_trend;
+        console.log(`[DCABots API] Calculated market_trend for new bot ${req.body.symbol}: ${market_trend} (trend=${trendAnalysis.trendScore}, tech=${trendAnalysis.techScore})`);
+      } catch (trendError: any) {
+        console.warn(`[DCABots API] Failed to calculate initial market_trend for ${req.body.symbol}:`, trendError.message);
+        // Default to neutral if trend calculation fails
+      }
+
       const botData: Omit<DCABotConfig, 'id'> = {
         userId,
         symbol: req.body.symbol,
@@ -136,6 +153,9 @@ export function createDCABotsRouter(db: Firestore): Router {
         cycleStartTime: now,
         cycleNumber: 1,
         previousCycles: [],
+        // Market trend
+        market_trend,
+        market_trend_updated: now,
       };
 
       // Validate required fields
@@ -221,6 +241,18 @@ export function createDCABotsRouter(db: Firestore): Router {
           (updateData as any)[field] = req.body[field];
         }
       });
+
+      // Recalculate market_trend on update
+      try {
+        const trendAnalysis = await marketAnalysisService.analyzeTrend(botData.symbol);
+        const trendResult = calculateMarketTrend(trendAnalysis.trendScore, trendAnalysis.techScore);
+        updateData.market_trend = trendResult.market_trend;
+        updateData.market_trend_updated = new Date().toISOString();
+        console.log(`[DCABots API] Recalculated market_trend for bot ${botId}: ${trendResult.market_trend}`);
+      } catch (trendError: any) {
+        console.warn(`[DCABots API] Failed to recalculate market_trend for bot ${botId}:`, trendError.message);
+        // Keep existing market_trend if calculation fails
+      }
 
       // Update bot
       await db.collection('dcaBots').doc(botId).update(updateData);

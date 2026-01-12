@@ -818,7 +818,7 @@ export default function DalyDEPEG() {
                       max="5"
                       value={config.minDepegThreshold}
                       onChange={(e) => setConfig({ ...config, minDepegThreshold: parseFloat(e.target.value) })}
-                      className="w-full bg-slate-800/50 border border-slate-600/50 focus:border-primary-500/50 text-white px-4 pr-8 py-3 rounded-xl transition-all focus:ring-2 focus:ring-primary-500/20"
+                      className="w-full bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-600/50 focus:border-primary-500/50 text-slate-800 dark:text-white px-4 pr-8 py-3 rounded-xl transition-all focus:ring-2 focus:ring-primary-500/20"
                     />
                     <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm">%</span>
                   </div>
@@ -838,7 +838,7 @@ export default function DalyDEPEG() {
                       max="10"
                       value={config.stopLossPercent}
                       onChange={(e) => setConfig({ ...config, stopLossPercent: parseFloat(e.target.value) })}
-                      className="w-full bg-slate-800/50 border border-slate-600/50 focus:border-primary-500/50 text-white px-4 pr-8 py-3 rounded-xl transition-all focus:ring-2 focus:ring-primary-500/20"
+                      className="w-full bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-600/50 focus:border-primary-500/50 text-slate-800 dark:text-white px-4 pr-8 py-3 rounded-xl transition-all focus:ring-2 focus:ring-primary-500/20"
                     />
                     <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm">%</span>
                   </div>
@@ -858,7 +858,7 @@ export default function DalyDEPEG() {
                       max="2"
                       value={config.minProfitTarget}
                       onChange={(e) => setConfig({ ...config, minProfitTarget: parseFloat(e.target.value) })}
-                      className="w-full bg-slate-800/50 border border-slate-600/50 focus:border-primary-500/50 text-white px-4 pr-8 py-3 rounded-xl transition-all focus:ring-2 focus:ring-primary-500/20"
+                      className="w-full bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-600/50 focus:border-primary-500/50 text-slate-800 dark:text-white px-4 pr-8 py-3 rounded-xl transition-all focus:ring-2 focus:ring-primary-500/20"
                     />
                     <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm">%</span>
                   </div>
@@ -878,7 +878,7 @@ export default function DalyDEPEG() {
                       max="100"
                       value={config.maxAllocationPercent}
                       onChange={(e) => setConfig({ ...config, maxAllocationPercent: parseFloat(e.target.value) })}
-                      className="w-full bg-slate-800/50 border border-slate-600/50 focus:border-primary-500/50 text-white px-4 pr-8 py-3 rounded-xl transition-all focus:ring-2 focus:ring-primary-500/20"
+                      className="w-full bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-600/50 focus:border-primary-500/50 text-slate-800 dark:text-white px-4 pr-8 py-3 rounded-xl transition-all focus:ring-2 focus:ring-primary-500/20"
                     />
                     <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm">%</span>
                   </div>
@@ -898,7 +898,7 @@ export default function DalyDEPEG() {
                       min="100"
                       value={config.maxPositionSize}
                       onChange={(e) => setConfig({ ...config, maxPositionSize: parseFloat(e.target.value) })}
-                      className="w-full bg-slate-800/50 border border-slate-600/50 focus:border-primary-500/50 text-white pl-8 pr-4 py-3 rounded-xl transition-all focus:ring-2 focus:ring-primary-500/20"
+                      className="w-full bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-600/50 focus:border-primary-500/50 text-slate-800 dark:text-white pl-8 pr-4 py-3 rounded-xl transition-all focus:ring-2 focus:ring-primary-500/20"
                     />
                   </div>
                   <p className="text-xs text-gray-500 mt-2">Maximum USD per trade</p>
@@ -917,7 +917,7 @@ export default function DalyDEPEG() {
                       max="1"
                       value={config.slippageTolerance}
                       onChange={(e) => setConfig({ ...config, slippageTolerance: parseFloat(e.target.value) })}
-                      className="w-full bg-slate-800/50 border border-slate-600/50 focus:border-primary-500/50 text-white px-4 pr-8 py-3 rounded-xl transition-all focus:ring-2 focus:ring-primary-500/20"
+                      className="w-full bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-600/50 focus:border-primary-500/50 text-slate-800 dark:text-white px-4 pr-8 py-3 rounded-xl transition-all focus:ring-2 focus:ring-primary-500/20"
                     />
                     <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm">%</span>
                   </div>
@@ -962,7 +962,7 @@ export default function DalyDEPEG() {
 
               {/* Advanced Options Toggle */}
               <div className="grid md:grid-cols-2 gap-4">
-                <div className="p-4 rounded-xl bg-slate-800/30 border border-slate-600/30 hover:border-slate-500/50 transition-colors">
+                <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/30 border border-slate-200 dark:border-slate-600/30 hover:border-slate-500/50 transition-colors">
                   <label className="flex items-start gap-4 cursor-pointer">
                     <input
                       type="checkbox"
@@ -989,7 +989,7 @@ export default function DalyDEPEG() {
                   </label>
                 </div>
 
-                <div className="p-4 rounded-xl bg-slate-800/30 border border-slate-600/30">
+                <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/30 border border-slate-200 dark:border-slate-600/30">
                   <div className="flex items-start gap-4">
                     <Settings className="h-5 w-5 text-purple-400 mt-0.5" />
                     <div className="flex-1">
@@ -1082,7 +1082,7 @@ export default function DalyDEPEG() {
                     return (
                       <tr
                         key={price.pair}
-                        className={`border-b border-slate-800 hover:bg-slate-800/30 transition-colors ${
+                        className={`border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors ${
                           isOpportunity ? 'bg-yellow-500/5' : ''
                         }`}
                       >
@@ -1426,7 +1426,7 @@ export default function DalyDEPEG() {
                   </thead>
                   <tbody>
                     {tradeHistory.map((trade) => (
-                      <tr key={trade.id} className="border-b border-slate-800 hover:bg-slate-800/30">
+                      <tr key={trade.id} className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/30">
                         <td className="py-3 px-2">
                           <span className="font-medium text-white">{trade.pair}</span>
                         </td>

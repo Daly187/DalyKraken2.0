@@ -23,15 +23,19 @@ export default {
         success: '#10b981',
         warning: '#f59e0b',
         danger: '#ef4444',
-        // Light theme colors
+        // Light theme colors (inspired by DalyTomorrow)
         light: {
-          bg: '#f5f7fa',
+          bg: '#f8fafc',
           'bg-secondary': '#ffffff',
           'bg-card': '#ffffff',
-          text: '#1a202c',
-          'text-secondary': '#4a5568',
+          text: '#1e293b',
+          'text-secondary': '#64748b',
+          'text-muted': '#94a3b8',
           border: '#e2e8f0',
           'border-light': '#f1f5f9',
+          sidebar: '#ffffff',
+          'sidebar-hover': '#f1f5f9',
+          'sidebar-active': '#eff6ff',
         },
         // Dark theme colors
         dark: {

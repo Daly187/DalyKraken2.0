@@ -174,30 +174,60 @@ export default function ManualTrade() {
           setAvailableBalance(usdBalance.availableBalance);
         }
       } else if (selectedExchange === 'aster') {
-        // Fetch Aster balance
+        // Fetch Aster balance (both spot and futures)
         const asterApiKey = localStorage.getItem('aster_api_key');
         const asterApiSecret = localStorage.getItem('aster_api_secret');
 
         if (asterApiKey && asterApiSecret) {
           const timestamp = Date.now();
-          const params = `timestamp=${timestamp}`;
+          const params = `timestamp=${timestamp}&recvWindow=5000`;
           const crypto = await import('crypto-js');
           const signature = crypto.default.HmacSHA256(params, asterApiSecret).toString();
 
-          const response = await fetch(`https://sapi.asterdex.com/api/v1/account?${params}&signature=${signature}`, {
-            headers: { 'X-MBX-APIKEY': asterApiKey },
-          });
+          let spotBalance = 0;
+          let futuresBalance = 0;
 
-          if (response.ok) {
-            const data = await response.json();
-            let balance = 0;
-            if (data.balances && Array.isArray(data.balances)) {
-              balance = data.balances.reduce((total: number, asset: any) => {
-                return total + parseFloat(asset.free || '0') + parseFloat(asset.locked || '0');
-              }, 0);
+          // Fetch spot balance
+          try {
+            const spotResponse = await fetch(`https://sapi.asterdex.com/api/v1/account?${params}&signature=${signature}`, {
+              headers: { 'X-MBX-APIKEY': asterApiKey },
+            });
+
+            if (spotResponse.ok) {
+              const spotData = await spotResponse.json();
+              if (spotData.balances && Array.isArray(spotData.balances)) {
+                spotBalance = spotData.balances.reduce((total: number, asset: any) => {
+                  return total + parseFloat(asset.free || '0') + parseFloat(asset.locked || '0');
+                }, 0);
+              }
             }
-            setAvailableBalance(balance);
+          } catch (e) {
+            console.error('[ManualTrade] Error fetching Aster spot balance:', e);
           }
+
+          // Fetch futures balance
+          try {
+            const futuresResponse = await fetch(`https://fapi.asterdex.com/fapi/v2/account?${params}&signature=${signature}`, {
+              headers: { 'X-MBX-APIKEY': asterApiKey },
+            });
+
+            if (futuresResponse.ok) {
+              const futuresData = await futuresResponse.json();
+              if (futuresData.totalWalletBalance !== undefined) {
+                futuresBalance = parseFloat(futuresData.totalWalletBalance);
+              } else if (futuresData.totalMarginBalance !== undefined) {
+                futuresBalance = parseFloat(futuresData.totalMarginBalance);
+              } else if (futuresData.availableBalance !== undefined) {
+                futuresBalance = parseFloat(futuresData.availableBalance);
+              }
+            }
+          } catch (e) {
+            console.error('[ManualTrade] Error fetching Aster futures balance:', e);
+          }
+
+          // Use futures balance for trading (since we're trading perpetuals)
+          // Show futures balance as the available balance
+          setAvailableBalance(futuresBalance > 0 ? futuresBalance : spotBalance);
         }
       } else if (selectedExchange === 'hyperliquid') {
         // Fetch HyperLiquid balance
@@ -272,16 +302,20 @@ export default function ManualTrade() {
           currentPrice
         );
       } else if (position.exchange === 'aster') {
+        // Extract base asset for Aster
+        const baseAsset = position.pair.replace('USD', '').replace('USDT', '');
         await exchangeTradeService.placeAsterOrder({
-          symbol: position.pair,
+          symbol: baseAsset + 'USDT',
           side: position.side === 'buy' ? 'sell' : 'buy',
           size: positionSize,
           price: currentPrice,
           orderType: 'MARKET',
         });
       } else if (position.exchange === 'hyperliquid') {
+        // Extract base asset for Hyperliquid
+        const baseAsset = position.pair.replace('USD', '').replace('USDT', '');
         await exchangeTradeService.placeHyperliquidOrder({
-          symbol: position.pair,
+          symbol: baseAsset,
           side: position.side === 'buy' ? 'sell' : 'buy',
           size: positionSize,
           price: currentPrice,
@@ -375,8 +409,10 @@ export default function ManualTrade() {
           price
         );
       } else if (selectedExchange === 'aster') {
+        // Extract base asset (e.g., "UNIUSD" -> "UNI", "BTCUSD" -> "BTC")
+        const baseAsset = orderForm.pair.replace('USD', '').replace('USDT', '');
         const orderResult = await exchangeTradeService.placeAsterOrder({
-          symbol: orderForm.pair + 'USDT',
+          symbol: baseAsset + 'USDT',
           side: orderForm.type,
           size: positionSize,
           price: price,
@@ -387,8 +423,10 @@ export default function ManualTrade() {
           throw new Error(orderResult.error || 'Order failed');
         }
       } else if (selectedExchange === 'hyperliquid') {
+        // Extract base asset (e.g., "BTCUSD" -> "BTC", "ETHUSD" -> "ETH")
+        const baseAsset = orderForm.pair.replace('USD', '').replace('USDT', '');
         const orderResult = await exchangeTradeService.placeHyperliquidOrder({
-          symbol: orderForm.pair,
+          symbol: baseAsset,
           side: orderForm.type,
           size: positionSize,
           price: price,
@@ -460,461 +498,432 @@ export default function ManualTrade() {
   const selectedPair = tradingPairs.find((p) => p.pair === orderForm.pair);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
-      {/* Animated background gradients */}
-      <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-0 left-1/4 w-96 h-96 bg-purple-500/20 rounded-full blur-3xl animate-pulse" />
-        <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-blue-500/20 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '1s' }} />
+    <div className="space-y-6 max-w-7xl mx-auto">
+      {/* Header */}
+      <div className="flex justify-between items-center">
+        <div>
+          <h1 className="text-3xl font-bold">Manual Trade</h1>
+          <p className="text-sm text-slate-500 dark:text-gray-400 mt-1">Execute orders across multiple exchanges</p>
+        </div>
+        <button
+          onClick={() => fetchLivePrices()}
+          className="btn btn-primary btn-sm flex items-center"
+        >
+          <RefreshCw className="mr-2 h-4 w-4" />
+          Refresh Prices
+        </button>
       </div>
 
-      <div className="relative space-y-6 p-6">
-        {/* Header */}
-        <div className="flex justify-between items-center mb-8">
-          <div>
-            <h1 className="text-4xl font-bold bg-gradient-to-r from-purple-400 via-pink-400 to-cyan-400 bg-clip-text text-transparent">
-              Manual Trade
-            </h1>
-            <p className="text-slate-400 mt-2">Execute orders across multiple exchanges</p>
-          </div>
+      {/* Exchange Selection */}
+      <div className="card">
+        <h2 className="text-lg font-bold mb-4">Select Exchange</h2>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <button
-            onClick={() => fetchLivePrices()}
-            className="group relative px-6 py-3 bg-gradient-to-r from-purple-500 to-cyan-500 rounded-xl font-semibold text-white shadow-lg shadow-purple-500/30 hover:shadow-purple-500/50 transition-all duration-300 hover:scale-105"
+            onClick={() => handleExchangeChange('kraken')}
+            className={`py-4 px-6 rounded-xl font-semibold transition-all border-2 ${
+              selectedExchange === 'kraken'
+                ? 'bg-primary-500 text-white border-primary-500'
+                : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-gray-300 border-slate-200 dark:border-slate-600 hover:border-primary-400 dark:hover:border-primary-400'
+            }`}
           >
-            <RefreshCw className="inline mr-2 h-5 w-5 group-hover:rotate-180 transition-transform duration-500" />
-            Refresh Prices
+            <div className="text-lg font-bold">Kraken</div>
+            <div className="text-xs opacity-75 mt-1">Centralized Exchange</div>
+          </button>
+          <button
+            onClick={() => handleExchangeChange('aster')}
+            className={`py-4 px-6 rounded-xl font-semibold transition-all border-2 ${
+              selectedExchange === 'aster'
+                ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white border-purple-500'
+                : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-gray-300 border-slate-200 dark:border-slate-600 hover:border-purple-400 dark:hover:border-purple-400'
+            }`}
+          >
+            <div className="text-lg font-bold">AsterDEX</div>
+            <div className="text-xs opacity-75 mt-1">Decentralized Exchange</div>
+          </button>
+          <button
+            onClick={() => handleExchangeChange('hyperliquid')}
+            className={`py-4 px-6 rounded-xl font-semibold transition-all border-2 ${
+              selectedExchange === 'hyperliquid'
+                ? 'bg-gradient-to-r from-green-500 to-emerald-500 text-white border-green-500'
+                : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-gray-300 border-slate-200 dark:border-slate-600 hover:border-green-400 dark:hover:border-green-400'
+            }`}
+          >
+            <div className="text-lg font-bold">HyperLiquid</div>
+            <div className="text-xs opacity-75 mt-1">Decentralized Perpetuals</div>
           </button>
         </div>
+      </div>
 
-        {/* Exchange Selection */}
-        <div className="relative overflow-hidden rounded-2xl bg-slate-800/40 backdrop-blur-xl border border-slate-700/50 p-6">
-          <h2 className="text-xl font-bold text-white mb-4">Select Exchange</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <button
-              onClick={() => handleExchangeChange('kraken')}
-              className={`py-4 px-6 rounded-xl font-semibold transition-all duration-300 ${
-                selectedExchange === 'kraken'
-                  ? 'bg-gradient-to-r from-purple-500 to-blue-500 text-white shadow-lg shadow-purple-500/30 scale-105'
-                  : 'bg-slate-700/50 text-slate-400 hover:bg-slate-700'
-              }`}
-            >
-              <div className="text-lg font-bold">Kraken</div>
-              <div className="text-xs opacity-75 mt-1">Centralized Exchange</div>
-            </button>
-            <button
-              onClick={() => handleExchangeChange('aster')}
-              className={`py-4 px-6 rounded-xl font-semibold transition-all duration-300 ${
-                selectedExchange === 'aster'
-                  ? 'bg-gradient-to-r from-pink-500 to-rose-500 text-white shadow-lg shadow-pink-500/30 scale-105'
-                  : 'bg-slate-700/50 text-slate-400 hover:bg-slate-700'
-              }`}
-            >
-              <div className="text-lg font-bold">AsterDEX</div>
-              <div className="text-xs opacity-75 mt-1">Decentralized Exchange</div>
-            </button>
-            <button
-              onClick={() => handleExchangeChange('hyperliquid')}
-              className={`py-4 px-6 rounded-xl font-semibold transition-all duration-300 ${
-                selectedExchange === 'hyperliquid'
-                  ? 'bg-gradient-to-r from-cyan-500 to-teal-500 text-white shadow-lg shadow-cyan-500/30 scale-105'
-                  : 'bg-slate-700/50 text-slate-400 hover:bg-slate-700'
-              }`}
-            >
-              <div className="text-lg font-bold">HyperLiquid</div>
-              <div className="text-xs opacity-75 mt-1">Decentralized Perpetuals</div>
-            </button>
-          </div>
-        </div>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Order Form */}
+        <div className="lg:col-span-2 card">
+          <h2 className="text-xl font-bold mb-4 flex items-center">
+            <ArrowDownUp className="mr-2 h-5 w-5 text-primary-400" />
+            Place Order on {selectedExchange.charAt(0).toUpperCase() + selectedExchange.slice(1)}
+          </h2>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Order Form */}
-          <div className="lg:col-span-2 relative overflow-hidden rounded-2xl bg-slate-800/40 backdrop-blur-xl border border-slate-700/50">
-            <div className="p-6 border-b border-slate-700/50">
-              <h2 className="text-2xl font-bold bg-gradient-to-r from-white to-slate-400 bg-clip-text text-transparent flex items-center">
-                <ArrowDownUp className="mr-3 h-6 w-6 text-purple-400" />
-                Place Order on {selectedExchange.charAt(0).toUpperCase() + selectedExchange.slice(1)}
-              </h2>
-            </div>
-
-            <div className="p-6 space-y-6">
-              {/* Order Type Toggle */}
-              <div>
-                <label className="block text-sm font-semibold text-slate-300 mb-3">
-                  Order Type
-                </label>
-                <div className="grid grid-cols-2 gap-4">
-                  <button
-                    onClick={() => setOrderForm((prev) => ({ ...prev, type: 'buy' }))}
-                    className={`py-4 px-6 rounded-xl font-semibold transition-all duration-300 ${
-                      orderForm.type === 'buy'
-                        ? 'bg-gradient-to-r from-green-500 to-emerald-500 text-white shadow-lg shadow-green-500/30'
-                        : 'bg-slate-700/50 text-slate-400 hover:bg-slate-700'
-                    }`}
-                  >
-                    <TrendingUp className="inline mr-2 h-5 w-5" />
-                    BUY
-                  </button>
-                  <button
-                    onClick={() => setOrderForm((prev) => ({ ...prev, type: 'sell' }))}
-                    className={`py-4 px-6 rounded-xl font-semibold transition-all duration-300 ${
-                      orderForm.type === 'sell'
-                        ? 'bg-gradient-to-r from-red-500 to-rose-500 text-white shadow-lg shadow-red-500/30'
-                        : 'bg-slate-700/50 text-slate-400 hover:bg-slate-700'
-                    }`}
-                  >
-                    <TrendingDown className="inline mr-2 h-5 w-5" />
-                    SELL
-                  </button>
-                </div>
-              </div>
-
-              {/* Trading Pair Selection */}
-              <div>
-                <label className="block text-sm font-semibold text-slate-300 mb-3">
-                  Trading Pair
-                </label>
-                <select
-                  value={orderForm.pair}
-                  onChange={(e) => handlePairChange(e.target.value)}
-                  className="w-full px-4 py-3 bg-slate-700/50 border border-slate-600 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                >
-                  <option value="">Select a trading pair</option>
-                  {tradingPairs.map((pair) => (
-                    <option key={pair.pair} value={pair.pair}>
-                      {pair.symbol} - {formatCurrency(pair.price)} ({formatPercent(pair.change24h)})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Volume Input */}
-                <div>
-                  <label className="block text-sm font-semibold text-slate-300 mb-3">
-                    Volume (Amount)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.00000001"
-                    value={orderForm.volume}
-                    onChange={(e) =>
-                      setOrderForm((prev) => ({ ...prev, volume: e.target.value }))
-                    }
-                    placeholder="0.00000000"
-                    className="w-full px-4 py-3 bg-slate-700/50 border border-slate-600 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                  />
-                </div>
-
-                {/* Price Input */}
-                <div>
-                  <label className="block text-sm font-semibold text-slate-300 mb-3">
-                    Price (USD)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={orderForm.price}
-                    onChange={(e) =>
-                      setOrderForm((prev) => ({ ...prev, price: e.target.value }))
-                    }
-                    placeholder="0.00"
-                    className="w-full px-4 py-3 bg-slate-700/50 border border-slate-600 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                  />
-                </div>
-              </div>
-
-              {/* Stop Loss & Take Profit */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-semibold text-slate-300 mb-3">
-                    <Shield className="inline h-4 w-4 mr-1 text-red-400" />
-                    Stop Loss (Optional)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={orderForm.stopLoss}
-                    onChange={(e) =>
-                      setOrderForm((prev) => ({ ...prev, stopLoss: e.target.value }))
-                    }
-                    placeholder="Exit price if market goes against you"
-                    className="w-full px-4 py-3 bg-slate-700/50 border border-slate-600 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-slate-300 mb-3">
-                    <Target className="inline h-4 w-4 mr-1 text-green-400" />
-                    Take Profit (Optional)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={orderForm.takeProfit}
-                    onChange={(e) =>
-                      setOrderForm((prev) => ({ ...prev, takeProfit: e.target.value }))
-                    }
-                    placeholder="Exit price to lock in profits"
-                    className="w-full px-4 py-3 bg-slate-700/50 border border-slate-600 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                  />
-                </div>
-              </div>
-
-              {/* Estimated Total */}
-              {estimatedTotal > 0 && (
-                <div className="p-4 bg-slate-700/30 rounded-xl border border-slate-600/50">
-                  <div className="flex justify-between items-center">
-                    <span className="text-slate-400 font-semibold">Estimated Total:</span>
-                    <span className="text-2xl font-bold text-purple-400">
-                      {formatCurrency(estimatedTotal)}
-                    </span>
-                  </div>
-                </div>
-              )}
-
-              {/* Order Status Messages */}
-              {orderStatus.type && (
-                <div
-                  className={`p-4 rounded-xl border ${
-                    orderStatus.type === 'success'
-                      ? 'bg-green-500/10 border-green-500/30 text-green-400'
-                      : 'bg-red-500/10 border-red-500/30 text-red-400'
+          <div className="space-y-4">
+            {/* Order Type Toggle */}
+            <div>
+              <label className="block text-sm font-medium text-slate-500 dark:text-gray-400 mb-2">
+                Order Type
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  onClick={() => setOrderForm((prev) => ({ ...prev, type: 'buy' }))}
+                  className={`py-3 px-4 rounded-lg font-semibold transition-all border-2 ${
+                    orderForm.type === 'buy'
+                      ? 'bg-green-500 text-white border-green-500'
+                      : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-gray-300 border-slate-200 dark:border-slate-600 hover:border-green-400'
                   }`}
                 >
-                  <div className="flex items-center">
-                    {orderStatus.type === 'success' ? (
-                      <CheckCircle className="h-5 w-5 mr-2" />
-                    ) : (
-                      <AlertCircle className="h-5 w-5 mr-2" />
-                    )}
-                    <span className="font-semibold">{orderStatus.message}</span>
-                  </div>
-                </div>
-              )}
+                  <TrendingUp className="inline mr-2 h-4 w-4" />
+                  BUY
+                </button>
+                <button
+                  onClick={() => setOrderForm((prev) => ({ ...prev, type: 'sell' }))}
+                  className={`py-3 px-4 rounded-lg font-semibold transition-all border-2 ${
+                    orderForm.type === 'sell'
+                      ? 'bg-red-500 text-white border-red-500'
+                      : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-gray-300 border-slate-200 dark:border-slate-600 hover:border-red-400'
+                  }`}
+                >
+                  <TrendingDown className="inline mr-2 h-4 w-4" />
+                  SELL
+                </button>
+              </div>
+            </div>
 
-              {/* Submit Button */}
-              <button
-                onClick={handleSubmitOrder}
-                disabled={loading}
-                className={`w-full py-4 px-6 rounded-xl font-bold text-white shadow-lg transition-all duration-300 ${
-                  orderForm.type === 'buy'
-                    ? 'bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 shadow-green-500/30 hover:shadow-green-500/50'
-                    : 'bg-gradient-to-r from-red-500 to-rose-500 hover:from-red-600 hover:to-rose-600 shadow-red-500/30 hover:shadow-red-500/50'
-                } hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed`}
+            {/* Trading Pair Selection */}
+            <div>
+              <label className="block text-sm font-medium text-slate-500 dark:text-gray-400 mb-2">
+                Trading Pair
+              </label>
+              <select
+                value={orderForm.pair}
+                onChange={(e) => handlePairChange(e.target.value)}
+                className="w-full px-3 py-2.5 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
               >
-                {loading ? (
-                  <RefreshCw className="inline mr-2 h-5 w-5 animate-spin" />
-                ) : (
-                  <DollarSign className="inline mr-2 h-5 w-5" />
-                )}
-                {loading ? 'Submitting...' : `${orderForm.type.toUpperCase()} ${orderForm.pair || 'Asset'}`}
-              </button>
+                <option value="">Select a trading pair</option>
+                {tradingPairs.map((pair) => (
+                  <option key={pair.pair} value={pair.pair}>
+                    {pair.symbol} - {formatCurrency(pair.price)} ({formatPercent(pair.change24h)})
+                  </option>
+                ))}
+              </select>
             </div>
-          </div>
 
-          {/* Order Summary & Info */}
-          <div className="space-y-6">
-            {/* Selected Pair Info */}
-            {selectedPair && (
-              <div className="relative overflow-hidden rounded-xl bg-gradient-to-br from-purple-500/10 via-slate-800/50 to-slate-900/50 backdrop-blur-xl border border-purple-500/20">
-                <div className="p-6">
-                  <h3 className="text-lg font-bold text-white mb-4">
-                    {selectedPair.symbol}
-                  </h3>
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-center">
-                      <span className="text-slate-400">Current Price:</span>
-                      <span className="text-xl font-bold text-white">
-                        {formatCurrency(selectedPair.price)}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-slate-400">24h Change:</span>
-                      <span
-                        className={`font-bold ${
-                          selectedPair.change24h >= 0
-                            ? 'text-green-400'
-                            : 'text-red-400'
-                        }`}
-                      >
-                        {formatPercent(selectedPair.change24h)}
-                      </span>
-                    </div>
-                  </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Volume Input */}
+              <div>
+                <label className="block text-sm font-medium text-slate-500 dark:text-gray-400 mb-2">
+                  Volume (Amount)
+                </label>
+                <input
+                  type="number"
+                  step="0.00000001"
+                  value={orderForm.volume}
+                  onChange={(e) =>
+                    setOrderForm((prev) => ({ ...prev, volume: e.target.value }))
+                  }
+                  placeholder="0.00000000"
+                  className="w-full px-3 py-2.5 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                />
+              </div>
+
+              {/* Price Input */}
+              <div>
+                <label className="block text-sm font-medium text-slate-500 dark:text-gray-400 mb-2">
+                  Price (USD)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={orderForm.price}
+                  onChange={(e) =>
+                    setOrderForm((prev) => ({ ...prev, price: e.target.value }))
+                  }
+                  placeholder="0.00"
+                  className="w-full px-3 py-2.5 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                />
+              </div>
+            </div>
+
+            {/* Stop Loss & Take Profit */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-500 dark:text-gray-400 mb-2">
+                  <Shield className="inline h-4 w-4 mr-1 text-red-500" />
+                  Stop Loss (Optional)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={orderForm.stopLoss}
+                  onChange={(e) =>
+                    setOrderForm((prev) => ({ ...prev, stopLoss: e.target.value }))
+                  }
+                  placeholder="Exit price if market goes against you"
+                  className="w-full px-3 py-2.5 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-500 dark:text-gray-400 mb-2">
+                  <Target className="inline h-4 w-4 mr-1 text-green-500" />
+                  Take Profit (Optional)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={orderForm.takeProfit}
+                  onChange={(e) =>
+                    setOrderForm((prev) => ({ ...prev, takeProfit: e.target.value }))
+                  }
+                  placeholder="Exit price to lock in profits"
+                  className="w-full px-3 py-2.5 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                />
+              </div>
+            </div>
+
+            {/* Estimated Total */}
+            {estimatedTotal > 0 && (
+              <div className="p-4 bg-slate-100 dark:bg-slate-700/50 rounded-lg">
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-600 dark:text-gray-400">Estimated Total:</span>
+                  <span className="text-xl font-bold text-primary-600 dark:text-primary-400">
+                    {formatCurrency(estimatedTotal)}
+                  </span>
                 </div>
               </div>
             )}
 
-            {/* Account Balance */}
-            <div className={`relative overflow-hidden rounded-xl bg-gradient-to-br backdrop-blur-xl border ${
-              selectedExchange === 'kraken' ? 'from-purple-500/10 border-purple-500/20' :
-              selectedExchange === 'aster' ? 'from-pink-500/10 border-pink-500/20' :
-              'from-cyan-500/10 border-cyan-500/20'
-            }`}>
-              <div className="p-6">
-                <h3 className="text-lg font-bold text-white mb-4">
-                  {selectedExchange.charAt(0).toUpperCase() + selectedExchange.slice(1)} Balance
-                </h3>
-                <div className="text-center">
-                  <p className={`text-3xl font-bold ${
-                    selectedExchange === 'kraken' ? 'text-purple-400' :
-                    selectedExchange === 'aster' ? 'text-pink-400' :
-                    'text-cyan-400'
-                  }`}>
-                    {formatCurrency(availableBalance)}
-                  </p>
-                  <p className="text-sm text-slate-400 mt-2">Available</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Open Positions */}
-            {positions.length > 0 && (
-              <div className="relative overflow-hidden rounded-xl bg-slate-800/40 backdrop-blur-xl border border-slate-700/50">
-                <div className="p-6">
-                  <h3 className="text-lg font-bold text-white mb-4">Open Positions ({positions.length})</h3>
-                  <div className="space-y-3">
-                    {positions.map((position) => {
-                      const currentPrice = livePrices.get(position.pair.replace('USDT', ''))?.price || position.entryPrice;
-                      const pnl = position.side === 'buy'
-                        ? (currentPrice - position.entryPrice) * position.volume
-                        : (position.entryPrice - currentPrice) * position.volume;
-                      const pnlPercent = (pnl / (position.entryPrice * position.volume)) * 100;
-
-                      return (
-                        <div key={position.id} className="p-3 bg-slate-700/30 rounded-lg border border-slate-600/50">
-                          <div className="flex justify-between items-start mb-2">
-                            <div>
-                              <div className="font-semibold text-white">{position.pair}</div>
-                              <div className="text-xs text-slate-400">{position.exchange}</div>
-                            </div>
-                            <span className={`px-2 py-1 rounded text-xs font-bold ${
-                              position.side === 'buy'
-                                ? 'bg-green-500/20 text-green-400'
-                                : 'bg-red-500/20 text-red-400'
-                            }`}>
-                              {position.side.toUpperCase()}
-                            </span>
-                          </div>
-                          <div className="text-sm space-y-1">
-                            <div className="flex justify-between text-slate-400">
-                              <span>Entry:</span>
-                              <span>{formatCurrency(position.entryPrice)}</span>
-                            </div>
-                            <div className="flex justify-between text-slate-400">
-                              <span>Current:</span>
-                              <span>{formatCurrency(currentPrice)}</span>
-                            </div>
-                            {position.stopLoss && (
-                              <div className="flex justify-between text-red-400">
-                                <span>SL:</span>
-                                <span>{formatCurrency(position.stopLoss)}</span>
-                              </div>
-                            )}
-                            {position.takeProfit && (
-                              <div className="flex justify-between text-green-400">
-                                <span>TP:</span>
-                                <span>{formatCurrency(position.takeProfit)}</span>
-                              </div>
-                            )}
-                            <div className={`flex justify-between font-bold ${pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                              <span>P&L:</span>
-                              <span>{formatCurrency(pnl)} ({pnlPercent >= 0 ? '+' : ''}{pnlPercent.toFixed(2)}%)</span>
-                            </div>
-                          </div>
-                          <button
-                            onClick={() => closePosition(position, 'Manual close')}
-                            className="w-full mt-3 py-2 bg-slate-600 hover:bg-slate-500 text-white rounded-lg text-sm font-semibold transition-colors"
-                          >
-                            Close Position
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </div>
+            {/* Order Status Messages */}
+            {orderStatus.type && (
+              <div
+                className={`p-4 rounded-lg ${
+                  orderStatus.type === 'success'
+                    ? 'bg-green-50 dark:bg-green-500/10 border border-green-200 dark:border-green-500/30 text-green-700 dark:text-green-400'
+                    : 'bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 text-red-700 dark:text-red-400'
+                }`}
+              >
+                <div className="flex items-start gap-3">
+                  {orderStatus.type === 'success' ? (
+                    <CheckCircle className="h-5 w-5 flex-shrink-0 mt-0.5" />
+                  ) : (
+                    <AlertCircle className="h-5 w-5 flex-shrink-0 mt-0.5" />
+                  )}
+                  <span className="text-sm">{orderStatus.message}</span>
                 </div>
               </div>
             )}
 
-            {/* Trading Info */}
-            <div className="relative overflow-hidden rounded-xl bg-slate-800/40 backdrop-blur-xl border border-slate-700/50">
-              <div className="p-6">
-                <h3 className="text-lg font-bold text-white mb-4">Trading Info</h3>
-                <div className="space-y-3 text-sm text-slate-400">
-                  <div className="flex items-start">
-                    <AlertCircle className="h-4 w-4 mr-2 mt-0.5 flex-shrink-0" />
-                    <p>Orders execute as market orders at current price</p>
-                  </div>
-                  <div className="flex items-start">
-                    <Shield className="h-4 w-4 mr-2 mt-0.5 flex-shrink-0 text-red-400" />
-                    <p>Stop Loss automatically closes position if price hits SL level</p>
-                  </div>
-                  <div className="flex items-start">
-                    <Target className="h-4 w-4 mr-2 mt-0.5 flex-shrink-0 text-green-400" />
-                    <p>Take Profit automatically closes position at TP level</p>
-                  </div>
-                  <div className="flex items-start">
-                    <AlertCircle className="h-4 w-4 mr-2 mt-0.5 flex-shrink-0" />
-                    <p>Configure API keys in Settings for each exchange</p>
-                  </div>
-                </div>
-              </div>
-            </div>
+            {/* Submit Button */}
+            <button
+              onClick={handleSubmitOrder}
+              disabled={loading}
+              className={`w-full py-3.5 px-4 rounded-lg font-bold text-white transition-all shadow-sm ${
+                orderForm.type === 'buy'
+                  ? 'bg-green-500 hover:bg-green-600'
+                  : 'bg-red-500 hover:bg-red-600'
+              } disabled:opacity-50 disabled:cursor-not-allowed`}
+            >
+              {loading ? (
+                <RefreshCw className="inline mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <DollarSign className="inline mr-2 h-4 w-4" />
+              )}
+              {loading ? 'Submitting...' : `${orderForm.type.toUpperCase()} ${orderForm.pair || 'Asset'}`}
+            </button>
           </div>
         </div>
 
-        {/* Available Trading Pairs */}
-        <div className="relative overflow-hidden rounded-xl bg-slate-800/40 backdrop-blur-xl border border-slate-700/50">
-          <div className="p-6 border-b border-slate-700/50">
-            <h2 className="text-2xl font-bold bg-gradient-to-r from-white to-slate-400 bg-clip-text text-transparent">
-              Available Trading Pairs
-            </h2>
-          </div>
-
-          {tradingPairs.length > 0 ? (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="text-left text-slate-400 text-sm border-b border-slate-700/50">
-                    <th className="pb-4 pt-4 pl-6 font-semibold">Pair</th>
-                    <th className="pb-4 pt-4 font-semibold">Price</th>
-                    <th className="pb-4 pt-4 pr-6 font-semibold">24h Change</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {tradingPairs.map((pair) => (
-                    <tr
-                      key={pair.pair}
-                      className="border-b border-slate-700/30 hover:bg-slate-700/20 transition-colors duration-200 cursor-pointer"
-                      onClick={() => handlePairChange(pair.pair)}
-                    >
-                      <td className="py-4 pl-6">
-                        <span className="font-semibold text-white">{pair.symbol}</span>
-                      </td>
-                      <td className="py-4 text-slate-300 font-mono">
-                        {formatCurrency(pair.price)}
-                      </td>
-                      <td className="py-4 pr-6">
-                        <span
-                          className={`text-sm px-2 py-0.5 rounded ${
-                            pair.change24h >= 0
-                              ? 'bg-green-500/20 text-green-400'
-                              : 'bg-red-500/20 text-red-400'
-                          }`}
-                        >
-                          {formatPercent(pair.change24h)}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className="p-12 text-center">
-              <AlertCircle className="h-12 w-12 text-slate-600 mx-auto mb-4" />
-              <p className="text-slate-400">No trading pairs available</p>
+        {/* Order Summary & Info */}
+        <div className="space-y-4">
+          {/* Selected Pair Info */}
+          {selectedPair && (
+            <div className="card">
+              <h3 className="text-lg font-bold mb-3">
+                {selectedPair.symbol}
+              </h3>
+              <div className="space-y-2">
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-500 dark:text-gray-400">Current Price:</span>
+                  <span className="text-lg font-bold">
+                    {formatCurrency(selectedPair.price)}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-500 dark:text-gray-400">24h Change:</span>
+                  <span
+                    className={`font-bold ${
+                      selectedPair.change24h >= 0
+                        ? 'text-green-600 dark:text-green-400'
+                        : 'text-red-600 dark:text-red-400'
+                    }`}
+                  >
+                    {formatPercent(selectedPair.change24h)}
+                  </span>
+                </div>
+              </div>
             </div>
           )}
+
+          {/* Account Balance */}
+          <div className="card">
+            <h3 className="text-lg font-bold mb-3">
+              {selectedExchange.charAt(0).toUpperCase() + selectedExchange.slice(1)} Balance
+            </h3>
+            <div className="text-center py-2">
+              <p className={`text-3xl font-bold ${
+                selectedExchange === 'kraken' ? 'text-primary-600 dark:text-primary-400' :
+                selectedExchange === 'aster' ? 'text-purple-600 dark:text-purple-400' :
+                'text-green-600 dark:text-green-400'
+              }`}>
+                {formatCurrency(availableBalance)}
+              </p>
+              <p className="text-sm text-slate-500 dark:text-gray-400 mt-1">Available</p>
+            </div>
+          </div>
+
+          {/* Open Positions */}
+          {positions.length > 0 && (
+            <div className="card">
+              <h3 className="text-lg font-bold mb-3">Open Positions ({positions.length})</h3>
+              <div className="space-y-3">
+                {positions.map((position) => {
+                  const currentPrice = livePrices.get(position.pair.replace('USDT', ''))?.price || position.entryPrice;
+                  const pnl = position.side === 'buy'
+                    ? (currentPrice - position.entryPrice) * position.volume
+                    : (position.entryPrice - currentPrice) * position.volume;
+                  const pnlPercent = (pnl / (position.entryPrice * position.volume)) * 100;
+
+                  return (
+                    <div key={position.id} className="p-3 bg-slate-100 dark:bg-slate-700/50 rounded-lg">
+                      <div className="flex justify-between items-start mb-2">
+                        <div>
+                          <div className="font-semibold">{position.pair}</div>
+                          <div className="text-xs text-slate-500 dark:text-gray-400">{position.exchange}</div>
+                        </div>
+                        <span className={`px-2 py-1 rounded text-xs font-bold ${
+                          position.side === 'buy'
+                            ? 'bg-green-100 dark:bg-green-500/20 text-green-600 dark:text-green-400'
+                            : 'bg-red-100 dark:bg-red-500/20 text-red-600 dark:text-red-400'
+                        }`}>
+                          {position.side.toUpperCase()}
+                        </span>
+                      </div>
+                      <div className="text-sm space-y-1">
+                        <div className="flex justify-between text-slate-500 dark:text-gray-400">
+                          <span>Entry:</span>
+                          <span>{formatCurrency(position.entryPrice)}</span>
+                        </div>
+                        <div className="flex justify-between text-slate-500 dark:text-gray-400">
+                          <span>Current:</span>
+                          <span>{formatCurrency(currentPrice)}</span>
+                        </div>
+                        {position.stopLoss && (
+                          <div className="flex justify-between text-red-600 dark:text-red-400">
+                            <span>SL:</span>
+                            <span>{formatCurrency(position.stopLoss)}</span>
+                          </div>
+                        )}
+                        {position.takeProfit && (
+                          <div className="flex justify-between text-green-600 dark:text-green-400">
+                            <span>TP:</span>
+                            <span>{formatCurrency(position.takeProfit)}</span>
+                          </div>
+                        )}
+                        <div className={`flex justify-between font-bold ${pnl >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                          <span>P&L:</span>
+                          <span>{formatCurrency(pnl)} ({pnlPercent >= 0 ? '+' : ''}{pnlPercent.toFixed(2)}%)</span>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => closePosition(position, 'Manual close')}
+                        className="w-full mt-3 py-2 bg-slate-200 dark:bg-slate-600 hover:bg-slate-300 dark:hover:bg-slate-500 text-slate-700 dark:text-white rounded-lg text-sm font-semibold transition-colors"
+                      >
+                        Close Position
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Trading Info */}
+          <div className="card bg-slate-50 dark:bg-slate-800/50">
+            <h3 className="text-lg font-bold mb-3">Trading Info</h3>
+            <div className="space-y-2 text-sm text-slate-600 dark:text-gray-400">
+              <div className="flex items-start">
+                <AlertCircle className="h-4 w-4 mr-2 mt-0.5 flex-shrink-0 text-slate-400 dark:text-gray-500" />
+                <p>Orders execute as market orders at current price</p>
+              </div>
+              <div className="flex items-start">
+                <Shield className="h-4 w-4 mr-2 mt-0.5 flex-shrink-0 text-red-500" />
+                <p>Stop Loss automatically closes position if price hits SL level</p>
+              </div>
+              <div className="flex items-start">
+                <Target className="h-4 w-4 mr-2 mt-0.5 flex-shrink-0 text-green-500" />
+                <p>Take Profit automatically closes position at TP level</p>
+              </div>
+              <div className="flex items-start">
+                <AlertCircle className="h-4 w-4 mr-2 mt-0.5 flex-shrink-0 text-slate-400 dark:text-gray-500" />
+                <p>Configure API keys in Settings for each exchange</p>
+              </div>
+            </div>
+          </div>
         </div>
+      </div>
+
+      {/* Available Trading Pairs */}
+      <div className="card">
+        <h2 className="text-xl font-bold mb-4">Available Trading Pairs</h2>
+        {tradingPairs.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="text-left text-slate-500 dark:text-gray-400 text-sm border-b border-slate-200 dark:border-slate-700">
+                  <th className="pb-3">Pair</th>
+                  <th className="pb-3">Price</th>
+                  <th className="pb-3">24h Change</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tradingPairs.map((pair) => (
+                  <tr
+                    key={pair.pair}
+                    className="border-b border-slate-100 dark:border-slate-700/50 hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors cursor-pointer"
+                    onClick={() => handlePairChange(pair.pair)}
+                  >
+                    <td className="py-3">
+                      <span className="font-semibold">{pair.symbol}</span>
+                    </td>
+                    <td className="py-3 font-mono">
+                      {formatCurrency(pair.price)}
+                    </td>
+                    <td className="py-3">
+                      <span
+                        className={`text-sm px-2 py-0.5 rounded ${
+                          pair.change24h >= 0
+                            ? 'bg-green-100 dark:bg-green-500/20 text-green-600 dark:text-green-400'
+                            : 'bg-red-100 dark:bg-red-500/20 text-red-600 dark:text-red-400'
+                        }`}
+                      >
+                        {formatPercent(pair.change24h)}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="py-8 text-center">
+            <AlertCircle className="h-12 w-12 text-slate-400 dark:text-gray-500 mx-auto mb-3" />
+            <p className="text-slate-500 dark:text-gray-400">No trading pairs available</p>
+          </div>
+        )}
       </div>
     </div>
   );

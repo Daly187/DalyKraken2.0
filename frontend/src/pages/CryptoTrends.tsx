@@ -74,8 +74,8 @@ export default function CryptoTrends() {
     setError(null);
 
     try {
-      // Always fetch all 100 assets
-      const response = await apiService.getEnhancedTrends(100);
+      // Fetch all 200 assets (top 200 by market cap)
+      const response = await apiService.getEnhancedTrends(200);
 
       if (response.success && response.data) {
         setEnhancedTrends(response.data.trends || []);
@@ -248,7 +248,7 @@ export default function CryptoTrends() {
         <div>
           <h1 className="text-3xl font-bold">Crypto Trends</h1>
           <div className="flex items-center gap-3 mt-1">
-            <p className="text-sm text-gray-400">
+            <p className="text-sm text-slate-500 dark:text-gray-400">
               Powered by Kraken OHLC - Advanced technical analysis and market scoring
             </p>
             {livePrices.size > 0 && (
@@ -290,25 +290,25 @@ export default function CryptoTrends() {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           {overview.total_market_cap !== undefined && (
             <div className="card">
-              <p className="text-sm text-gray-400">Total Market Cap</p>
+              <p className="text-sm text-slate-500 dark:text-gray-400">Total Market Cap</p>
               <p className="text-2xl font-bold mt-1">{formatLargeNumber(overview.total_market_cap)}</p>
             </div>
           )}
           {overview.total_volume_24h !== undefined && (
             <div className="card">
-              <p className="text-sm text-gray-400">24h Volume</p>
+              <p className="text-sm text-slate-500 dark:text-gray-400">24h Volume</p>
               <p className="text-2xl font-bold mt-1">{formatLargeNumber(overview.total_volume_24h)}</p>
             </div>
           )}
           {overview.btc_dominance !== undefined && (
             <div className="card">
-              <p className="text-sm text-gray-400">BTC Dominance</p>
+              <p className="text-sm text-slate-500 dark:text-gray-400">BTC Dominance</p>
               <p className="text-2xl font-bold mt-1">{overview.btc_dominance?.toFixed(1) || 'N/A'}%</p>
             </div>
           )}
           {overview.active_cryptos !== undefined && (
             <div className="card">
-              <p className="text-sm text-gray-400">Active Cryptos</p>
+              <p className="text-sm text-slate-500 dark:text-gray-400">Active Cryptos</p>
               <p className="text-2xl font-bold mt-1">{overview.active_cryptos.toLocaleString()}</p>
             </div>
           )}
@@ -320,7 +320,7 @@ export default function CryptoTrends() {
         <div className="card">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-400">Bullish Signals</p>
+              <p className="text-sm text-slate-500 dark:text-gray-400">Bullish Signals</p>
               <p className="text-3xl font-bold text-green-500 mt-1">{signalCounts.bullish}</p>
             </div>
             <TrendingUp className="h-12 w-12 text-green-500 opacity-20" />
@@ -330,7 +330,7 @@ export default function CryptoTrends() {
         <div className="card">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-400">Neutral Signals</p>
+              <p className="text-sm text-slate-500 dark:text-gray-400">Neutral Signals</p>
               <p className="text-3xl font-bold text-gray-500 mt-1">{signalCounts.neutral}</p>
             </div>
             <Minus className="h-12 w-12 text-gray-500 opacity-20" />
@@ -340,7 +340,7 @@ export default function CryptoTrends() {
         <div className="card">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-400">Bearish Signals</p>
+              <p className="text-sm text-slate-500 dark:text-gray-400">Bearish Signals</p>
               <p className="text-3xl font-bold text-red-500 mt-1">{signalCounts.bearish}</p>
             </div>
             <TrendingDown className="h-12 w-12 text-red-500 opacity-20" />
@@ -357,16 +357,21 @@ export default function CryptoTrends() {
                 <TrendingUp className="h-5 w-5 text-green-500" />
                 Top Gainers (24h)
               </h3>
-              <div className="space-y-2">
-                {topGainers.slice(0, 5).map((coin) => (
-                  <div key={coin.symbol} className="flex items-center justify-between p-2 bg-slate-800/50 rounded">
-                    <div>
-                      <p className="font-semibold">{coin.symbol}</p>
-                      <p className="text-xs text-gray-400">{coin.name}</p>
+              <div className="space-y-3">
+                {topGainers.slice(0, 5).map((coin, index) => (
+                  <div key={coin.symbol} className="flex items-center justify-between p-3 bg-green-50 dark:bg-slate-800/50 rounded-lg border-l-4 border-green-500">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-green-500 text-white flex items-center justify-center font-bold text-sm">
+                        {index + 1}
+                      </div>
+                      <div>
+                        <p className="font-semibold text-slate-800 dark:text-white">{coin.symbol}</p>
+                        <p className="text-xs text-slate-500 dark:text-gray-400">{coin.name}</p>
+                      </div>
                     </div>
                     <div className="text-right">
-                      <p className="font-semibold">{formatCurrency(coin.price)}</p>
-                      <p className="text-sm text-green-400">{formatPercent(coin.change_24h_percent)}</p>
+                      <p className="font-semibold text-slate-800 dark:text-white">{formatCurrency(coin.price)}</p>
+                      <p className="text-sm font-bold text-green-600 dark:text-green-400">{formatPercent(coin.change_24h_percent)}</p>
                     </div>
                   </div>
                 ))}
@@ -380,16 +385,21 @@ export default function CryptoTrends() {
                 <TrendingDown className="h-5 w-5 text-red-500" />
                 Top Losers (24h)
               </h3>
-              <div className="space-y-2">
-                {topLosers.slice(0, 5).map((coin) => (
-                  <div key={coin.symbol} className="flex items-center justify-between p-2 bg-slate-800/50 rounded">
-                    <div>
-                      <p className="font-semibold">{coin.symbol}</p>
-                      <p className="text-xs text-gray-400">{coin.name}</p>
+              <div className="space-y-3">
+                {topLosers.slice(0, 5).map((coin, index) => (
+                  <div key={coin.symbol} className="flex items-center justify-between p-3 bg-red-50 dark:bg-slate-800/50 rounded-lg border-l-4 border-red-500">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-red-500 text-white flex items-center justify-center font-bold text-sm">
+                        {index + 1}
+                      </div>
+                      <div>
+                        <p className="font-semibold text-slate-800 dark:text-white">{coin.symbol}</p>
+                        <p className="text-xs text-slate-500 dark:text-gray-400">{coin.name}</p>
+                      </div>
                     </div>
                     <div className="text-right">
-                      <p className="font-semibold">{formatCurrency(coin.price)}</p>
-                      <p className="text-sm text-red-400">{formatPercent(coin.change_24h_percent)}</p>
+                      <p className="font-semibold text-slate-800 dark:text-white">{formatCurrency(coin.price)}</p>
+                      <p className="text-sm font-bold text-red-600 dark:text-red-400">{formatPercent(coin.change_24h_percent)}</p>
                     </div>
                   </div>
                 ))}
@@ -403,7 +413,7 @@ export default function CryptoTrends() {
       <div className="card">
         <div className="flex flex-wrap gap-4 items-center justify-between">
           <div className="flex gap-2 items-center">
-            <span className="text-sm text-gray-400">Filter:</span>
+            <span className="text-sm text-slate-500 dark:text-gray-400">Filter:</span>
             {(['all', 'bullish', 'neutral', 'bearish'] as const).map((filter) => (
               <button
                 key={filter}
@@ -429,13 +439,13 @@ export default function CryptoTrends() {
         {loading && enhancedTrends.length === 0 ? (
           <div className="text-center py-12">
             <div className="spinner mx-auto mb-4"></div>
-            <p className="text-gray-400">Loading enhanced trend data...</p>
+            <p className="text-slate-500 dark:text-gray-400">Loading enhanced trend data...</p>
           </div>
         ) : filteredAndSortedTrends.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
-                <tr className="text-left text-gray-400 text-xs uppercase tracking-wider border-b border-slate-700">
+                <tr className="text-left text-slate-500 dark:text-gray-400 text-xs uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
                   <th className="pb-3 pr-4">Symbol</th>
                   <th className="pb-3 pr-4">Price</th>
                   <th className="pb-3 pr-4">24h Change</th>
@@ -459,7 +469,7 @@ export default function CryptoTrends() {
                 {filteredAndSortedTrends.map((trend) => {
                   const direction = getTrendDirection(trend);
                   return (
-                    <tr key={trend.symbol} className="border-t border-slate-700 hover:bg-slate-800/50">
+                    <tr key={trend.symbol} className="border-t border-slate-100 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/50">
                       <td className="py-3 pr-4">
                         <div className="flex items-center gap-2">
                           {getTrendIcon(direction)}
@@ -528,7 +538,7 @@ export default function CryptoTrends() {
         ) : (
           <div className="text-center py-12">
             <Info className="h-12 w-12 text-gray-500 mx-auto mb-3" />
-            <p className="text-gray-400">No trends match your current filter</p>
+            <p className="text-slate-500 dark:text-gray-400">No trends match your current filter</p>
             <button onClick={() => setFilterSignal('all')} className="text-sm text-blue-400 hover:underline mt-2">
               Clear filters
             </button>
@@ -544,59 +554,59 @@ export default function CryptoTrends() {
         </h3>
         <div className="grid md:grid-cols-2 gap-6 text-sm">
           <div>
-            <h4 className="font-semibold text-gray-300 mb-2">Trend Score (0-100)</h4>
-            <p className="text-gray-400 mb-2">
+            <h4 className="font-semibold text-slate-700 dark:text-gray-300 mb-2">Trend Score (0-100)</h4>
+            <p className="text-slate-500 dark:text-gray-400 mb-2">
               Composite indicator measuring market direction and momentum strength.
             </p>
-            <ul className="text-gray-400 space-y-1 ml-4">
+            <ul className="text-slate-500 dark:text-gray-400 space-y-1 ml-4">
               <li><strong>50%</strong> - RSI (Relative Strength Index)</li>
               <li><strong>40%</strong> - Momentum Score</li>
               <li><strong>5%</strong> - MACD State (bullish/bearish/neutral)</li>
               <li><strong>5%</strong> - Trend Signal</li>
             </ul>
-            <div className="mt-3 p-2 bg-slate-800/50 rounded text-xs">
-              <p className="text-green-400">70-100: Strong trend</p>
-              <p className="text-yellow-400">50-69: Moderate trend</p>
-              <p className="text-orange-400">30-49: Weak trend</p>
-              <p className="text-red-400">0-29: No clear trend</p>
+            <div className="mt-3 p-2 bg-slate-100 dark:bg-slate-800/50 rounded text-xs">
+              <p className="text-green-600 dark:text-green-400">70-100: Strong trend</p>
+              <p className="text-yellow-600 dark:text-yellow-400">50-69: Moderate trend</p>
+              <p className="text-orange-600 dark:text-orange-400">30-49: Weak trend</p>
+              <p className="text-red-600 dark:text-red-400">0-29: No clear trend</p>
             </div>
           </div>
 
           <div>
-            <h4 className="font-semibold text-gray-300 mb-2">Technical Score (0-100)</h4>
-            <p className="text-gray-400 mb-2">
+            <h4 className="font-semibold text-slate-700 dark:text-gray-300 mb-2">Technical Score (0-100)</h4>
+            <p className="text-slate-500 dark:text-gray-400 mb-2">
               Evaluates price position relative to key moving averages and technical signals.
             </p>
-            <ul className="text-gray-400 space-y-1 ml-4">
+            <ul className="text-slate-500 dark:text-gray-400 space-y-1 ml-4">
               <li><strong>40%</strong> - RSI Technical Component</li>
               <li><strong>20%</strong> - MACD State</li>
               <li><strong>20%</strong> - Price vs SMA-50 (short-term bias)</li>
               <li><strong>15%</strong> - Price vs SMA-200 (long-term bias)</li>
               <li><strong>+10</strong> - Golden Cross Bonus (if present)</li>
             </ul>
-            <div className="mt-3 p-2 bg-slate-800/50 rounded text-xs">
-              <p className="text-gray-400"><strong>Golden Cross:</strong> SMA-50 crosses above SMA-200 (bullish)</p>
+            <div className="mt-3 p-2 bg-slate-100 dark:bg-slate-800/50 rounded text-xs">
+              <p className="text-slate-600 dark:text-gray-400"><strong>Golden Cross:</strong> SMA-50 crosses above SMA-200 (bullish)</p>
             </div>
           </div>
 
           <div>
-            <h4 className="font-semibold text-gray-300 mb-2">Momentum (RSI 0-100)</h4>
-            <p className="text-gray-400 mb-2">
+            <h4 className="font-semibold text-slate-700 dark:text-gray-300 mb-2">Momentum (RSI 0-100)</h4>
+            <p className="text-slate-500 dark:text-gray-400 mb-2">
               Relative Strength Index measuring overbought/oversold conditions.
             </p>
-            <ul className="text-gray-400 space-y-1 ml-4">
-              <li className="text-red-400">&gt; 70: Overbought (potential reversal down)</li>
-              <li className="text-gray-400">30-70: Neutral zone</li>
-              <li className="text-green-400">&lt; 30: Oversold (potential reversal up)</li>
+            <ul className="text-slate-500 dark:text-gray-400 space-y-1 ml-4">
+              <li className="text-red-600 dark:text-red-400">&gt; 70: Overbought (potential reversal down)</li>
+              <li className="text-slate-600 dark:text-gray-400">30-70: Neutral zone</li>
+              <li className="text-green-600 dark:text-green-400">&lt; 30: Oversold (potential reversal up)</li>
             </ul>
           </div>
 
           <div>
-            <h4 className="font-semibold text-gray-300 mb-2">Volatility (0-100)</h4>
-            <p className="text-gray-400 mb-2">
+            <h4 className="font-semibold text-slate-700 dark:text-gray-300 mb-2">Volatility (0-100)</h4>
+            <p className="text-slate-500 dark:text-gray-400 mb-2">
               Composite measure of price movement magnitude and stability.
             </p>
-            <ul className="text-gray-400 space-y-1 ml-4">
+            <ul className="text-slate-500 dark:text-gray-400 space-y-1 ml-4">
               <li><strong>60%</strong> - 1h price change magnitude</li>
               <li><strong>20%</strong> - 24h price change magnitude</li>
               <li><strong>20%</strong> - Volatility bucket (low/med/high/extreme)</li>
@@ -604,11 +614,11 @@ export default function CryptoTrends() {
           </div>
 
           <div>
-            <h4 className="font-semibold text-gray-300 mb-2">Support & Resistance</h4>
-            <p className="text-gray-400 mb-2">
+            <h4 className="font-semibold text-slate-700 dark:text-gray-300 mb-2">Support & Resistance</h4>
+            <p className="text-slate-500 dark:text-gray-400 mb-2">
               Key price levels calculated from recent market structure.
             </p>
-            <ul className="text-gray-400 space-y-1 ml-4">
+            <ul className="text-slate-500 dark:text-gray-400 space-y-1 ml-4">
               <li><strong>Support:</strong> Recent lows with 0.7-0.9× price bounds</li>
               <li><strong>Resistance:</strong> Recent highs with 1.1-1.3× price bounds</li>
               <li>Fallback: ±5% bands when data is sparse</li>
@@ -616,11 +626,11 @@ export default function CryptoTrends() {
           </div>
 
           <div>
-            <h4 className="font-semibold text-gray-300 mb-2">Data Sources</h4>
-            <p className="text-gray-400 mb-2">
+            <h4 className="font-semibold text-slate-700 dark:text-gray-300 mb-2">Data Sources</h4>
+            <p className="text-slate-500 dark:text-gray-400 mb-2">
               Multi-provider aggregation with fallback capabilities.
             </p>
-            <ul className="text-gray-400 space-y-1 ml-4">
+            <ul className="text-slate-500 dark:text-gray-400 space-y-1 ml-4">
               <li><strong>Primary:</strong> CoinGecko API</li>
               <li><strong>Fallback:</strong> CoinMarketCap API</li>
               <li><strong>Enrichment:</strong> Quantify Crypto technical data</li>
@@ -631,7 +641,7 @@ export default function CryptoTrends() {
       </div>
 
       {/* Data freshness indicator */}
-      <div className="text-center text-xs text-gray-500">
+      <div className="text-center text-xs text-slate-400 dark:text-gray-500">
         <p>Data updates automatically via WebSocket stream (~10s cadence)</p>
         <p className="mt-1">Manual refresh available • Fallback to cache/snapshot on disconnect</p>
       </div>

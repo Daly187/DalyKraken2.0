@@ -1,6 +1,7 @@
 {
   "projects": {
-    "default": "dalydough"
+    "default": "dalydough",
+    "live": "dalydough"
   },
   "targets": {},
   "etags": {}

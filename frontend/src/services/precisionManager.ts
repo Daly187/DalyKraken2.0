@@ -155,23 +155,79 @@ class PrecisionManager {
    */
   private async loadHyperliquidRules(): Promise<void> {
     try {
-      const response = await fetch('https://api.hyperliquid.xyz/info', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'meta' }),
-      });
+      // Fetch both meta and assetCtx for complete precision info
+      const [metaResponse, assetCtxResponse] = await Promise.all([
+        fetch('https://api.hyperliquid.xyz/info', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'meta' }),
+        }),
+        fetch('https://api.hyperliquid.xyz/info', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'metaAndAssetCtxs' }),
+        }),
+      ]);
 
-      if (!response.ok) {
-        throw new Error(`HyperLiquid API error: ${response.status}`);
+      if (!metaResponse.ok) {
+        throw new Error(`HyperLiquid meta API error: ${metaResponse.status}`);
       }
 
-      const data = await response.json();
+      const metaData = await metaResponse.json();
+      let assetCtxs: any[] = [];
+
+      if (assetCtxResponse.ok) {
+        const assetCtxData = await assetCtxResponse.json();
+        // metaAndAssetCtxs returns [meta, assetCtxs]
+        if (Array.isArray(assetCtxData) && assetCtxData.length >= 2) {
+          assetCtxs = assetCtxData[1] || [];
+        }
+      }
+
       const rules = new Map<string, PrecisionRules>();
 
-      if (data.universe) {
-        data.universe.forEach((asset: any, index: number) => {
+      if (metaData.universe) {
+        metaData.universe.forEach((asset: any, index: number) => {
           const symbol = asset.name;
           const qtyStep = Math.pow(10, -asset.szDecimals);
+
+          // Get the asset context for tick size info
+          const ctx = assetCtxs[index];
+
+          // Hyperliquid tick sizes are based on the mark price
+          // For most assets, the tick size is related to significant figures
+          // We calculate it based on typical price ranges
+          // Default to 5 significant figures rule
+          let priceTick: number | undefined;
+          let priceDecimals = 5; // default
+
+          if (ctx && ctx.markPx) {
+            const markPrice = parseFloat(ctx.markPx);
+            // Hyperliquid uses 5 significant figures for prices
+            // Calculate tick size based on current price
+            if (markPrice >= 10000) {
+              priceTick = 1;
+              priceDecimals = 0;
+            } else if (markPrice >= 1000) {
+              priceTick = 0.1;
+              priceDecimals = 1;
+            } else if (markPrice >= 100) {
+              priceTick = 0.01;
+              priceDecimals = 2;
+            } else if (markPrice >= 10) {
+              priceTick = 0.001;
+              priceDecimals = 3;
+            } else if (markPrice >= 1) {
+              priceTick = 0.0001;
+              priceDecimals = 4;
+            } else if (markPrice >= 0.1) {
+              priceTick = 0.00001;
+              priceDecimals = 5;
+            } else {
+              priceTick = 0.000001;
+              priceDecimals = 6;
+            }
+          }
 
           rules.set(symbol, {
             symbol,
@@ -184,8 +240,9 @@ class PrecisionManager {
             qtyStep,
             qtyMin: qtyStep,
 
-            // Price precision (HyperLiquid uses 5 significant figures for perps)
-            priceDecimals: Math.min(6, 8 - asset.szDecimals),
+            // Price precision with tick size
+            priceDecimals,
+            priceTick,
 
             // Notional
             minNotional: 10, // HyperLiquid typical minimum
@@ -216,8 +273,8 @@ class PrecisionManager {
       return parseFloat(price.toFixed(4));
     }
 
-    if (exchange === 'asterdex' && rules.priceTick) {
-      // AsterDEX uses tick size
+    // Use tick size if available (both AsterDEX and Hyperliquid)
+    if (rules.priceTick) {
       const rounded = Math.round(price / rules.priceTick) * rules.priceTick;
       return parseFloat(rounded.toFixed(rules.priceDecimals));
     }

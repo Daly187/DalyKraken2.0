@@ -9,7 +9,6 @@
  */
 
 // Production API Endpoints
-const ASTER_API = 'https://fapi.asterdex.com';
 const HL_API = 'https://api.hyperliquid.xyz';
 
 // Import precision manager for dynamic precision management
@@ -170,49 +169,84 @@ class ExchangeTradeService {
   }
 
   /**
-   * Sign Hyperliquid order with EIP-712
+   * Sign Hyperliquid L1 action with EIP-712 Phantom Agent mechanism
+   *
+   * Hyperliquid uses a two-step signing process:
+   * 1. Hash the action (serialized with msgpack + nonce + vault info)
+   * 2. Sign a "phantom agent" with the hash as connectionId
    */
-  private async signHyperliquidOrder(
+  private async signHyperliquidL1Action(
     action: any,
     privateKey: string,
-    vaultAddress: string | null = null
+    nonce: number,
+    vaultAddress: string | null = null,
+    isMainnet: boolean = true
   ): Promise<{ r: string; s: string; v: number }> {
     try {
-      // Import ethers dynamically
       const { ethers } = await import('ethers');
+      const msgpack = await import('@msgpack/msgpack');
 
       const wallet = new ethers.Wallet(privateKey);
+      console.log('[HyperLiquid] Signing with wallet:', wallet.address);
 
-      // EIP-712 domain
+      // Step 1: Compute action hash
+      // Serialize action with msgpack
+      const actionBytes = msgpack.encode(action);
+
+      // Build the data to hash: action_bytes + nonce (8 bytes BE) + vault_address_flag
+      const nonceBytes = new Uint8Array(8);
+      const view = new DataView(nonceBytes.buffer);
+      view.setBigUint64(0, BigInt(nonce), false); // big-endian
+
+      // Vault address: 0x00 if null, otherwise 0x01 + address bytes
+      let vaultBytes: Uint8Array;
+      if (!vaultAddress) {
+        vaultBytes = new Uint8Array([0]);
+      } else {
+        const addressBytes = ethers.utils.arrayify(vaultAddress);
+        vaultBytes = new Uint8Array(1 + addressBytes.length);
+        vaultBytes[0] = 1;
+        vaultBytes.set(addressBytes, 1);
+      }
+
+      // Concatenate all parts
+      const dataToHash = new Uint8Array(actionBytes.length + nonceBytes.length + vaultBytes.length);
+      dataToHash.set(new Uint8Array(actionBytes), 0);
+      dataToHash.set(nonceBytes, actionBytes.length);
+      dataToHash.set(vaultBytes, actionBytes.length + nonceBytes.length);
+
+      // Compute keccak256 hash
+      const actionHash = ethers.utils.keccak256(dataToHash);
+      console.log('[HyperLiquid] Action hash:', actionHash);
+
+      // Step 2: Construct phantom agent
+      // source: "a" for mainnet, "b" for testnet
+      const phantomAgent = {
+        source: isMainnet ? 'a' : 'b',
+        connectionId: actionHash,
+      };
+      console.log('[HyperLiquid] Phantom agent:', phantomAgent);
+
+      // Step 3: Sign the phantom agent with EIP-712
       const domain = {
         name: 'Exchange',
         version: '1',
-        chainId: 1337, // HyperLiquid uses 1337 for all L1 trading actions
+        chainId: 1337,
         verifyingContract: '0x0000000000000000000000000000000000000000',
       };
 
-      // EIP-712 types for order action
-      // Note: Only include the primary type (Order) and its dependencies
       const types = {
-        Order: [
-          { name: 'a', type: 'uint32' },
-          { name: 'b', type: 'bool' },
-          { name: 'p', type: 'string' },
-          { name: 's', type: 'string' },
-          { name: 'r', type: 'bool' },
-          { name: 't', type: 'Tif' },
-        ],
-        Tif: [
-          { name: 'limit', type: 'Limit' },
-        ],
-        Limit: [
-          { name: 'tif', type: 'string' },
+        Agent: [
+          { name: 'source', type: 'string' },
+          { name: 'connectionId', type: 'bytes32' },
         ],
       };
 
-      // Sign the message
-      const signature = await wallet._signTypedData(domain, types, action);
+      // Sign the typed data
+      const signature = await wallet._signTypedData(domain, types, phantomAgent);
       const sig = ethers.utils.splitSignature(signature);
+
+      console.log('[HyperLiquid] Signature generated successfully');
 
       return {
         r: sig.r,
@@ -220,7 +254,7 @@ class ExchangeTradeService {
         v: sig.v,
       };
     } catch (error) {
-      console.error('[Hyperliquid] Signature error:', error);
+      console.error('[Hyperliquid] Signature error details:', error);
       throw error;
     }
   }
@@ -733,14 +767,15 @@ class ExchangeTradeService {
           cancels: [{ a: 0, o: parseInt(orderId) }], // Asset index 0 for now, should be dynamic
         };
 
-        const signature = await this.signHyperliquidOrder(action, privateKey);
+        const nonce = Date.now();
+        const signature = await this.signHyperliquidL1Action(action, privateKey, nonce, null, true);
 
         const response = await fetch(`${HL_API}/exchange`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             action,
-            nonce: Date.now(),
+            nonce,
             signature,
             vaultAddress: null,
           }),
@@ -919,7 +954,8 @@ class ExchangeTradeService {
   }
 
   /**
-   * Place an order on HyperLiquid (LIMIT or MARKET)
+   * Place an order on HyperLiquid (PRODUCTION - Direct Order EIP-712 Signing)
+   * Matches the working test-hyperliquid-trade.js implementation
    */
   async placeHyperliquidOrder(params: OrderParams): Promise<OrderResult> {
     const { symbol, side, size, price, orderType = 'LIMIT' } = params;
@@ -928,18 +964,21 @@ class ExchangeTradeService {
       // Get asset index
       const assetIndex = await this.getHyperliquidAssetIndex(symbol);
 
-      // For market orders, use current market price estimate for quantity calculation
+      // Calculate quantity
       const estimatedPrice = orderType === 'MARKET' ? (price || 1) : price!;
       const quantity = size / estimatedPrice;
       const formattedQty = this.formatSize(symbol, quantity, 'hyperliquid', orderType);
 
+      // Validate order size
       if (!this.validateOrderSize(symbol, formattedQty, estimatedPrice, 'hyperliquid', orderType)) {
         throw new Error(`Order validation failed for ${symbol} on HyperLiquid`);
       }
 
-      console.log(`[HyperLiquid] Placing ${orderType} ${side} order for ${symbol}: ${formattedQty}${orderType === 'LIMIT' ? ` @ ${price}` : ''}`);
+      console.log(`[HyperLiquid] Placing ${orderType} ${side} order for ${symbol}: ${formattedQty} @ ${price}`);
 
       // Get wallet credentials
+      // For Hyperliquid, we need the private key of the wallet that has funds
+      // The wallet address should match the private key
       const walletAddress = localStorage.getItem('hyperliquid_wallet_address');
       const privateKey = localStorage.getItem('hyperliquid_private_key');
 
@@ -947,59 +986,101 @@ class ExchangeTradeService {
         throw new Error('HyperLiquid wallet credentials not configured');
       }
 
-      console.log(`[HyperLiquid] Using wallet: ${walletAddress}`);
+      // Validate the private key format
+      const { ethers } = await import('ethers');
+      try {
+        const wallet = new ethers.Wallet(privateKey);
+        const derivedAddress = wallet.address;
+
+        console.log(`[HyperLiquid] Configured wallet: ${walletAddress}`);
+        console.log(`[HyperLiquid] Derived from private key: ${derivedAddress}`);
+
+        if (walletAddress.toLowerCase() !== derivedAddress.toLowerCase()) {
+          console.warn(`[HyperLiquid] ⚠️ WARNING: Wallet address mismatch!`);
+          console.warn(`[HyperLiquid] The configured wallet and the wallet derived from the private key are different.`);
+          console.warn(`[HyperLiquid] For Phantom Agent signing, the private key's wallet will be used for signing.`);
+        }
+      } catch (keyError) {
+        throw new Error(
+          `Invalid private key format!\n\n` +
+          `Private keys must be 64 hex characters (66 with 0x prefix).\n` +
+          `Your key appears to be ${privateKey.replace(/^0x/, '').length} characters.\n\n` +
+          `Make sure you're using the wallet's private key, not its address.`
+        );
+      }
+
       console.log(`[HyperLiquid] Asset index for ${symbol}: ${assetIndex}`);
 
       // Rate limit check
       await this.rateLimiter.checkHL();
 
-      // Build order type object
-      const orderTypeObj = orderType === 'LIMIT'
-        ? { limit: { tif: 'Gtc' } }
-        : { limit: { tif: 'Ioc' } }; // Market order uses IoC (Immediate or Cancel)
-
-      // For market orders (IoC), set price at extreme to ensure fill
-      // Buy orders: set high price, Sell orders: set low price
+      // Format price - use toFixed(8) then remove trailing zeros
       let orderPrice: string;
       if (orderType === 'MARKET') {
-        orderPrice = side === 'buy'
-          ? (price! * 1.05).toFixed(2)  // 5% above for buys (ensures fill)
-          : (price! * 0.95).toFixed(2); // 5% below for sells (ensures fill)
+        // For market orders (IoC), set extreme prices to ensure fill
+        const marketPrice = side === 'buy' ? price! * 1.05 : price! * 0.95;
+        orderPrice = marketPrice.toFixed(8);
       } else {
-        orderPrice = price!.toFixed(2);
+        orderPrice = price!.toFixed(8);
       }
 
-      // Build order action
+      // Format size - use toFixed(8)
+      const orderSize = formattedQty.toFixed(8);
+
+      // Remove trailing zeros from price and size (critical for Hyperliquid wire format)
+      const cleanPrice = orderPrice.replace(/\.?0+$/, '');
+      const cleanSize = orderSize.replace(/\.?0+$/, '');
+
+      console.log(`[HyperLiquid] Order - price: ${cleanPrice}, size: ${cleanSize}`);
+
+      // Build the order type object for the API
+      const orderTypeObj = orderType === 'LIMIT'
+        ? { limit: { tif: 'Gtc' } }      // Good till cancelled for limit orders
+        : { limit: { tif: 'Ioc' } };     // Immediate or cancel for market orders
+
+      // Create the order object for the API
+      const apiOrder = {
+        a: assetIndex,
+        b: side === 'buy',
+        p: cleanPrice,        // String with trailing zeros removed
+        s: cleanSize,         // String with trailing zeros removed
+        r: false,
+        t: orderTypeObj,      // Order type object for API
+      };
+
+      // Build the complete action
       const action = {
         type: 'order',
-        orders: [
-          {
-            a: assetIndex,
-            b: side === 'buy',
-            p: orderPrice,
-            s: formattedQty.toString(),
-            r: false,
-            t: orderTypeObj,
-          },
-        ],
+        orders: [apiOrder],
         grouping: 'na',
       };
 
-      console.log(`[HyperLiquid] Order action:`, JSON.stringify(action, null, 2));
+      console.log(`[HyperLiquid] Action for API:`, JSON.stringify(action, null, 2));
 
-      // Sign the individual order (not the entire action wrapper)
-      const orderToSign = action.orders[0];
-      console.log(`[HyperLiquid] Order to sign:`, JSON.stringify(orderToSign, null, 2));
-      const signature = await this.signHyperliquidOrder(orderToSign, privateKey);
-      console.log(`[HyperLiquid] Signature generated:`, { r: signature.r.substring(0, 16) + '...', s: signature.s.substring(0, 16) + '...', v: signature.v });
+      // Generate nonce
+      const nonce = Date.now();
 
+      // Sign using Phantom Agent method (Hyperliquid's official L1 action signing)
+      // This hashes the action with msgpack and signs a phantom agent with the hash
+      const signature = await this.signHyperliquidL1Action(action, privateKey, nonce, null, true);
+
+      console.log(`[HyperLiquid] Signature generated:`, {
+        r: signature.r.substring(0, 16) + '...',
+        s: signature.s.substring(0, 16) + '...',
+        v: signature.v
+      });
+
+      // Create the final request
       const orderRequest = {
         action,
-        nonce: Date.now(),
+        nonce,
         signature,
         vaultAddress: null,
       };
 
+      console.log(`[HyperLiquid] Sending order request to API...`);
+
+      // Send the order
       const response = await fetch(`${HL_API}/exchange`, {
         method: 'POST',
         headers: {
@@ -1008,27 +1089,43 @@ class ExchangeTradeService {
         body: JSON.stringify(orderRequest),
       });
 
+      // Handle response
       if (!response.ok) {
-        // Enhanced error handling to capture all error details
         let errorDetails = `HTTP ${response.status}: ${response.statusText}`;
         try {
           const errorData = await response.json();
-          console.error(`[HyperLiquid] Order failed with ${response.status}:`, errorData);
+          console.error(`[HyperLiquid] Order failed:`, errorData);
 
-          // Extract error details from HyperLiquid API response
-          if (errorData.message) errorDetails += ` - ${errorData.message}`;
-          if (errorData.error) errorDetails += ` - ${errorData.error}`;
-          if (errorData.code) errorDetails += ` (Code: ${errorData.code})`;
+          if (errorData.response?.error) {
+            errorDetails = errorData.response.error;
+          } else if (errorData.message) {
+            errorDetails = errorData.message;
+          } else if (errorData.error) {
+            errorDetails = errorData.error;
+          }
 
-          // Check for specific HyperLiquid errors
-          if (errorData.message?.includes('signature')) errorDetails += ' [Signature validation failed]';
-          if (errorData.message?.includes('margin')) errorDetails += ' [Insufficient margin/collateral]';
-          if (errorData.message?.includes('not exist')) errorDetails += ' [Wallet not initialized - deposit USDC first]';
+          // Common error patterns
+          if (errorDetails.includes('Invalid signature')) {
+            errorDetails += '\n⚠️ Signature validation failed - check private key and order format';
+          }
+          if (errorDetails.includes('Insufficient margin')) {
+            errorDetails += '\n⚠️ Not enough USDC in account for this trade';
+          }
+          if (errorDetails.includes('Unknown asset')) {
+            errorDetails += `\n⚠️ Asset ${symbol} not recognized - check symbol format`;
+          }
+          if (errorDetails.includes('does not exist')) {
+            errorDetails += '\n\n⚠️ WALLET NOT FOUND ON HYPERLIQUID';
+            errorDetails += '\n\nPossible causes:';
+            errorDetails += '\n1. Wrong private key in Settings - the key must match your Hyperliquid wallet';
+            errorDetails += '\n2. Wallet not activated - deposit USDC to your wallet on Hyperliquid first';
+            errorDetails += '\n3. Using testnet key on mainnet or vice versa';
+            errorDetails += '\n\n💡 To fix: Go to Settings and enter the private key for your actual Hyperliquid wallet';
+          }
         } catch (parseError) {
-          // If response is not JSON, capture text
           try {
             const textError = await response.text();
-            console.error(`[HyperLiquid] Non-JSON error response:`, textError.substring(0, 500));
+            console.error(`[HyperLiquid] Text error:`, textError);
             errorDetails += ` - ${textError.substring(0, 200)}`;
           } catch {
             errorDetails += ' - Unable to parse error response';
@@ -1038,80 +1135,71 @@ class ExchangeTradeService {
       }
 
       const result = await response.json();
+      console.log(`[HyperLiquid] Order response (full):`, JSON.stringify(result, null, 2));
 
-      console.log(`[HyperLiquid] Order placed successfully:`, result);
+      // Check for error in response
+      if (result.status === 'err' || result.response?.type === 'error') {
+        // Handle different error response formats
+        const errorMsg = typeof result.response === 'string'
+          ? result.response
+          : (result.response?.data || result.response?.error || JSON.stringify(result));
+        console.error(`[HyperLiquid] Order rejected:`, errorMsg);
+        throw new Error(`Order rejected: ${errorMsg}`);
+      }
 
-      const orderId = result.status?.statuses?.[0]?.oid?.toString() || 'unknown';
+      // Extract order ID from response - handle various response structures
+      let orderId = 'unknown';
+      let orderStatus = 'unknown';
 
-      // For IoC orders (market orders), check if it was filled immediately from the response
-      // IoC orders don't need status verification since they fill or cancel instantly
+      // Try different response paths
+      if (result.response?.data?.statuses?.[0]) {
+        const status = result.response.data.statuses[0];
+        orderId = status.resting?.oid?.toString() || status.filled?.oid?.toString() || 'unknown';
+        orderStatus = status.resting ? 'resting' : status.filled ? 'filled' : status.error || 'unknown';
+      } else if (result.status?.statuses?.[0]) {
+        const status = result.status.statuses[0];
+        orderId = status.resting?.oid?.toString() || status.filled?.oid?.toString() || 'unknown';
+        orderStatus = status.resting ? 'resting' : status.filled ? 'filled' : status.error || 'unknown';
+      }
+
+      console.log(`[HyperLiquid] Order ID: ${orderId}, Status: ${orderStatus}`);
+
+      // Check fill status
       let filled = false;
       if (orderType === 'MARKET') {
-        // Check if the order was filled from the response
-        const orderStatus = result.status?.statuses?.[0]?.status;
+        // IoC orders fill or cancel immediately
         filled = orderStatus === 'filled';
-        console.log(`[HyperLiquid] IoC order status from response: ${orderStatus}, filled: ${filled}`);
-
-        if (!filled) {
-          console.warn(`[HyperLiquid] IoC order did not fill immediately - may have been cancelled`);
-        }
+        console.log(`[HyperLiquid] Market order status: ${orderStatus}, filled: ${filled}`);
       } else {
         // For limit orders, verify fill status
         if (orderId !== 'unknown') {
           filled = await this.verifyOrderFill('hyperliquid', orderId, symbol);
-        } else {
-          console.warn(`[HyperLiquid] Order ID is unknown, cannot verify fill status`);
         }
       }
 
       return {
         success: true,
         orderId,
-        price: price || 0,
-        size: formattedQty * (price || 0),
+        price: parseFloat(orderPrice),
+        size: parseFloat(orderSize) * parseFloat(orderPrice),
         filled,
       };
     } catch (error: any) {
-      // Capture comprehensive error details for debugging
-      const errorInfo = {
-        message: error.message,
-        name: error.name,
-        stack: error.stack,
-        cause: error.cause,
-        // Fetch-specific errors
-        type: error.type,
-        // Additional context
-        symbol,
-        side,
-        size,
-        price,
-        timestamp: new Date().toISOString(),
-      };
+      console.error(`[HyperLiquid] Order error:`, error);
 
-      console.error(`[HyperLiquid] Order failed for ${symbol} ${side} ${size} @ ${price}:`, errorInfo);
-
-      // Format detailed error for UI display
       let detailedError = `❌ HyperLiquid Error: ${error.message}\n`;
-      detailedError += `Type: ${error.name || 'Unknown'}\n`;
 
-      // Add helpful diagnostics based on error type
-      if (error.message === 'Failed to fetch') {
-        detailedError += `\n🔍 Diagnostics:\n`;
-        detailedError += `- Network connectivity issue OR\n`;
-        detailedError += `- CORS preflight blocked OR\n`;
-        detailedError += `- API endpoint unreachable\n`;
-        detailedError += `- Check browser Network tab for details\n`;
-      }
-
-      // Include request details for debugging
-      detailedError += `\n📋 Request Details:\n`;
-      detailedError += `Symbol: ${symbol}, Side: ${side}, Size: ${size}, Price: ${price}\n`;
-      detailedError += `Endpoint: https://api.hyperliquid.xyz/exchange\n`;
-      detailedError += `Wallet: ${localStorage.getItem('hyperliquid_wallet_address') || 'Not set'}\n`;
-
-      // Add specific HyperLiquid hints
+      // Add diagnostic hints
       if (error.message.includes('signature')) {
-        detailedError += `\n💡 Hint: Check that chainId is 1337 and signature is correct\n`;
+        detailedError += '\n💡 Check:\n';
+        detailedError += '- Private key is correct\n';
+        detailedError += '- Wallet address matches private key\n';
+        detailedError += '- Order format is correct\n';
+      }
+      if (error.message.includes('margin')) {
+        detailedError += '\n💡 Check:\n';
+        detailedError += '- USDC balance in HyperLiquid account\n';
+        detailedError += '- Position size vs available margin\n';
       }
 
       return {

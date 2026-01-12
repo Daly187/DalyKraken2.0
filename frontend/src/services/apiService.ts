@@ -18,6 +18,11 @@ class ApiService {
     this.mainApi = axios.create({
       baseURL: config.api.mainUrl,
       timeout: config.api.timeout.main,
+      headers: {
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+      },
     });
 
     this.cacheApi = axios.create({
@@ -36,18 +41,59 @@ class ApiService {
       if (token) {
         config.headers.Authorization = `Bearer ${token}`;
       }
+
+      // Debug log every outgoing request
+      console.log('[ApiService Interceptor] Outgoing request:', {
+        method: config.method?.toUpperCase(),
+        baseURL: config.baseURL,
+        url: config.url,
+        fullURL: (config.baseURL || '') + (config.url || ''),
+        hasAuth: !!token
+      });
+
       return config;
     });
 
-    // Add response interceptor to handle 401 errors
+    // Add response interceptor to handle 401 errors and detect HTML responses
     this.mainApi.interceptors.response.use(
-      (response) => response,
+      (response) => {
+        // Log every successful response for debugging
+        console.log('[ApiService Interceptor] Response received:', {
+          url: response.config?.url,
+          status: response.status,
+          contentType: response.headers['content-type'],
+          dataType: typeof response.data,
+          isHTML: typeof response.data === 'string' && response.data.includes('<!DOCTYPE')
+        });
+
+        // Check for HTML response in interceptor - this catches it early
+        if (typeof response.data === 'string' && response.data.includes('<!DOCTYPE html>')) {
+          console.error('[ApiService Interceptor] CRITICAL: Received HTML instead of JSON!');
+          console.error('[ApiService Interceptor] URL:', response.config?.url);
+          console.error('[ApiService Interceptor] Full URL:', response.config?.baseURL, response.config?.url);
+          console.error('[ApiService Interceptor] HTML preview:', response.data.substring(0, 300));
+          // Reject with custom error
+          return Promise.reject(new Error('API returned HTML instead of JSON - possible routing misconfiguration'));
+        }
+
+        return response;
+      },
       (error) => {
+        console.error('[ApiService Interceptor] Request error:', {
+          url: error.config?.url,
+          status: error.response?.status,
+          message: error.message
+        });
+
         if (error.response?.status === 401) {
-          // Token expired or invalid, clear auth and redirect to login
-          localStorage.removeItem('auth_token');
-          localStorage.removeItem('user');
-          window.location.href = '/login';
+          const requestUrl = error.config?.url || '';
+          console.warn('[ApiService] 401 ERROR detected on URL:', requestUrl);
+          console.warn('[ApiService] Full error config:', error.config);
+          console.warn('[ApiService] Response data:', error.response?.data);
+
+          // NEVER redirect to login on 401 - let the app handle it gracefully
+          // The ProtectedLayout will check isAuthenticated and redirect if needed
+          console.warn('[ApiService] 401 on endpoint, NOT redirecting. Let app handle it.');
         }
         return Promise.reject(error);
       }
@@ -77,9 +123,39 @@ class ApiService {
 
     try {
       this.updateFetchTime(key);
+      const fullUrl = this.mainApi.defaults.baseURL + endpoint;
+      console.log('[ApiService] ====== GET REQUEST ======');
+      console.log('[ApiService] Base URL:', this.mainApi.defaults.baseURL);
+      console.log('[ApiService] Endpoint:', endpoint);
+      console.log('[ApiService] Full URL:', fullUrl);
+      console.log('[ApiService] Auth token:', localStorage.getItem('auth_token')?.substring(0, 20) + '...');
+
       const response = await this.mainApi.get(endpoint, config);
+
+      console.log('[ApiService] ====== RESPONSE ======');
+      console.log('[ApiService] Status:', response.status);
+      console.log('[ApiService] Content-Type:', response.headers['content-type']);
+      console.log('[ApiService] Data type:', typeof response.data);
+
+      // Check if we got HTML instead of JSON
+      if (typeof response.data === 'string' && response.data.includes('<!DOCTYPE html>')) {
+        console.error('[ApiService] ERROR: Received HTML instead of JSON!');
+        console.error('[ApiService] This usually means the API URL is misconfigured');
+        console.error('[ApiService] HTML preview:', response.data.substring(0, 500));
+        throw new Error('Server returned HTML instead of JSON - API routing issue');
+      }
+
       return response.data;
-    } catch (error) {
+    } catch (error: any) {
+      // For authenticated endpoints, don't use fallbacks - throw the original error
+      const authenticatedEndpoints = ['/dca-bots', '/account', '/settings', '/kraken'];
+      const isAuthEndpoint = authenticatedEndpoints.some(ep => endpoint.startsWith(ep));
+
+      if (isAuthEndpoint) {
+        console.error('[ApiService] Authenticated endpoint failed:', endpoint, error.response?.status, error.response?.data);
+        throw error;
+      }
+
       console.warn('[ApiService] Main API failed, trying fallbacks:', error);
       return this.getFallback<T>(endpoint);
     }
@@ -753,6 +829,180 @@ class ApiService {
   // ============================================
   // STRATEGY STATUS API METHODS
   // ============================================
+
+  // ============================================
+  // POLYMARKET / GAMBLING API METHODS
+  // ============================================
+
+  /**
+   * Get Polymarket API credentials headers
+   * Includes both L2 (API key/secret) and L1 (private key) credentials
+   */
+  private getPolymarketHeaders() {
+    try {
+      const apiKey = localStorage.getItem('polymarket_api_key');
+      const apiSecret = localStorage.getItem('polymarket_api_secret');
+      const passphrase = localStorage.getItem('polymarket_passphrase');
+      const address = localStorage.getItem('polymarket_address');
+      const privateKey = localStorage.getItem('polymarket_private_key');
+      const funderAddress = localStorage.getItem('polymarket_funder_address');
+      const signatureType = localStorage.getItem('polymarket_signature_type');
+
+      const headers: Record<string, string> = {};
+      if (apiKey) headers['x-polymarket-api-key'] = apiKey;
+      if (apiSecret) headers['x-polymarket-api-secret'] = apiSecret;
+      if (passphrase) headers['x-polymarket-passphrase'] = passphrase;
+      if (address) headers['x-polymarket-address'] = address;
+      if (privateKey) headers['x-polymarket-private-key'] = privateKey;
+      if (funderAddress) headers['x-polymarket-funder-address'] = funderAddress;
+      if (signatureType) headers['x-polymarket-signature-type'] = signatureType;
+
+      return headers;
+    } catch (error) {
+      console.error('[ApiService] Error getting Polymarket credentials:', error);
+      return {};
+    }
+  }
+
+  /**
+   * Get available Polymarket markets
+   */
+  async getPolymarketMarkets(filters?: {
+    active?: boolean;
+    limit?: number;
+    category?: string;
+  }) {
+    const params = new URLSearchParams();
+    if (filters?.active !== undefined) params.append('active', String(filters.active));
+    if (filters?.limit) params.append('limit', String(filters.limit));
+    if (filters?.category) params.append('category', filters.category);
+
+    return this.get(`/polymarket/markets?${params.toString()}`, {
+      headers: this.getPolymarketHeaders()
+    });
+  }
+
+  /**
+   * Get user's Polymarket betting configuration
+   */
+  async getPolymarketConfig() {
+    return this.get('/polymarket/config', { headers: this.getPolymarketHeaders() });
+  }
+
+  /**
+   * Update user's Polymarket betting configuration
+   */
+  async updatePolymarketConfig(config: any) {
+    return this.put('/polymarket/config', config, { headers: this.getPolymarketHeaders() });
+  }
+
+  /**
+   * Manually trigger a market scan
+   */
+  async triggerPolymarketScan() {
+    return this.post('/polymarket/trigger', {}, {
+      headers: this.getPolymarketHeaders(),
+      timeout: 60000 // 60 seconds for scan
+    });
+  }
+
+  /**
+   * Get user's open positions
+   */
+  async getPolymarketPositions() {
+    return this.get('/polymarket/positions', { headers: this.getPolymarketHeaders() });
+  }
+
+  /**
+   * Get user's bet history
+   */
+  async getPolymarketBets(limit: number = 50) {
+    return this.get(`/polymarket/bets?limit=${limit}`, { headers: this.getPolymarketHeaders() });
+  }
+
+  /**
+   * Place a bet on Polymarket
+   */
+  async placePolymarketBet(bet: {
+    marketId: string;
+    tokenId?: string;
+    outcomeId: string;
+    side: 'yes' | 'no';
+    amount: number;
+    limitPrice?: number;
+    question?: string;
+    outcome?: string;
+  }) {
+    return this.post('/polymarket/bets', bet, { headers: this.getPolymarketHeaders() });
+  }
+
+  /**
+   * Get performance statistics
+   */
+  async getPolymarketStats() {
+    return this.get('/polymarket/stats', { headers: this.getPolymarketHeaders() });
+  }
+
+  /**
+   * Get Polymarket account balance
+   */
+  async getPolymarketBalance() {
+    return this.get('/polymarket/balance', { headers: this.getPolymarketHeaders() });
+  }
+
+  /**
+   * Get recent execution logs
+   */
+  async getPolymarketExecutions(limit: number = 20) {
+    return this.get(`/polymarket/executions?limit=${limit}`, { headers: this.getPolymarketHeaders() });
+  }
+
+  /**
+   * Save Polymarket credentials
+   */
+  async savePolymarketCredentials(credentials: {
+    apiKey: string;
+    apiSecret: string;
+    passphrase: string;
+    address?: string;
+  }) {
+    return this.post('/polymarket/credentials', credentials, {
+      headers: { ...this.getPolymarketHeaders(), 'Content-Type': 'application/json' }
+    });
+  }
+
+  /**
+   * Test Polymarket connection
+   */
+  async testPolymarketConnection() {
+    return this.post('/polymarket/test-connection', {}, { headers: this.getPolymarketHeaders() });
+  }
+
+  /**
+   * Derive API credentials from wallet private key
+   * Uses L1 auth (wallet signature) to create L2 credentials (API key/secret/passphrase)
+   */
+  async derivePolymarketApiKey() {
+    return this.post('/polymarket/derive-api-key', {}, { headers: this.getPolymarketHeaders() });
+  }
+
+  /**
+   * Analyze betting opportunities with AI
+   */
+  async analyzePolymarketOpportunities(opportunities: Array<{
+    id: string;
+    question: string;
+    outcome: string;
+    probability: number;
+    volume: number;
+    hoursToClose: number;
+    category?: string;
+  }>) {
+    return this.post('/polymarket/analyze', { opportunities }, {
+      headers: this.getPolymarketHeaders(),
+      timeout: 30000,
+    });
+  }
 
   /**
    * Get status summary for all strategies

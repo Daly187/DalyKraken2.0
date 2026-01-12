@@ -130,20 +130,20 @@ export default function Header() {
   };
 
   return (
-    <header className="h-16 bg-white dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 flex items-center justify-between px-6 transition-colors duration-200">
+    <header className="h-16 bg-white dark:bg-slate-800 border-b border-gray-100 dark:border-slate-700 flex items-center justify-between px-6 transition-colors duration-200 shadow-sm">
       <div className="flex items-center gap-6">
-        <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+        <h2 className="text-xl font-semibold text-slate-800 dark:text-white">
           Crypto Trading Dashboard
         </h2>
 
         {/* Portfolio Balance */}
         {balances.length > 0 && (
-          <div className="flex items-center gap-4 pl-4 border-l border-gray-300 dark:border-slate-700">
+          <div className="flex items-center gap-4 pl-4 border-l border-slate-200 dark:border-slate-700">
             <div className="flex items-center gap-2">
               <DollarSign className="h-5 w-5 text-primary-500" />
               <div>
-                <p className="text-xs text-gray-500 dark:text-gray-400">Portfolio</p>
-                <p className="text-sm font-bold text-gray-900 dark:text-white">
+                <p className="text-xs text-slate-400 dark:text-gray-400">Portfolio</p>
+                <p className="text-sm font-bold text-slate-800 dark:text-white">
                   {formatCurrency(totalValue)}
                 </p>
               </div>
@@ -151,14 +151,14 @@ export default function Header() {
 
             <div className="flex items-center gap-2">
               {isPositive ? (
-                <TrendingUp className="h-4 w-4 text-green-500" />
+                <TrendingUp className="h-4 w-4 text-emerald-500" />
               ) : (
                 <TrendingDown className="h-4 w-4 text-red-500" />
               )}
               <div>
-                <p className="text-xs text-gray-500 dark:text-gray-400">24h</p>
+                <p className="text-xs text-slate-400 dark:text-gray-400">24h</p>
                 <p className={`text-sm font-bold ${
-                  isPositive ? 'text-green-500' : 'text-red-500'
+                  isPositive ? 'text-emerald-500' : 'text-red-500'
                 }`}>
                   {formatCurrency(Math.abs(totalChange24h))}
                 </p>
@@ -168,8 +168,8 @@ export default function Header() {
             <div className="flex items-center gap-2">
               <DollarSign className="h-4 w-4 text-blue-500" />
               <div>
-                <p className="text-xs text-gray-500 dark:text-gray-400">Stables</p>
-                <p className="text-sm font-bold text-blue-400">
+                <p className="text-xs text-slate-400 dark:text-gray-400">Stables</p>
+                <p className="text-sm font-bold text-blue-500">
                   {formatCurrency(stableValue)}
                 </p>
               </div>
@@ -178,24 +178,24 @@ export default function Header() {
         )}
 
         {/* Strategy Status Indicators */}
-        <div className="flex items-center gap-3 pl-4 border-l border-gray-300 dark:border-slate-700">
+        <div className="flex items-center gap-3 pl-4 border-l border-slate-200 dark:border-slate-700">
           {/* DalyDCA Status */}
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-slate-900/50 border border-gray-300 dark:border-slate-700">
-            <Activity className={`h-4 w-4 ${strategyStatus.dca.active ? 'text-green-500' : 'text-gray-500'}`} />
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-slate-700">
+            <Activity className={`h-4 w-4 ${strategyStatus.dca.active ? 'text-emerald-500' : 'text-slate-400'}`} />
             <div className="flex flex-col">
-              <p className="text-xs text-gray-500 dark:text-gray-400">DalyDCA</p>
-              <p className={`text-xs font-semibold ${strategyStatus.dca.active ? 'text-green-500' : 'text-gray-500'}`}>
+              <p className="text-xs text-slate-400 dark:text-gray-400">DalyDCA</p>
+              <p className={`text-xs font-semibold ${strategyStatus.dca.active ? 'text-emerald-500' : 'text-slate-400'}`}>
                 {strategyStatus.dca.active ? `Active (${strategyStatus.dca.activeBots})` : 'Inactive'}
               </p>
             </div>
           </div>
 
           {/* DalyDEPEG Status */}
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-slate-900/50 border border-gray-300 dark:border-slate-700">
-            <Activity className={`h-4 w-4 ${strategyStatus.depeg.active ? 'text-green-500' : 'text-gray-500'}`} />
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-slate-700">
+            <Activity className={`h-4 w-4 ${strategyStatus.depeg.active ? 'text-emerald-500' : 'text-slate-400'}`} />
             <div className="flex flex-col">
-              <p className="text-xs text-gray-500 dark:text-gray-400">DalyDEPEG</p>
-              <p className={`text-xs font-semibold ${strategyStatus.depeg.active ? 'text-green-500' : 'text-gray-500'}`}>
+              <p className="text-xs text-slate-400 dark:text-gray-400">DalyDEPEG</p>
+              <p className={`text-xs font-semibold ${strategyStatus.depeg.active ? 'text-emerald-500' : 'text-slate-400'}`}>
                 {strategyStatus.depeg.active ? 'Active' : strategyStatus.depeg.enabled ? 'Enabled' : 'Inactive'}
               </p>
             </div>
@@ -207,11 +207,11 @@ export default function Header() {
         <div className="relative">
           <button
             onClick={() => setShowNotifications(!showNotifications)}
-            className="relative p-2 text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
+            className="relative p-2 text-slate-400 dark:text-gray-400 hover:text-slate-600 dark:hover:text-white transition-colors"
           >
             <Bell className="h-5 w-5" />
             {unreadCount > 0 && (
-              <span className="absolute top-0 right-0 inline-flex items-center justify-center px-2 py-1 text-xs font-bold leading-none text-white transform translate-x-1/2 -translate-y-1/2 bg-red-600 rounded-full">
+              <span className="absolute top-0 right-0 inline-flex items-center justify-center px-2 py-1 text-xs font-bold leading-none text-white transform translate-x-1/2 -translate-y-1/2 bg-red-500 rounded-full">
                 {unreadCount}
               </span>
             )}
@@ -225,20 +225,20 @@ export default function Header() {
         <div className="relative">
           <button
             onClick={() => setShowUserMenu(!showUserMenu)}
-            className="flex items-center space-x-2 p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"
+            className="flex items-center space-x-2 p-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
           >
-            <User className="h-5 w-5 text-gray-500 dark:text-gray-400" />
-            <span className="text-sm text-gray-700 dark:text-gray-300">{user?.username}</span>
+            <User className="h-5 w-5 text-slate-400 dark:text-gray-400" />
+            <span className="text-sm text-slate-600 dark:text-gray-300">{user?.username}</span>
           </button>
 
           {showUserMenu && (
-            <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-slate-800 rounded-lg shadow-lg border border-gray-200 dark:border-slate-700 py-1 z-50">
+            <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-slate-800 rounded-xl shadow-lg border border-gray-100 dark:border-slate-700 py-1 z-50">
               <button
                 onClick={() => {
                   logout();
                   setShowUserMenu(false);
                 }}
-                className="w-full flex items-center px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700"
+                className="w-full flex items-center px-4 py-2 text-sm text-slate-600 dark:text-gray-300 hover:bg-slate-50 dark:hover:bg-slate-700"
               >
                 <LogOut className="mr-3 h-4 w-4" />
                 Logout

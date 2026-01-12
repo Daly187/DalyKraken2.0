@@ -71,6 +71,8 @@ const PAIR_SUFFIXES = ['USD', 'USDT', 'USDC', 'EUR', 'GBP', 'CAD', 'JPY'];
 
 export default function DalyDCA() {
   const dcaBots = useStore((state) => state.dcaBots);
+  const dcaBotsError = useStore((state) => state.dcaBotsError);
+  const dcaBotsLoading = useStore((state) => state.dcaBotsLoading);
   const fetchDCABots = useStore((state) => state.fetchDCABots);
   const createDCABot = useStore((state) => state.createDCABot);
   const updateDCABot = useStore((state) => state.updateDCABot);
@@ -107,38 +109,53 @@ const [trendData, setTrendData] = useState<Map<string, any>>(new Map());
   const [isLiveBotsSectionExpanded, setIsLiveBotsSectionExpanded] = useState(false);
   const [isPendingOrdersSectionExpanded, setIsPendingOrdersSectionExpanded] = useState(false);
 
-  // Available trading pairs (ordered by market cap - top 100 on Kraken)
+  // Available trading pairs (ordered by market cap - synchronized with globalPriceManager)
   const availableSymbols = [
-    // Top 10
-    'BTC/USD', 'ETH/USD', 'XRP/USD', 'SOL/USD', 'BNB/USD',
-    'DOGE/USD', 'ADA/USD', 'TRX/USD', 'AVAX/USD', 'LINK/USD',
-    // 11-20
-    'DOT/USD', 'BCH/USD', 'NEAR/USD', 'LTC/USD', 'UNI/USD',
-    'APT/USD', 'ICP/USD', 'MATIC/USD', 'ATOM/USD', 'XLM/USD',
-    // 21-30
-    'FIL/USD', 'ARB/USD', 'ALGO/USD', 'SAND/USD', 'MANA/USD',
-    'GRT/USD', 'AAVE/USD', 'SNX/USD', 'AXS/USD', 'FLOW/USD',
-    // 31-40
-    'EOS/USD', 'XTZ/USD', 'ZEC/USD', 'DASH/USD', 'COMP/USD',
-    'YFI/USD', 'MKR/USD', 'SUSHI/USD', 'BAT/USD', 'ZRX/USD',
-    // 41-50
-    'ENJ/USD', 'CRV/USD', 'BAL/USD', 'BAND/USD', 'KNC/USD',
-    'REN/USD', 'STORJ/USD', 'KSM/USD', 'KAVA/USD', 'OCEAN/USD',
-    // 51-60
-    'WAVES/USD', 'ICX/USD', 'SC/USD', 'OMG/USD', 'ANT/USD',
-    'REP/USD', 'LSK/USD', 'QTUM/USD', 'PAXG/USD', 'DAI/USD',
-    // 61-70
-    'USDC/USD', 'USDT/USD', 'GHST/USD', 'KEEP/USD', 'PERP/USD',
-    'RARI/USD', 'OXT/USD', 'MLN/USD', 'TBTC/USD', 'ETH2/USD',
-    // 71-80
-    'MOVR/USD', 'PHA/USD', 'KILT/USD', 'SDN/USD', 'KINT/USD',
-    'AIR/USD', 'XRT/USD', 'EWT/USD', 'SPELL/USD', 'RUNE/USD',
-    // 81-90
-    'LPT/USD', 'FET/USD', 'INJ/USD', 'AKT/USD', 'GLM/USD',
-    'BLUR/USD', 'IMX/USD', 'OP/USD', 'LDO/USD', 'RPL/USD',
-    // 91-100
-    'CFG/USD', 'SRM/USD', 'RAY/USD', 'ORCA/USD', 'MNGO/USD',
-    'T/USD', '1INCH/USD', 'API3/USD', 'BADGER/USD', 'BNT/USD',
+    // Top 30 - Mega/Large caps
+    'BTC/USD', 'ETH/USD', 'USDT/USD', 'XRP/USD', 'BNB/USD',
+    'SOL/USD', 'USDC/USD', 'DOGE/USD', 'TON/USD', 'ADA/USD',
+    'TRX/USD', 'AVAX/USD', 'SHIB/USD', 'WBTC/USD', 'DOT/USD',
+    'LINK/USD', 'BCH/USD', 'POL/USD', 'LTC/USD', 'DAI/USD',
+    'UNI/USD', 'NEAR/USD', 'ICP/USD', 'KAS/USD', 'ETC/USD',
+    'XLM/USD', 'ATOM/USD', 'XMR/USD', 'FIL/USD',
+    // 31-60 - Large caps
+    'LDO/USD', 'APT/USD', 'HBAR/USD', 'ARB/USD', 'VET/USD',
+    'IMX/USD', 'CRO/USD', 'RNDR/USD', 'INJ/USD', 'OP/USD',
+    'MNT/USD', 'GRT/USD', 'QNT/USD', 'AAVE/USD', 'FTM/USD',
+    'SUI/USD', 'MKR/USD', 'THETA/USD', 'ALGO/USD', 'TIA/USD',
+    'XTZ/USD', 'EOS/USD', 'FLOW/USD', 'AXS/USD', 'NEO/USD',
+    'KAVA/USD', 'MINA/USD', 'IOTA/USD', 'CRV/USD',
+    // 61-100 - Mid caps
+    'CHZ/USD', 'GALA/USD', 'CAKE/USD', 'ZEC/USD', 'DASH/USD',
+    'ENJ/USD', 'WAVES/USD', 'BAT/USD', 'LRC/USD', '1INCH/USD',
+    'GMX/USD', 'SNX/USD', 'COMP/USD', 'ROSE/USD', 'YFI/USD',
+    'DYDX/USD', 'RON/USD', 'BLUR/USD', 'ILV/USD', 'HNT/USD',
+    'KLAY/USD', 'AUDIO/USD', 'CVX/USD', 'AR/USD', 'FET/USD',
+    'AGIX/USD', 'CELO/USD', 'STX/USD', 'ONE/USD', 'OCEAN/USD',
+    'BAND/USD', 'GNO/USD', 'RLC/USD', 'ANKR/USD', 'LSK/USD',
+    'SNT/USD', 'STORJ/USD', 'NMR/USD', 'OXT/USD', 'GLM/USD',
+    // 101-140 - Mid/Small caps on Kraken
+    'BAL/USD', 'KSM/USD', 'ZIL/USD', 'ZRX/USD', 'LPT/USD',
+    'SUSHI/USD', 'API3/USD', 'CTSI/USD', 'MASK/USD', 'MANA/USD',
+    'SAND/USD', 'REN/USD', 'BNT/USD', 'NKN/USD', 'REQ/USD',
+    'ASTR/USD', 'EGLD/USD', 'PEPE/USD', 'BONK/USD', 'FLOKI/USD',
+    'WIF/USD', 'SEI/USD', 'RUNE/USD', 'TAO/USD', 'WLD/USD',
+    'JUP/USD', 'PYTH/USD', 'ONDO/USD', 'ENA/USD', 'NOT/USD',
+    'PENGU/USD', 'TRUMP/USD', 'APE/USD', 'RAY/USD', 'RBN/USD',
+    'PERP/USD', 'SPELL/USD', 'ALICE/USD', 'OGN/USD', 'SKL/USD',
+    // 141-180 - Additional Kraken-supported assets
+    'RARE/USD', 'PHA/USD', 'BADGER/USD', 'KNC/USD', 'DODO/USD',
+    'CVC/USD', 'POWR/USD', 'MOVR/USD', 'SC/USD', 'OMG/USD',
+    'IOTX/USD', 'JASMY/USD', 'GLMR/USD', 'QTUM/USD', 'AMP/USD',
+    'PAXG/USD', 'CFG/USD', 'RSR/USD', 'EWT/USD', 'AKT/USD',
+    'T/USD', 'KILT/USD', 'SDN/USD', 'KINT/USD', 'AIR/USD',
+    'XRT/USD', 'RPL/USD', 'ORCA/USD', 'MNGO/USD', 'SRM/USD',
+    'KEEP/USD', 'RARI/USD', 'ANT/USD', 'ICX/USD', 'GHST/USD',
+    'TBTC/USD', 'ENS/USD', 'MIR/USD', 'POLY/USD', 'ROOK/USD',
+    // 181-200 - Remaining Kraken assets
+    'TRIBE/USD', 'AUCTION/USD', 'WNXM/USD', 'BOND/USD', 'FARM/USD',
+    'BERA/USD', 'BEAM/USD', 'ALCX/USD', 'REP/USD', 'MLN/USD',
+    'BABY/USD', 'ETH2/USD',
   ];
 
   // Bot creation form state
@@ -288,7 +305,8 @@ const [trendData, setTrendData] = useState<Map<string, any>>(new Map());
   const fetchTrendData = async () => {
     try {
       console.log('[DalyDCA] Fetching enhanced trends...');
-      const response = await apiService.getEnhancedTrends(100);
+      // Fetch 200 trends to match expanded pairs list
+      const response = await apiService.getEnhancedTrends(200);
       console.log('[DalyDCA] Raw API response:', response);
       const responseData = response?.data || response;
       console.log('[DalyDCA] Response data:', responseData);
@@ -322,18 +340,22 @@ const [trendData, setTrendData] = useState<Map<string, any>>(new Map());
         const canonicalBase = ALIAS_TO_CANONICAL[baseSymbol] || baseSymbol;
         const canonicalPair = `${canonicalBase}/${formattedQuote}`;
 
+        // Build comprehensive key list for this trend
         const candidateKeys = new Set<string>([
           rawSymbol,
           formattedSymbol,
           baseSymbol,
           canonicalBase,
           canonicalPair,
+          `${rawSymbol}/USD`,      // e.g., REP -> REP/USD
+          `${baseSymbol}/USD`,     // redundant but safe
         ]);
 
         const aliases = SYMBOL_ALIAS_MAP[canonicalBase] || [];
         aliases.forEach((alias) => {
           candidateKeys.add(alias);
           candidateKeys.add(`${alias}/${formattedQuote}`);
+          candidateKeys.add(`${alias}/USD`);
         });
 
         candidateKeys.forEach((key) => {
@@ -344,9 +366,12 @@ const [trendData, setTrendData] = useState<Map<string, any>>(new Map());
       const timestamp = Date.now();
       setTrendData(trendMap);
       setTrendDataTimestamp(timestamp);
-      console.log('[DalyDCA] Loaded trend data for', trendMap.size, 'symbols');
+      console.log('[DalyDCA] Loaded trend data for', trendMap.size, 'key mappings from', trends.length, 'trends');
       if (trends.length > 0) {
         console.log('[DalyDCA] Sample trend data:', trends[0]);
+        // Log all symbols from the API to help debug
+        const allSymbols = trends.map((t: any) => t.symbol).join(', ');
+        console.log('[DalyDCA] All trend symbols from API:', allSymbols);
       }
 
       // Cache trend data to localStorage for faster subsequent loads
@@ -813,11 +838,28 @@ const [trendData, setTrendData] = useState<Map<string, any>>(new Map());
         ...bot,
         techScore: trend.technical_score || bot.techScore || 50,
         trendScore: trend.trend_score || bot.trendScore || 50,
-        // Trend data has 'trend_signal' not 'recommendation'
-        recommendation: trend.trend_signal || trend.recommendation || bot.recommendation || 'neutral',
+        // Prefer stored market_trend from Firestore (updated every 10 min),
+        // fallback to live trend data, then bot's recommendation
+        recommendation: bot.market_trend || trend.trend_signal || trend.recommendation || bot.recommendation || 'neutral',
+        hasTrendData: true,
+        // Include market_trend update timestamp for display
+        marketTrendUpdated: bot.market_trend_updated,
       };
     }
-    return bot;
+    // No live trend data - still use stored market_trend if available
+    if (bot.market_trend) {
+      return {
+        ...bot,
+        recommendation: bot.market_trend,
+        hasTrendData: true,
+        marketTrendUpdated: bot.market_trend_updated,
+      };
+    }
+    // No trend data found at all - mark as missing
+    return {
+      ...bot,
+      hasTrendData: false,
+    };
   };
 
   const getNextActionMessage = (bot: any) => {
@@ -1072,7 +1114,18 @@ const [trendData, setTrendData] = useState<Map<string, any>>(new Map());
     return `${diffDays}d ago`;
   };
 
-  const getTrendDisplay = (recommendation?: 'bullish' | 'bearish' | 'neutral') => {
+  const getTrendDisplay = (recommendation?: 'bullish' | 'bearish' | 'neutral', hasTrendData: boolean = true) => {
+    // If no trend data found, show MISSING
+    if (!hasTrendData) {
+      return {
+        label: 'MISSING',
+        icon: AlertTriangle,
+        color: 'text-yellow-400',
+        bgColor: 'bg-yellow-500/20',
+        borderColor: 'border-yellow-500/50',
+      };
+    }
+
     switch (recommendation) {
       case 'bullish':
         return {
@@ -1884,8 +1937,12 @@ const [trendData, setTrendData] = useState<Map<string, any>>(new Map());
                         <div>
                           <p className="text-xs text-gray-500">Market Trend</p>
                           {(() => {
-                            const trend = getTrendDisplay(botWithTrend.recommendation);
+                            const trend = getTrendDisplay(botWithTrend.recommendation, botWithTrend.hasTrendData);
                             const TrendIcon = trend.icon;
+                            // Show stored market_trend timestamp if available, otherwise use cache timestamp
+                            const trendTimestamp = botWithTrend.marketTrendUpdated
+                              ? new Date(botWithTrend.marketTrendUpdated).getTime()
+                              : trendDataTimestamp;
                             return (
                               <div>
                                 <div className={`flex items-center gap-1 px-2 py-1 rounded ${trend.bgColor} border ${trend.borderColor}`}>
@@ -1895,7 +1952,7 @@ const [trendData, setTrendData] = useState<Map<string, any>>(new Map());
                                   </span>
                                 </div>
                                 <p className="text-[10px] text-gray-500 mt-1">
-                                  {formatTrendTimestamp(trendDataTimestamp)}
+                                  {formatTrendTimestamp(trendTimestamp)}
                                 </p>
                               </div>
                             );
@@ -2054,7 +2111,7 @@ const [trendData, setTrendData] = useState<Map<string, any>>(new Map());
                           <div>
                             <p className="text-xs text-gray-400 mb-2">Market Trend</p>
                             {(() => {
-                              const trend = getTrendDisplay(botWithTrend.recommendation);
+                              const trend = getTrendDisplay(botWithTrend.recommendation, botWithTrend.hasTrendData);
                               const TrendIcon = trend.icon;
                               return (
                                 <div className={`flex items-center gap-2 px-3 py-2 rounded-lg ${trend.bgColor} border ${trend.borderColor}`}>
@@ -2412,13 +2469,30 @@ const [trendData, setTrendData] = useState<Map<string, any>>(new Map());
               );
             })}
           </div>
-        ) : loading ? (
+        ) : loading || dcaBotsLoading ? (
           <div className="text-center py-16">
             <div className="inline-flex items-center justify-center h-16 w-16 rounded-full bg-primary-500/10 mb-4">
               <Activity className="h-8 w-8 text-primary-400 animate-spin" />
             </div>
             <p className="text-gray-400 font-medium">Loading your bots...</p>
             <p className="text-xs text-gray-500 mt-2">Please wait while we fetch your DCA bots</p>
+          </div>
+        ) : dcaBotsError ? (
+          <div className="text-center py-16">
+            <div className="inline-flex items-center justify-center h-20 w-20 rounded-full bg-red-500/20 mb-4">
+              <AlertTriangle className="h-10 w-10 text-red-400" />
+            </div>
+            <h3 className="text-xl font-bold text-white mb-2">Error Loading Bots</h3>
+            <p className="text-red-400 mb-4 max-w-md mx-auto">
+              {dcaBotsError}
+            </p>
+            <button
+              onClick={() => fetchDCABots()}
+              className="btn btn-secondary inline-flex items-center gap-2"
+            >
+              <RefreshCw className="h-5 w-5" />
+              Retry
+            </button>
           </div>
         ) : (
           <div className="text-center py-16">

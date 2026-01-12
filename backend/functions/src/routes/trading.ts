@@ -100,41 +100,71 @@ export function createTradingRouter(): Router {
       // Calculate amount
       const amount = parseFloat(volume) * parseFloat(String(currentPrice));
 
-      // Get portfolio balance for notification
-      let balance = { total: 0, stables: 0 };
+      // Build top holdings for notification
+      const topHoldings: Array<{ asset: string; value: number }> = [];
       try {
         const accountBalance = await krakenService.getBalance(apiKey, apiSecret);
         if (accountBalance) {
-          // Calculate total balance in USD equivalent
-          balance.total = Object.entries(accountBalance).reduce((sum, [asset, assetAmount]) => {
-            return sum + parseFloat(String(assetAmount));
-          }, 0);
+          const stablecoins = ['ZUSD', 'USD', 'USDT', 'USDC', 'DAI', 'BUSD'];
 
-          // Calculate stables (USD, USDT, USDC, etc.)
-          balance.stables = Object.entries(accountBalance).reduce((sum, [asset, assetAmount]) => {
-            if (asset.includes('USD') || asset.includes('USDT') || asset.includes('USDC')) {
-              return sum + parseFloat(String(assetAmount));
+          // Get prices for non-stablecoin assets
+          const assetPairs: string[] = [];
+          const assetToPairMapping: Record<string, string> = {};
+
+          for (const asset of Object.keys(accountBalance)) {
+            const amountNum = parseFloat(String(accountBalance[asset]));
+            if (amountNum > 0 && !stablecoins.includes(asset)) {
+              const baseAsset = asset.replace(/\.F$/, '');
+              const assetPair = baseAsset.startsWith('X') || baseAsset.startsWith('Z')
+                ? `${baseAsset}ZUSD` : `${baseAsset}USD`;
+              assetPairs.push(assetPair);
+              assetToPairMapping[asset] = assetPair;
             }
-            return sum;
-          }, 0);
+          }
+
+          let prices: Record<string, number> = {};
+          if (assetPairs.length > 0) {
+            try {
+              const rawPrices = await krakenService.getCurrentPrices(assetPairs);
+              for (const [asset] of Object.entries(assetToPairMapping)) {
+                const baseAsset = asset.replace(/\.F$/, '');
+                if (rawPrices[baseAsset] !== undefined) {
+                  prices[asset] = rawPrices[baseAsset];
+                }
+              }
+            } catch (e) { /* ignore price fetch errors */ }
+          }
+
+          // Build holdings array
+          for (const [asset, assetAmount] of Object.entries(accountBalance)) {
+            const amountNum = parseFloat(String(assetAmount));
+            if (amountNum <= 0) continue;
+            const isStable = stablecoins.includes(asset);
+            const assetPrice = isStable ? 1 : (prices[asset] || 0);
+            const assetValue = amountNum * assetPrice;
+            if (assetValue > 0.01) {
+              let displayName = asset.replace(/\.F$/, '');
+              if (displayName.startsWith('X') || displayName.startsWith('Z')) {
+                displayName = displayName.substring(1);
+              }
+              topHoldings.push({ asset: displayName, value: assetValue });
+            }
+          }
+          topHoldings.sort((a, b) => b.value - a.value);
         }
       } catch (error) {
         console.warn('[Trading] Failed to fetch balance for Telegram notification:', error);
       }
 
-      // Send Telegram notification for trade entry
+      // Send Telegram notification for trade entry (manual trade - no bot context)
       try {
-        await telegramService.sendTradeEntry(
-          {
-            pair,
-            type,
-            volume: parseFloat(volume),
-            price: parseFloat(String(currentPrice)),
-            amount,
-            orderResult,
-          },
-          balance
-        );
+        await telegramService.sendTradeEntry({
+          pair,
+          price: parseFloat(String(currentPrice)),
+          totalPurchased: amount, // For manual trades, just show the current order amount
+          remainingValue: amount,
+          topHoldings,
+        });
       } catch (error) {
         console.warn('[Trading] Failed to send Telegram notification:', error);
         // Don't fail the order if notification fails
@@ -303,41 +333,95 @@ export function createTradingRouter(): Router {
         profitPercent = (profit / entryAmount) * 100;
       }
 
-      // Get portfolio balance for notification
-      let balance = { total: 0, stables: 0 };
+      // Build top holdings for notification
+      const topHoldings: Array<{ asset: string; value: number }> = [];
+      let accountBalanceData: Record<string, any> = {};
       try {
         const accountBalance = await krakenService.getBalance(apiKey, apiSecret);
+        accountBalanceData = accountBalance || {};
         if (accountBalance) {
-          balance.total = Object.entries(accountBalance).reduce((sum, [asset, assetAmount]) => {
-            return sum + parseFloat(String(assetAmount));
-          }, 0);
+          const stablecoins = ['ZUSD', 'USD', 'USDT', 'USDC', 'DAI', 'BUSD'];
 
-          balance.stables = Object.entries(accountBalance).reduce((sum, [asset, assetAmount]) => {
-            if (asset.includes('USD') || asset.includes('USDT') || asset.includes('USDC')) {
-              return sum + parseFloat(String(assetAmount));
+          // Get prices for non-stablecoin assets
+          const assetPairs: string[] = [];
+          const assetToPairMapping: Record<string, string> = {};
+
+          for (const asset of Object.keys(accountBalance)) {
+            const amountNum = parseFloat(String(accountBalance[asset]));
+            if (amountNum > 0 && !stablecoins.includes(asset)) {
+              const baseAsset = asset.replace(/\.F$/, '');
+              const assetPair = baseAsset.startsWith('X') || baseAsset.startsWith('Z')
+                ? `${baseAsset}ZUSD` : `${baseAsset}USD`;
+              assetPairs.push(assetPair);
+              assetToPairMapping[asset] = assetPair;
             }
-            return sum;
-          }, 0);
+          }
+
+          let prices: Record<string, number> = {};
+          if (assetPairs.length > 0) {
+            try {
+              const rawPrices = await krakenService.getCurrentPrices(assetPairs);
+              for (const [asset] of Object.entries(assetToPairMapping)) {
+                const baseAsset = asset.replace(/\.F$/, '');
+                if (rawPrices[baseAsset] !== undefined) {
+                  prices[asset] = rawPrices[baseAsset];
+                }
+              }
+            } catch (e) { /* ignore price fetch errors */ }
+          }
+
+          // Build holdings array
+          for (const [asset, assetAmount] of Object.entries(accountBalance)) {
+            const amountNum = parseFloat(String(assetAmount));
+            if (amountNum <= 0) continue;
+            const isStable = stablecoins.includes(asset);
+            const assetPrice = isStable ? 1 : (prices[asset] || 0);
+            const assetValue = amountNum * assetPrice;
+            if (assetValue > 0.01) {
+              let displayName = asset.replace(/\.F$/, '');
+              if (displayName.startsWith('X') || displayName.startsWith('Z')) {
+                displayName = displayName.substring(1);
+              }
+              topHoldings.push({ asset: displayName, value: assetValue });
+            }
+          }
+          topHoldings.sort((a, b) => b.value - a.value);
         }
       } catch (error) {
         console.warn('[Trading] Failed to fetch balance for Telegram notification:', error);
       }
 
-      // Send Telegram notification for trade closure
+      // Extract symbol and find remaining balance
+      let symbol = pair.replace(/USD$|ZUSD$/, '');
+      if (symbol.startsWith('X') || symbol.startsWith('Z')) {
+        symbol = symbol.substring(1);
+      }
+      let remainingBalance: number | undefined;
+      for (const [asset, assetAmount] of Object.entries(accountBalanceData)) {
+        let assetSymbol = asset.replace(/\.F$/, '');
+        if (assetSymbol.startsWith('X') || assetSymbol.startsWith('Z')) {
+          assetSymbol = assetSymbol.substring(1);
+        }
+        if (assetSymbol === symbol) {
+          remainingBalance = parseFloat(String(assetAmount));
+          break;
+        }
+      }
+
+      // Send Telegram notification for trade closure (manual trade)
+      const totalPurchased = entryPrice ? parseFloat(volume) * parseFloat(entryPrice) : amount;
       try {
-        await telegramService.sendTradeClosure(
-          {
-            pair,
-            type: 'sell',
-            volume: parseFloat(volume),
-            price: parseFloat(String(currentPrice)),
-            amount,
-            profit,
-            profitPercent,
-            orderResult,
-          },
-          balance
-        );
+        await telegramService.sendTradeClosure({
+          pair,
+          price: parseFloat(String(currentPrice)),
+          totalPurchased,
+          totalSold: amount,
+          profit,
+          profitPercent,
+          symbol,
+          remainingBalance,
+          topHoldings,
+        });
       } catch (error) {
         console.warn('[Trading] Failed to send Telegram notification:', error);
         // Don't fail the order if notification fails

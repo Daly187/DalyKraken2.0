@@ -47,6 +47,9 @@ export interface DCABotConfig {
   // Price caching for UI display (updated during bot processing)
   lastKnownPrice?: number;
   priceLastUpdated?: string;
+  // Market trend field - calculated from Crypto Trends page data
+  market_trend?: 'bullish' | 'bearish' | 'neutral';
+  market_trend_updated?: string; // ISO timestamp of last update
 }
 
 export interface LiveDCABot extends DCABotConfig {

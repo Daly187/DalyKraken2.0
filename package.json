@@ -22,6 +22,10 @@
     "firebase:deploy:hosting": "npm run build:frontend && firebase deploy --only hosting",
     "firebase:deploy:functions": "firebase deploy --only functions",
     "firebase:logs": "firebase functions:log",
+    "deploy:live": "firebase use live && npm run build:frontend && firebase deploy",
+    "deploy:hosting:live": "firebase use live && npm run build:frontend && firebase deploy --only hosting",
+    "deploy:functions:live": "firebase use live && firebase deploy --only functions",
+    "deploy:preview": "npm run build:frontend && firebase hosting:channel:deploy preview --expires 7d",
     "populate-bots": "npx ts-node scripts/populate-from-json.ts",
     "populate-bots:help": "cat scripts/README.md"
   },
@@ -41,6 +45,7 @@
     "firebase-tools": "^13.0.0"
   },
   "dependencies": {
+    "ethers": "^6.15.0",
     "ws": "^8.18.3"
   }
 }

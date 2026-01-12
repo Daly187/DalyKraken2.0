@@ -209,6 +209,9 @@ export interface DCABotConfig {
   exitFailureTime?: string;
   exitAttempts?: number;
   lastExitAttempt?: string;
+  // Market trend field - calculated from Crypto Trends page data
+  market_trend?: 'bullish' | 'bearish' | 'neutral';
+  market_trend_updated?: string;
 }
 
 // Live DCA Bot (active bot with execution data)

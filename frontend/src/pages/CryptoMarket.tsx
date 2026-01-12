@@ -1,139 +1,50 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useStore } from '@/store/useStore';
-import { getCommonName } from '@/utils/assetNames';
+import { ASSET_MAPPINGS, type AssetMapping } from '@/data/assetMappings';
+import { resolveKrakenSymbol, type ResolvedSymbol } from '@/services/krakenSymbolResolver';
 import type { LivePrice } from '@/types';
 import {
   TrendingUp,
   TrendingDown,
   Activity,
-  RefreshCw,
   Wifi,
   AlertCircle,
   Search,
   BarChart3,
+  ArrowUpDown,
 } from 'lucide-react';
 
-// Top 100 USD trading pairs on Kraken by market cap and popularity
-// Note: BTC/USD will be converted to XBT/USD internally by the service
-const KRAKEN_SYMBOLS = [
-  // Top 20 - Mega caps
-  'BTC/USD',    // Bitcoin
-  'ETH/USD',    // Ethereum
-  'SOL/USD',    // Solana
-  'BNB/USD',    // Binance Coin
-  'XRP/USD',    // Ripple
-  'ADA/USD',    // Cardano
-  'AVAX/USD',   // Avalanche
-  'DOT/USD',    // Polkadot
-  'MATIC/USD',  // Polygon
-  'LINK/USD',   // Chainlink
-  'ATOM/USD',   // Cosmos
-  'UNI/USD',    // Uniswap
-  'LTC/USD',    // Litecoin
-  'BCH/USD',    // Bitcoin Cash
-  'NEAR/USD',   // Near Protocol
-  'APT/USD',    // Aptos
-  'ARB/USD',    // Arbitrum
-  'OP/USD',     // Optimism
-  'IMX/USD',    // Immutable X
-  'ALGO/USD',   // Algorand
+/**
+ * CryptoMarket Page
+ *
+ * Displays top 200 crypto assets by market cap from the shared ASSET_MAPPINGS data.
+ * Live price data comes from the existing Kraken WebSocket feed (via global store).
+ *
+ * Mapping strategy:
+ * - Each row is driven by ASSET_MAPPINGS (source of truth for which assets to show)
+ * - Kraken live data is joined by matching the canonical symbol to WebSocket keys
+ * - Assets not on Kraken display gracefully with "-" for price data
+ */
 
-  // 21-40 - Large caps
-  'AAVE/USD',   // Aave
-  'GRT/USD',    // The Graph
-  'FIL/USD',    // Filecoin
-  'LDO/USD',    // Lido
-  'MKR/USD',    // Maker
-  'SNX/USD',    // Synthetix
-  'SAND/USD',   // The Sandbox
-  'MANA/USD',   // Decentraland
-  'AXS/USD',    // Axie Infinity
-  'FLOW/USD',   // Flow
-  'XTZ/USD',    // Tezos
-  'EOS/USD',    // EOS
-  'DOGE/USD',   // Dogecoin
-  'TRX/USD',    // Tron
-  'ETC/USD',    // Ethereum Classic
-  'XLM/USD',    // Stellar
-  'FTM/USD',    // Fantom
-  'MINA/USD',   // Mina
-  'APE/USD',    // ApeCoin
-  'ENJ/USD',    // Enjin
+// Sort options for the table
+type SortColumn = 'rank' | 'assetName' | 'price' | 'change' | 'high' | 'low' | 'volume' | 'lastUpdate';
+type SortDirection = 'asc' | 'desc';
 
-  // 41-60 - Mid caps
-  'CRV/USD',    // Curve
-  'SUSHI/USD',  // SushiSwap
-  'YFI/USD',    // Yearn Finance
-  'COMP/USD',   // Compound
-  'BAL/USD',    // Balancer
-  '1INCH/USD',  // 1inch
-  'GALA/USD',   // Gala
-  'BLUR/USD',   // Blur
-  'ANKR/USD',   // Ankr
-  'BAT/USD',    // Basic Attention Token
-  'BAND/USD',   // Band Protocol
-  'AUDIO/USD',  // Audius
-  'API3/USD',   // API3
-  'INJ/USD',    // Injective
-  'RUNE/USD',   // THORChain
-  'GLMR/USD',   // Moonbeam
-  'KSM/USD',    // Kusama
-  'KAVA/USD',   // Kava
-  'CHZ/USD',    // Chiliz
-  'ROSE/USD',   // Oasis Network
-
-  // 61-80 - Popular/Emerging
-  'BONK/USD',   // Bonk
-  'PEPE/USD',   // Pepe
-  'WIF/USD',    // dogwifhat
-  'FLOKI/USD',  // Floki
-  'JASMY/USD',  // JasmyCoin
-  'ZIL/USD',    // Zilliqa
-  'WAVES/USD',  // Waves
-  'DASH/USD',   // Dash
-  'ZEC/USD',    // Zcash
-  'IOTX/USD',   // IoTeX
-  'HBAR/USD',   // Hedera
-  'VET/USD',    // VeChain
-  'ONE/USD',    // Harmony
-  'CELO/USD',   // Celo
-  'QTUM/USD',   // Qtum
-  'ZRX/USD',    // 0x
-  'BNT/USD',    // Bancor
-  'OMG/USD',    // OMG Network
-  'SUI/USD',    // Sui
-  'SEI/USD',    // Sei
-
-  // 81-100 - Additional Popular Assets
-  'TIA/USD',    // Celestia
-  'PYTH/USD',   // Pyth Network
-  'JUP/USD',    // Jupiter
-  'BERA/USD',   // Berachain
-  'BEAM/USD',   // Beam
-  'AR/USD',     // Arweave
-  'STORJ/USD',  // Storj
-  'RENDER/USD', // Render Token
-  'FET/USD',    // Fetch.ai
-  'AGIX/USD',   // SingularityNET
-  'RLC/USD',    // iExec RLC
-  'NMR/USD',    // Numeraire
-  'CTSI/USD',   // Cartesi
-  'AMP/USD',    // Amp
-  'REQ/USD',    // Request
-  'PHA/USD',    // Phala Network
-  'ASTR/USD',   // Astar
-  'ALICE/USD',  // MyNeighborAlice
-  'ALCX/USD',   // Alchemix
-  'ALPACA/USD', // Alpaca Finance
-];
+// Combined row type: asset mapping + resolved Kraken data
+interface MarketRow {
+  mapping: AssetMapping;
+  liveData: LivePrice | null;
+  resolvedPair?: string;    // The actual pair key that matched (for debugging)
+  resolveStrategy?: string; // Which resolution strategy worked
+}
 
 export default function CryptoMarket() {
-  // Get global live prices from store
+  // Get global live prices from store (keyed by Kraken pair like "BTC/USD")
   const livePrices = useStore((state) => state.livePrices);
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [sortBy, setSortBy] = useState<'symbol' | 'price' | 'change' | 'volume'>('change');
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
+  const [sortColumn, setSortColumn] = useState<SortColumn>('rank');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const [, setTick] = useState(0);
 
   useEffect(() => {
@@ -147,8 +58,98 @@ export default function CryptoMarket() {
     };
   }, []);
 
+  /**
+   * Build display rows: ASSET_MAPPINGS as source, joined with live Kraken data
+   * Uses the krakenSymbolResolver to try multiple matching strategies
+   */
+  const marketRows: MarketRow[] = useMemo(() => {
+    return ASSET_MAPPINGS.map(mapping => {
+      // Use the resolver to find a matching pair with multiple strategies
+      const resolved = resolveKrakenSymbol(mapping.canonical, livePrices);
+
+      if (resolved) {
+        return {
+          mapping,
+          liveData: resolved.liveData,
+          resolvedPair: resolved.pair,
+          resolveStrategy: resolved.strategy,
+        };
+      }
+
+      // No match found
+      return {
+        mapping,
+        liveData: null,
+      };
+    });
+  }, [livePrices]);
+
+  // Filter and sort logic
+  const filteredAndSortedRows = useMemo(() => {
+    let rows = [...marketRows];
+
+    // Filter by search query (matches Asset Name, canonical symbol, or Kraken symbol)
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      rows = rows.filter(row =>
+        row.mapping.assetName.toLowerCase().includes(query) ||
+        row.mapping.canonical.toLowerCase().includes(query) ||
+        (row.mapping.kraken && row.mapping.kraken.toLowerCase().includes(query)) ||
+        (row.mapping.coinGeckoId && row.mapping.coinGeckoId.toLowerCase().includes(query))
+      );
+    }
+
+    // Sort
+    rows.sort((a, b) => {
+      let comparison = 0;
+
+      switch (sortColumn) {
+        case 'rank':
+          comparison = a.mapping.rank - b.mapping.rank;
+          break;
+        case 'assetName':
+          comparison = a.mapping.assetName.localeCompare(b.mapping.assetName);
+          break;
+        case 'price':
+          comparison = (a.liveData?.price || 0) - (b.liveData?.price || 0);
+          break;
+        case 'change':
+          comparison = (a.liveData?.changePercent24h || 0) - (b.liveData?.changePercent24h || 0);
+          break;
+        case 'high':
+          comparison = (a.liveData?.high24h || 0) - (b.liveData?.high24h || 0);
+          break;
+        case 'low':
+          comparison = (a.liveData?.low24h || 0) - (b.liveData?.low24h || 0);
+          break;
+        case 'volume':
+          comparison = (a.liveData?.volume24h || 0) - (b.liveData?.volume24h || 0);
+          break;
+        case 'lastUpdate':
+          comparison = (a.liveData?.timestamp || 0) - (b.liveData?.timestamp || 0);
+          break;
+      }
+
+      return sortDirection === 'asc' ? comparison : -comparison;
+    });
+
+    return rows;
+  }, [marketRows, searchQuery, sortColumn, sortDirection]);
+
+  // Handle column sort click
+  const handleSort = (column: SortColumn) => {
+    if (sortColumn === column) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortColumn(column);
+      // Default to desc for numeric columns, asc for rank/name
+      setSortDirection(column === 'rank' || column === 'assetName' ? 'asc' : 'desc');
+    }
+  };
+
+  // Format helpers
   const formatCurrency = (value: number | undefined | null) => {
-    if (value === undefined || value === null) return '$0.00';
+    if (value === undefined || value === null) return '—';
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'USD',
@@ -158,13 +159,13 @@ export default function CryptoMarket() {
   };
 
   const formatPercent = (value: number | undefined | null) => {
-    if (value === undefined || value === null) return '0.00%';
+    if (value === undefined || value === null) return '—';
     const sign = value >= 0 ? '+' : '';
     return `${sign}${value.toFixed(2)}%`;
   };
 
   const formatVolume = (value: number | undefined | null) => {
-    if (value === undefined || value === null) return '0';
+    if (value === undefined || value === null) return '—';
     if (value >= 1000000) {
       return `${(value / 1000000).toFixed(2)}M`;
     } else if (value >= 1000) {
@@ -173,7 +174,8 @@ export default function CryptoMarket() {
     return value.toFixed(2);
   };
 
-  const formatTimeSince = (timestamp: number) => {
+  const formatTimeSince = (timestamp: number | undefined | null) => {
+    if (!timestamp) return '—';
     const seconds = Math.floor((Date.now() - timestamp) / 1000);
 
     if (seconds < 10) return 'Just now';
@@ -189,45 +191,34 @@ export default function CryptoMarket() {
     return `${days}d ago`;
   };
 
-  const handleSort = (field: typeof sortBy) => {
-    if (sortBy === field) {
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortBy(field);
-      setSortDirection('desc');
-    }
-  };
+  // Sortable header component
+  const SortableHeader = ({
+    column,
+    label,
+    className = '',
+  }: {
+    column: SortColumn;
+    label: string;
+    className?: string;
+  }) => (
+    <th
+      className={`pb-3 cursor-pointer hover:text-white transition-colors ${className}`}
+      onClick={() => handleSort(column)}
+    >
+      <div className="flex items-center gap-1">
+        {label}
+        <ArrowUpDown className={`h-3 w-3 ${sortColumn === column ? 'text-primary-500' : 'text-gray-500'}`} />
+        {sortColumn === column && (
+          <span className="text-primary-500 text-xs">
+            {sortDirection === 'asc' ? '↑' : '↓'}
+          </span>
+        )}
+      </div>
+    </th>
+  );
 
-  const filteredAndSortedData = Array.from(livePrices.entries())
-    .map(([symbol, data]) => {
-      // Get common name for display
-      const commonName = getCommonName(symbol.split('/')[0]);
-      return [symbol, data, commonName] as [string, LivePrice, string];
-    })
-    .filter(([symbol, , commonName]) =>
-      symbol.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      commonName.toLowerCase().includes(searchQuery.toLowerCase())
-    )
-    .sort(([, a], [, b]) => {
-      let compareValue = 0;
-
-      switch (sortBy) {
-        case 'symbol':
-          compareValue = a.symbol.localeCompare(b.symbol);
-          break;
-        case 'price':
-          compareValue = (a.price || 0) - (b.price || 0);
-          break;
-        case 'change':
-          compareValue = (a.changePercent24h || 0) - (b.changePercent24h || 0);
-          break;
-        case 'volume':
-          compareValue = (a.volume24h || 0) - (b.volume24h || 0);
-          break;
-      }
-
-      return sortDirection === 'asc' ? compareValue : -compareValue;
-    });
+  // Count assets with live data
+  const assetsWithData = marketRows.filter(r => r.liveData !== null).length;
 
   return (
     <div className="space-y-6">
@@ -243,7 +234,7 @@ export default function CryptoMarket() {
               <div className="flex items-center gap-2">
                 <Wifi className="h-4 w-4 text-green-500" />
                 <span className="text-xs text-green-500">
-                  {livePrices.size} pairs streaming
+                  {assetsWithData} pairs streaming
                 </span>
               </div>
             )}
@@ -258,7 +249,7 @@ export default function CryptoMarket() {
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
             <input
               type="text"
-              placeholder="Search by symbol..."
+              placeholder="Search by asset name, symbol, or ticker..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full bg-slate-700 text-white pl-10 pr-4 py-2 rounded-lg"
@@ -267,14 +258,14 @@ export default function CryptoMarket() {
           <div className="flex gap-2">
             <button
               onClick={() => handleSort('change')}
-              className={`btn btn-sm ${sortBy === 'change' ? 'btn-primary' : 'btn-secondary'}`}
+              className={`btn btn-sm ${sortColumn === 'change' ? 'btn-primary' : 'btn-secondary'}`}
             >
               <TrendingUp className="mr-2 h-4 w-4" />
               % Change
             </button>
             <button
               onClick={() => handleSort('volume')}
-              className={`btn btn-sm ${sortBy === 'volume' ? 'btn-primary' : 'btn-secondary'}`}
+              className={`btn btn-sm ${sortColumn === 'volume' ? 'btn-primary' : 'btn-secondary'}`}
             >
               <BarChart3 className="mr-2 h-4 w-4" />
               Volume
@@ -285,86 +276,98 @@ export default function CryptoMarket() {
 
       {/* Market Data Table */}
       <div className="card">
-        {filteredAndSortedData.length > 0 ? (
-          <div className="overflow-x-auto">
+        {filteredAndSortedRows.length > 0 ? (
+          <div className="overflow-x-auto max-h-[70vh] overflow-y-auto">
             <table className="w-full">
-              <thead>
-                <tr className="text-left text-gray-400 text-sm">
-                  <th
-                    className="pb-3 cursor-pointer hover:text-white"
-                    onClick={() => handleSort('symbol')}
-                  >
-                    Symbol {sortBy === 'symbol' && (sortDirection === 'asc' ? '↑' : '↓')}
-                  </th>
-                  <th
-                    className="pb-3 cursor-pointer hover:text-white"
-                    onClick={() => handleSort('price')}
-                  >
-                    Price {sortBy === 'price' && (sortDirection === 'asc' ? '↑' : '↓')}
-                  </th>
-                  <th
-                    className="pb-3 cursor-pointer hover:text-white"
-                    onClick={() => handleSort('change')}
-                  >
-                    24h Change {sortBy === 'change' && (sortDirection === 'asc' ? '↑' : '↓')}
-                  </th>
-                  <th className="pb-3">24h High</th>
-                  <th className="pb-3">24h Low</th>
-                  <th
-                    className="pb-3 cursor-pointer hover:text-white"
-                    onClick={() => handleSort('volume')}
-                  >
-                    24h Volume {sortBy === 'volume' && (sortDirection === 'asc' ? '↑' : '↓')}
-                  </th>
-                  <th className="pb-3">Last Update</th>
+              {/* Sticky header row */}
+              <thead className="sticky top-0 z-10 bg-slate-800">
+                <tr className="text-left text-gray-400 text-sm border-b border-slate-700">
+                  <SortableHeader column="rank" label="Rank" className="w-16" />
+                  <SortableHeader column="assetName" label="Asset Name" />
+                  <SortableHeader column="price" label="Price" />
+                  <SortableHeader column="change" label="24h Change" />
+                  <SortableHeader column="high" label="24h High" />
+                  <SortableHeader column="low" label="24h Low" />
+                  <SortableHeader column="volume" label="24h Volume" />
+                  <SortableHeader column="lastUpdate" label="Last Update" />
                 </tr>
               </thead>
               <tbody>
-                {filteredAndSortedData.map(([symbol, data, commonName]) => {
-                  const isPositive = (data.changePercent24h || 0) >= 0;
-                  const timeSinceUpdate = Date.now() - (data.timestamp || 0);
-                  const isStale = timeSinceUpdate > 10000; // 10 seconds
+                {filteredAndSortedRows.map((row) => {
+                  const { mapping, liveData } = row;
+                  const hasData = liveData !== null;
+                  const isPositive = (liveData?.changePercent24h || 0) >= 0;
+                  const timeSinceUpdate = Date.now() - (liveData?.timestamp || 0);
+                  const isStale = !hasData || timeSinceUpdate > 10000; // 10 seconds or no data
 
                   return (
                     <tr
-                      key={symbol}
+                      key={mapping.canonical}
                       className="border-t border-slate-700 hover:bg-slate-700/30 transition-colors"
                     >
+                      {/* Rank */}
+                      <td className="py-3 text-center text-gray-400 font-mono">
+                        {mapping.rank}
+                      </td>
+
+                      {/* Asset Name with canonical symbol */}
                       <td className="py-3">
                         <div className="flex items-center gap-2">
-                          <span className="font-medium">{commonName}/USD</span>
-                          {!isStale && (
+                          <span className="font-medium">{mapping.assetName}</span>
+                          <span className="text-xs text-gray-500">({mapping.canonical})</span>
+                          {hasData && !isStale && (
                             <Activity className="h-3 w-3 text-green-500 animate-pulse" />
                           )}
-                        </div>
-                      </td>
-                      <td className="py-3 font-mono font-bold">
-                        {formatCurrency(data.price)}
-                      </td>
-                      <td className="py-3">
-                        <div className="flex items-center gap-2">
-                          {isPositive ? (
-                            <TrendingUp className="h-4 w-4 text-green-500" />
-                          ) : (
-                            <TrendingDown className="h-4 w-4 text-red-500" />
+                          {!hasData && mapping.kraken === null && (
+                            <span className="text-xs text-gray-500 bg-gray-700 px-1.5 py-0.5 rounded">
+                              Not on Kraken
+                            </span>
                           )}
-                          <span className={isPositive ? 'text-green-500' : 'text-red-500'}>
-                            {formatPercent(data.changePercent24h)}
-                          </span>
                         </div>
                       </td>
-                      <td className="py-3 text-gray-400 font-mono">
-                        {formatCurrency(data.high24h)}
+
+                      {/* Price */}
+                      <td className="py-3 font-mono font-bold">
+                        {hasData ? formatCurrency(liveData.price) : '—'}
                       </td>
-                      <td className="py-3 text-gray-400 font-mono">
-                        {formatCurrency(data.low24h)}
+
+                      {/* 24h Change */}
+                      <td className="py-3">
+                        {hasData ? (
+                          <div className="flex items-center gap-2">
+                            {isPositive ? (
+                              <TrendingUp className="h-4 w-4 text-green-500" />
+                            ) : (
+                              <TrendingDown className="h-4 w-4 text-red-500" />
+                            )}
+                            <span className={isPositive ? 'text-green-500' : 'text-red-500'}>
+                              {formatPercent(liveData.changePercent24h)}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-gray-500">—</span>
+                        )}
                       </td>
+
+                      {/* 24h High */}
                       <td className="py-3 text-gray-400 font-mono">
-                        {formatVolume(data.volume24h)}
+                        {hasData ? formatCurrency(liveData.high24h) : '—'}
                       </td>
+
+                      {/* 24h Low */}
+                      <td className="py-3 text-gray-400 font-mono">
+                        {hasData ? formatCurrency(liveData.low24h) : '—'}
+                      </td>
+
+                      {/* 24h Volume */}
+                      <td className="py-3 text-gray-400 font-mono">
+                        {hasData ? formatVolume(liveData.volume24h) : '—'}
+                      </td>
+
+                      {/* Last Update */}
                       <td className="py-3">
                         <span className={`text-xs ${isStale ? 'text-gray-500' : 'text-green-500'}`}>
-                          {formatTimeSince(data.timestamp || Date.now())}
+                          {hasData ? formatTimeSince(liveData.timestamp) : '—'}
                         </span>
                       </td>
                     </tr>
@@ -393,32 +396,35 @@ export default function CryptoMarket() {
       {livePrices.size > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
           <div className="card">
-            <p className="text-sm text-gray-400 mb-1">Total Pairs</p>
-            <p className="text-2xl font-bold">{livePrices.size}</p>
+            <p className="text-sm text-gray-400 mb-1">Total Assets</p>
+            <p className="text-2xl font-bold">{ASSET_MAPPINGS.length}</p>
+            <p className="text-xs text-gray-500 mt-1">{assetsWithData} with live data</p>
           </div>
           <div className="card">
             <p className="text-sm text-gray-400 mb-1">Gainers (24h)</p>
             <p className="text-2xl font-bold text-green-500">
-              {Array.from(livePrices.values()).filter(d => (d.changePercent24h || 0) > 0).length}
+              {marketRows.filter(r => r.liveData && (r.liveData.changePercent24h || 0) > 0).length}
             </p>
           </div>
           <div className="card">
             <p className="text-sm text-gray-400 mb-1">Losers (24h)</p>
             <p className="text-2xl font-bold text-red-500">
-              {Array.from(livePrices.values()).filter(d => (d.changePercent24h || 0) < 0).length}
+              {marketRows.filter(r => r.liveData && (r.liveData.changePercent24h || 0) < 0).length}
             </p>
           </div>
           <div className="card">
             <p className="text-sm text-gray-400 mb-1">Avg Change (24h)</p>
-            <p className={`text-2xl font-bold ${
-              (Array.from(livePrices.values()).reduce((sum, d) => sum + (d.changePercent24h || 0), 0) / livePrices.size) >= 0
-                ? 'text-green-500'
-                : 'text-red-500'
-            }`}>
-              {formatPercent(
-                Array.from(livePrices.values()).reduce((sum, d) => sum + (d.changePercent24h || 0), 0) / livePrices.size
-              )}
-            </p>
+            {(() => {
+              const rowsWithData = marketRows.filter(r => r.liveData);
+              const avgChange = rowsWithData.length > 0
+                ? rowsWithData.reduce((sum, r) => sum + (r.liveData?.changePercent24h || 0), 0) / rowsWithData.length
+                : 0;
+              return (
+                <p className={`text-2xl font-bold ${avgChange >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                  {formatPercent(avgChange)}
+                </p>
+              );
+            })()}
           </div>
         </div>
       )}

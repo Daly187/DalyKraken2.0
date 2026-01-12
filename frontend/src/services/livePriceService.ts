@@ -293,24 +293,32 @@ class LivePriceService {
       .map(s => this.toKrakenPair(s))
       .filter(p => p !== null) as string[];
 
-    console.log('[LivePriceService] Subscribing to pairs:', pairs);
+    console.log('[LivePriceService] Subscribing to', pairs.length, 'pairs');
 
-    // Subscribe to each pair individually with a small delay to avoid rate limits
-    pairs.forEach((pair, index) => {
+    // Kraken allows batch subscriptions - subscribe in chunks of 50 pairs
+    const chunkSize = 50;
+    const chunks: string[][] = [];
+    for (let i = 0; i < pairs.length; i += chunkSize) {
+      chunks.push(pairs.slice(i, i + chunkSize));
+    }
+
+    // Subscribe to each chunk with a delay to avoid rate limits
+    chunks.forEach((chunk, index) => {
       setTimeout(() => {
         try {
           if (this.krakenWs && this.krakenWs.readyState === WebSocket.OPEN) {
-            // Subscribe to ticker
+            // Subscribe to ticker for all pairs in this chunk
             this.krakenWs.send(JSON.stringify({
               event: 'subscribe',
-              pair: [pair],
+              pair: chunk,
               subscription: { name: 'ticker' }
             }));
+            console.log(`[LivePriceService] Sent subscription batch ${index + 1}/${chunks.length} (${chunk.length} pairs)`);
           }
         } catch (error) {
-          console.error(`[LivePriceService] Error subscribing to ${pair}:`, error);
+          console.error(`[LivePriceService] Error subscribing to batch ${index + 1}:`, error);
         }
-      }, index * 100); // 100ms delay between each subscription
+      }, index * 500); // 500ms delay between batches
     });
   }
 
@@ -319,96 +327,29 @@ class LivePriceService {
     let cleanSymbol = symbol;
     if (symbol.endsWith('.F')) {
       cleanSymbol = symbol.slice(0, -2);
-      console.log(`[LivePriceService] Mapping futures ${symbol} to spot pair ${cleanSymbol}`);
     }
 
-    // Kraken uses specific naming conventions
-    // Map of our symbols to Kraken WebSocket pair names
-    const krakenPairMap: Record<string, string> = {
-      // Major cryptocurrencies
-      'BTC/USD': 'XBT/USD',
-      'ETH/USD': 'ETH/USD',
-      'SOL/USD': 'SOL/USD',
-      'XRP/USD': 'XRP/USD',
-      'ADA/USD': 'ADA/USD',
-      'DOGE/USD': 'XDG/USD',
-      'DOT/USD': 'DOT/USD',
-      'MATIC/USD': 'MATIC/USD',
-      'AVAX/USD': 'AVAX/USD',
-      'LINK/USD': 'LINK/USD',
-      'UNI/USD': 'UNI/USD',
-      'ATOM/USD': 'ATOM/USD',
-      'LTC/USD': 'LTC/USD',
-      'BCH/USD': 'BCH/USD',
-      'ETC/USD': 'ETC/USD',
-
-      // DeFi tokens
-      'AAVE/USD': 'AAVE/USD',
-      'COMP/USD': 'COMP/USD',
-      'MKR/USD': 'MKR/USD',
-      'SNX/USD': 'SNX/USD',
-      'CRV/USD': 'CRV/USD',
-      'SUSHI/USD': 'SUSHI/USD',
-      'YFI/USD': 'YFI/USD',
-      'BAL/USD': 'BAL/USD',
-      '1INCH/USD': '1INCH/USD',
-
-      // Layer 1 & 2
-      'ALGO/USD': 'ALGO/USD',
-      'XLM/USD': 'XLM/USD',
-      'XTZ/USD': 'XTZ/USD',
-      'EOS/USD': 'EOS/USD',
-      'TRX/USD': 'TRX/USD',
-      'FIL/USD': 'FIL/USD',
-      'NEAR/USD': 'NEAR/USD',
-      'FTM/USD': 'FTM/USD',
-      'MINA/USD': 'MINA/USD',
-      'FLOW/USD': 'FLOW/USD',
-
-      // Infrastructure & Oracles
-      'GRT/USD': 'GRT/USD',
-      'BAND/USD': 'BAND/USD',
-      'API3/USD': 'API3/USD',
-
-      // Metaverse & Gaming
-      'MANA/USD': 'MANA/USD',
-      'SAND/USD': 'SAND/USD',
-      'AXS/USD': 'AXS/USD',
-      'ENJ/USD': 'ENJ/USD',
-      'GALA/USD': 'GALA/USD',
-
-      // Other popular tokens
-      'APE/USD': 'APE/USD',
-      'LDO/USD': 'LDO/USD',
-      'OP/USD': 'OP/USD',
-      'ARB/USD': 'ARB/USD',
-      'IMX/USD': 'IMX/USD',
-      'BLUR/USD': 'BLUR/USD',
-
-      // Additional altcoins
-      'AKT/USD': 'AKT/USD',      // Akash Network
-      'APT/USD': 'APT/USD',      // Aptos
-      'BADGER/USD': 'BADGER/USD', // Badger DAO
-      'FET/USD': 'FET/USD',      // Fetch.ai
-      'GHST/USD': 'GHST/USD',    // Aavegotchi
-      'ICX/USD': 'ICX/USD',      // ICON
-      'INJ/USD': 'INJ/USD',      // Injective
-      'KSM/USD': 'KSM/USD',      // Kusama
-      'MNGO/USD': 'MNGO/USD',    // Mango Markets
-      'ORCA/USD': 'ORCA/USD',    // Orca
-      'PAXG/USD': 'PAXG/USD',    // Paxos Gold
-      'PHA/USD': 'PHA/USD',      // Phala Network
-      'QTUM/USD': 'QTUM/USD',    // Qtum
-      'RARI/USD': 'RARI/USD',    // Rarible
-      'RAY/USD': 'RAY/USD',      // Raydium
-      'RPL/USD': 'RPL/USD',      // Rocket Pool
-      'SDN/USD': 'SDN/USD',      // Shiden Network
-      'SRM/USD': 'SRM/USD',      // Serum
-      'XRT/USD': 'XRT/USD',      // Robonomics
-      'ZRX/USD': 'ZRX/USD',      // 0x Protocol
+    // Special Kraken symbol mappings (their internal names differ from standard)
+    const krakenAliases: Record<string, string> = {
+      'BTC': 'XBT',
+      'DOGE': 'XDG',
     };
 
-    return krakenPairMap[cleanSymbol] || null;
+    // Parse the symbol pair (e.g., "BTC/USD" -> ["BTC", "USD"])
+    const parts = cleanSymbol.split('/');
+    if (parts.length !== 2) {
+      return null;
+    }
+
+    let [base, quote] = parts;
+
+    // Apply Kraken's symbol aliases
+    if (krakenAliases[base]) {
+      base = krakenAliases[base];
+    }
+
+    // Return the Kraken-formatted pair
+    return `${base}/${quote}`;
   }
 
   private handleKrakenMessage(data: any): void {

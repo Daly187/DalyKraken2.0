@@ -15,6 +15,7 @@ import Dashboard from '@/pages/Dashboard';
 import CryptoMarket from '@/pages/CryptoMarket';
 import CryptoTrends from '@/pages/CryptoTrends';
 import Portfolio from '@/pages/Portfolio';
+import KrakenPortfolio from '@/pages/KrakenPortfolio';
 import DalyDCA from '@/pages/DalyDCA';
 import DalyDEPEG from '@/pages/DalyDEPEG';
 import DalyTracker from '@/pages/DalyTracker';
@@ -23,6 +24,8 @@ import ManualTrade from '@/pages/ManualTrade';
 import AuditLog from '@/pages/AuditLog';
 import Stats from '@/pages/Stats';
 import Settings from '@/pages/Settings';
+import News from '@/pages/News';
+import Gambling from '@/pages/Gambling';
 
 function App() {
   const isAuthenticated = useStore((state) => state.isAuthenticated);
@@ -49,6 +52,7 @@ function App() {
             <Route path="/crypto-market" element={<CryptoMarket />} />
             <Route path="/crypto-trends" element={<CryptoTrends />} />
             <Route path="/portfolio" element={<Portfolio />} />
+            <Route path="/kraken-portfolio" element={<KrakenPortfolio />} />
             <Route path="/daly-dca" element={<DalyDCA />} />
             <Route path="/daly-depeg" element={<DalyDEPEG />} />
             <Route path="/daly-tracker" element={<DalyTracker />} />
@@ -57,6 +61,8 @@ function App() {
             <Route path="/audit-log" element={<AuditLog />} />
             <Route path="/stats" element={<Stats />} />
             <Route path="/settings" element={<Settings />} />
+            <Route path="/news" element={<News />} />
+            <Route path="/gambling" element={<Gambling />} />
           </Route>
 
           {/* Catch all */}

@@ -49,6 +49,8 @@ interface AppState {
 
   // DCA Bots
   dcaBots: LiveDCABot[];
+  dcaBotsError: string | null;
+  dcaBotsLoading: boolean;
   selectedBot: LiveDCABot | null;
 
   // Risk
@@ -154,6 +156,8 @@ export const useStore = create<AppState>((set, get) => ({
   scanResults: [],
   botScores: [],
   dcaBots: [],
+  dcaBotsError: null,
+  dcaBotsLoading: false,
   selectedBot: null,
   riskStatus: null,
   transactions: [],
@@ -253,11 +257,15 @@ export const useStore = create<AppState>((set, get) => ({
   checkAuth: async () => {
     try {
       const token = localStorage.getItem('auth_token');
+      console.log('[Store] checkAuth called, token exists:', !!token);
+
       if (!token) {
+        console.log('[Store] No token found, returning false');
         return false;
       }
 
       const response = await apiService.verifyAuthToken();
+      console.log('[Store] verifyAuthToken response:', response);
 
       if (response.success && response.user) {
         const user: User = {
@@ -266,18 +274,23 @@ export const useStore = create<AppState>((set, get) => ({
         };
 
         set({ user, isAuthenticated: true });
+        console.log('[Store] Auth check successful, user set');
         return true;
       }
 
+      console.log('[Store] Auth check returned success=false or no user');
       return false;
     } catch (error) {
-      console.error('[Store] Auth check failed:', error);
-      localStorage.removeItem('auth_token');
+      console.error('[Store] Auth check failed with error:', error);
+      // Don't remove auth_token on network errors - the token might still be valid
+      // Only clear on explicit logout or when server confirms token is invalid
+      console.log('[Store] NOT removing auth_token on error - token may still be valid');
       return false;
     }
   },
 
   logout: () => {
+    console.log('[Store] LOGOUT called! Stack trace:', new Error().stack);
     get().disconnectWebSocket();
     globalPriceManager.cleanup();
     console.log('[Store] Global price manager cleaned up');
@@ -681,11 +694,29 @@ export const useStore = create<AppState>((set, get) => ({
 
   // DCA Bot actions
   fetchDCABots: async () => {
+    set({ dcaBotsLoading: true, dcaBotsError: null });
     try {
+      console.log('[Store] Fetching DCA bots...');
       const data = await apiService.getDCABots();
-      set({ dcaBots: data.bots || [] });
-    } catch (error) {
-      console.error('[Store] Failed to fetch DCA bots:', error);
+      console.log('[Store] DCA bots API full response:', JSON.stringify(data, null, 2));
+
+      // Handle case where fallback returned non-DCA data
+      if (data.success === undefined) {
+        console.warn('[Store] Response missing success field, may be from fallback API');
+        throw new Error('Invalid API response format - please check your connection');
+      }
+
+      if (!data.success) {
+        throw new Error(data.error || 'API returned unsuccessful response');
+      }
+
+      set({ dcaBots: data.bots || [], dcaBotsError: null, dcaBotsLoading: false });
+      console.log('[Store] Successfully loaded', data.bots?.length || 0, 'DCA bots');
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.error || error.message || 'Failed to load DCA bots';
+      console.error('[Store] Failed to fetch DCA bots:', errorMessage);
+      console.error('[Store] Full error:', error);
+      set({ dcaBotsError: errorMessage, dcaBotsLoading: false });
     }
   },
 

@@ -131,12 +131,19 @@ export class KrakenService {
   };
 
   // Asset name mappings: Display format → Kraken balance format
+  // CRITICAL: Must match what Kraken returns in getBalance() response
+  // Kraken uses X prefix for older coins, Z prefix for fiat
   private static readonly ASSET_MAPPINGS: Record<string, string> = {
     'BTC': 'XXBT',
     'ETH': 'XETH',
     'XRP': 'XXRP',
     'LTC': 'XLTC',
     'XLM': 'XXLM',
+    'DOGE': 'XXDG',  // Kraken uses XXDG for Dogecoin (double X prefix)
+    'ZEC': 'XZEC',   // Zcash
+    'ETC': 'XETC',   // Ethereum Classic
+    'REP': 'XREP',   // Augur
+    'MLN': 'XMLN',   // Enzyme (Melon)
     'USD': 'ZUSD',
     'EUR': 'ZEUR',
     // Others use their display name in balances

@@ -1083,10 +1083,14 @@ export class OrderExecutorService {
       const decryptedApiSecret = apiKey.encrypted ? decryptKey(apiKey.apiSecret) : apiKey.apiSecret;
       const krakenService = new KrakenService(decryptedApiKey, decryptedApiSecret);
 
-      let balance = { total: 0, stables: 0 };
+      // Build top holdings array for Telegram notification
+      const topHoldings: Array<{ asset: string; value: number }> = [];
+      let accountBalanceData: Record<string, any> = {};
+
       try {
         console.log('[OrderExecutor] ===== FETCHING BALANCE FOR TELEGRAM NOTIFICATION =====');
         const accountBalance = await krakenService.getBalance(decryptedApiKey, decryptedApiSecret);
+        accountBalanceData = accountBalance || {};
 
         console.log('[OrderExecutor] Raw balance data:', JSON.stringify(accountBalance, null, 2));
         console.log('[OrderExecutor] Number of assets:', Object.keys(accountBalance || {}).length);
@@ -1094,200 +1098,154 @@ export class OrderExecutorService {
         if (!accountBalance || Object.keys(accountBalance).length === 0) {
           console.error('[OrderExecutor] ❌ No balance data received from Kraken!');
         } else {
-          // Log each raw balance
-          for (const [asset, amount] of Object.entries(accountBalance)) {
-            console.log(`[OrderExecutor] Raw balance: ${asset} = ${amount}`);
-          }
-
           // Get current prices for all non-stable assets
-          const assetPairs: string[] = [];
-          const assetToPairMapping: Record<string, string> = {}; // Track original asset name
           const stablecoins = ['ZUSD', 'USD', 'USDT', 'USDC', 'DAI', 'BUSD'];
+          const prices: Record<string, number> = {};
 
+          // Fetch prices individually to avoid batch failures
           for (const asset of Object.keys(accountBalance)) {
             const amountNum = parseFloat(String(accountBalance[asset]));
 
             if (amountNum > 0 && !stablecoins.includes(asset)) {
-              // Strip .F suffix for futures contracts
               let baseAsset = asset.replace(/\.F$/, '');
-
-              // Convert asset to Kraken pair format
-              let pair: string;
-              if (baseAsset.startsWith('X') || baseAsset.startsWith('Z')) {
-                pair = `${baseAsset}ZUSD`;
-              } else {
-                pair = `${baseAsset}USD`;
+              // Strip X/Z prefix for pair construction
+              let cleanAsset = baseAsset;
+              if (cleanAsset.startsWith('X') || cleanAsset.startsWith('Z')) {
+                cleanAsset = cleanAsset.substring(1);
               }
 
-              assetPairs.push(pair);
-              assetToPairMapping[asset] = pair;
+              // Try different pair formats
+              const pairFormats = [
+                `${baseAsset}ZUSD`,  // e.g., XXBTZUSD
+                `${baseAsset}USD`,   // e.g., SCUSD
+                `${cleanAsset}USD`,  // e.g., BTCUSD
+              ];
 
-              console.log(`[OrderExecutor] Asset ${asset} -> Pair ${pair}`);
-            }
-          }
-
-          console.log('[OrderExecutor] Pairs to fetch prices for:', assetPairs);
-
-          // Fetch prices (only if we have non-stablecoin assets)
-          let prices: Record<string, number> = {};
-
-          if (assetPairs.length > 0) {
-            try {
-              const rawPrices = await krakenService.getCurrentPrices(assetPairs);
-              console.log('[OrderExecutor] Raw prices from getCurrentPrices:', JSON.stringify(rawPrices, null, 2));
-
-              // Map prices back to original asset names (including .F suffix)
-              for (const [asset, pair] of Object.entries(assetToPairMapping)) {
-                // The price is keyed by the base asset (without .F)
-                const baseAsset = asset.replace(/\.F$/, '');
-                if (rawPrices[baseAsset] !== undefined) {
-                  prices[asset] = rawPrices[baseAsset];
-                  console.log(`[OrderExecutor] Mapped price: ${asset} <- ${baseAsset} = $${rawPrices[baseAsset]}`);
-                }
-              }
-
-              console.log('[OrderExecutor] Prices fetched successfully:', JSON.stringify(prices, null, 2));
-            } catch (error: any) {
-              console.error('[OrderExecutor] ❌ Error fetching prices in batch:', error?.message);
-              console.error('[OrderExecutor] Will try fetching prices individually...');
-
-              // Fallback: Try fetching prices one by one
-              for (const [asset, pair] of Object.entries(assetToPairMapping)) {
+              for (const pair of pairFormats) {
                 try {
-                  const individualPrices = await krakenService.getCurrentPrices([pair]);
-                  const baseAsset = asset.replace(/\.F$/, '');
-
-                  if (individualPrices[baseAsset] !== undefined) {
-                    prices[asset] = individualPrices[baseAsset];
-                    console.log(`[OrderExecutor] ✅ Fetched price for ${asset} (${pair}): $${individualPrices[baseAsset]}`);
+                  const rawPrices = await krakenService.getCurrentPrices([pair]);
+                  // Check multiple possible keys in response
+                  const possibleKeys = [baseAsset, cleanAsset, `X${cleanAsset}`, `XX${cleanAsset}`];
+                  for (const key of possibleKeys) {
+                    if (rawPrices[key] !== undefined) {
+                      prices[asset] = rawPrices[key];
+                      console.log(`[OrderExecutor] Got price for ${asset} via ${pair}: $${rawPrices[key]}`);
+                      break;
+                    }
                   }
-                } catch (err: any) {
-                  console.error(`[OrderExecutor] ❌ Failed to fetch price for ${asset} (${pair}):`, err?.message);
+                  if (prices[asset]) break;
+                } catch (e) {
+                  // Try next format
                 }
+              }
+
+              if (!prices[asset]) {
+                console.warn(`[OrderExecutor] Could not fetch price for ${asset}`);
               }
             }
           }
 
-          console.log('[OrderExecutor] Final prices available:', JSON.stringify(prices, null, 2));
-
-          // Calculate total balance in USD
-          let calculatedTotal = 0;
-          let calculatedStables = 0;
-          const missingPrices: string[] = [];
-          const includedAssets: string[] = [];
-
+          // Build holdings array with USD values
           for (const [asset, amount] of Object.entries(accountBalance)) {
             const amountNum = parseFloat(String(amount));
+            if (amountNum <= 0) continue;
 
-            console.log(`[OrderExecutor] Processing ${asset}: amount=${amount}, parsed=${amountNum}`);
-
-            if (amountNum <= 0) {
-              console.log(`[OrderExecutor] ⏭️  Skipping ${asset} (amount <= 0)`);
-              continue;
-            }
-
-            // Check if it's a stablecoin or fiat
             const isStable = stablecoins.includes(asset);
             const currentPrice = isStable ? 1 : (prices[asset] || 0);
-
-            console.log(`[OrderExecutor] ${asset}: isStable=${isStable}, price=${currentPrice}`);
-
-            if (!isStable && currentPrice === 0) {
-              console.error(`[OrderExecutor] ❌ WARNING: No price found for ${asset}!`);
-              console.error(`[OrderExecutor] This asset has ${amountNum.toFixed(8)} units but will contribute $0 to portfolio total`);
-              missingPrices.push(`${asset} (${amountNum.toFixed(8)} units)`);
-              // Still include it with $0 value so the total isn't completely wrong
-            }
-
             const assetValue = amountNum * currentPrice;
-            calculatedTotal += assetValue;
 
-            if (assetValue > 0) {
-              includedAssets.push(`${asset}: $${assetValue.toFixed(2)}`);
-            }
-
-            console.log(`[OrderExecutor] ✅ ${asset}: ${amountNum.toFixed(8)} × $${currentPrice.toFixed(2)} = $${assetValue.toFixed(2)}`);
-
-            // Add to stables if applicable
-            if (isStable) {
-              calculatedStables += amountNum;
-              console.log(`[OrderExecutor] 💵 Added $${amountNum.toFixed(2)} to stables total`);
+            if (assetValue > 0.01) {
+              // Clean up asset name for display
+              let displayName = asset.replace(/\.F$/, '');
+              if (displayName.startsWith('X') || displayName.startsWith('Z')) {
+                displayName = displayName.substring(1);
+              }
+              topHoldings.push({ asset: displayName, value: assetValue });
             }
           }
 
-          balance.total = calculatedTotal;
-          balance.stables = calculatedStables;
+          // Sort by value descending and take top 10
+          topHoldings.sort((a, b) => b.value - a.value);
 
-          console.log(`[OrderExecutor] ===== BALANCE CALCULATION COMPLETE =====`);
-          console.log(`[OrderExecutor] 💰 Total Portfolio: $${balance.total.toFixed(2)}`);
-          console.log(`[OrderExecutor] 💵 Total Stables: $${balance.stables.toFixed(2)}`);
-
-          if (missingPrices.length > 0) {
-            console.error(`[OrderExecutor] ⚠️  WARNING: ${missingPrices.length} assets missing prices!`);
-            console.error(`[OrderExecutor] Missing price assets:`, missingPrices);
-            console.error(`[OrderExecutor] Portfolio total may be UNDERSTATED due to missing prices!`);
-          }
-
-          if (includedAssets.length > 0) {
-            console.log(`[OrderExecutor] 📊 Assets included in total (${includedAssets.length}):`, includedAssets);
-          }
+          console.log(`[OrderExecutor] Top holdings: ${topHoldings.slice(0, 10).map(h => `${h.asset}: $${h.value.toFixed(2)}`).join(', ')}`);
         }
       } catch (error: any) {
         console.error('[OrderExecutor] ❌ CRITICAL ERROR fetching balance:', error?.message || error);
-        console.error('[OrderExecutor] Error stack:', error?.stack);
-        console.error('[OrderExecutor] Balance will be sent as $0.00');
       }
 
-      console.log(`[OrderExecutor] Final balance for Telegram: total=$${balance.total.toFixed(2)}, stables=$${balance.stables.toFixed(2)}`);
-
-      // Calculate price and amount
+      // Calculate price
       const price = result.executedPrice ? parseFloat(result.executedPrice) : parseFloat(order.price || '0');
       const volume = result.executedVolume ? parseFloat(result.executedVolume) : parseFloat(order.volume);
-      const amount = price * volume;
 
       // Determine if this is entry or exit
       const isExit = order.side === 'sell';
 
       if (isExit) {
         // Use profit data passed from updateBotAfterOrderCompletion
-        // This is calculated BEFORE the bot is reset, so it has accurate values
         const profit = profitData?.profit || 0;
         const profitPercent = profitData?.profitPercent || 0;
-        const averageEntryPrice = profitData?.averageEntryPrice || 0;
+        const totalInvested = profitData?.totalInvested || 0;
+        const totalSold = price * volume;
 
-        console.log(`[OrderExecutor] Exit notification: avg entry ${averageEntryPrice.toFixed(2)}, exit ${price.toFixed(2)}, profit $${profit.toFixed(2)} (${profitPercent.toFixed(2)}%)`);
-
-        if (!profitData) {
-          console.warn('[OrderExecutor] No profit data provided for exit notification - values will show as $0.00');
+        // Extract symbol from pair (e.g., "SNXUSD" -> "SNX")
+        const pairStr = order.pair;
+        let symbol = pairStr.replace(/USD$|ZUSD$/, '');
+        if (symbol.startsWith('X') || symbol.startsWith('Z')) {
+          symbol = symbol.substring(1);
         }
 
+        // Find remaining balance for this asset
+        let remainingBalance: number | undefined;
+        for (const [asset, amount] of Object.entries(accountBalanceData)) {
+          let assetSymbol = asset.replace(/\.F$/, '');
+          if (assetSymbol.startsWith('X') || assetSymbol.startsWith('Z')) {
+            assetSymbol = assetSymbol.substring(1);
+          }
+          if (assetSymbol === symbol) {
+            remainingBalance = parseFloat(String(amount));
+            break;
+          }
+        }
+
+        console.log(`[OrderExecutor] Exit notification: totalInvested $${totalInvested.toFixed(2)}, totalSold $${totalSold.toFixed(2)}, profit $${profit.toFixed(2)} (${profitPercent.toFixed(2)}%), ${symbol} remaining: ${remainingBalance?.toFixed(8) || '0'}`);
+
         // Trade closure notification
-        await telegramService.sendTradeClosure(
-          {
-            pair: order.pair,
-            type: order.side,
-            volume: volume.toString(),
-            price,
-            amount,
-            profit,
-            profitPercent,
-            orderResult: { txid: [result.orderId || 'N/A'] },
-          },
-          balance
-        );
+        await telegramService.sendTradeClosure({
+          pair: order.pair,
+          price,
+          totalPurchased: totalInvested,
+          totalSold,
+          profit,
+          profitPercent,
+          symbol,
+          remainingBalance,
+          topHoldings,
+        });
       } else {
+        // Get bot data for total purchased and remaining value
+        let totalPurchased = 0;
+        let remainingValue = 0;
+
+        try {
+          const botDoc = await db.collection('dcaBots').doc(order.botId).get();
+          if (botDoc.exists) {
+            const bot = botDoc.data();
+            totalPurchased = (bot?.totalInvested || 0);
+            const totalVolume = bot?.totalVolume || 0;
+            remainingValue = totalVolume * price;
+          }
+        } catch (error: any) {
+          console.warn('[OrderExecutor] Failed to fetch bot data for entry notification:', error.message);
+        }
+
         // Trade entry notification
-        await telegramService.sendTradeEntry(
-          {
-            pair: order.pair,
-            type: order.side,
-            volume: volume.toString(),
-            price,
-            amount,
-            orderResult: { txid: [result.orderId || 'N/A'] },
-          },
-          balance
-        );
+        await telegramService.sendTradeEntry({
+          pair: order.pair,
+          price,
+          totalPurchased,
+          remainingValue,
+          topHoldings,
+        });
       }
 
       console.log('[OrderExecutor] Telegram notification sent successfully');

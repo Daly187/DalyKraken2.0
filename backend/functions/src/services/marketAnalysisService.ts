@@ -412,41 +412,56 @@ export class MarketAnalysisService {
   /**
    * Get enhanced trends for multiple crypto pairs from Kraken
    */
-  async getEnhancedTrendsFromKraken(limit: number = 100): Promise<any> {
+  async getEnhancedTrendsFromKraken(limit: number = 200): Promise<any> {
     try {
-      // Top 100 crypto pairs on Kraken (USD pairs) - ordered by market cap
+      // Top 200 crypto pairs on Kraken (USD pairs) - synchronized with frontend ASSET_MAPPINGS
       // Using standard symbol format (BTC/USD) - KrakenService will handle mapping
       const cryptoPairs = [
-        // Top 10
-        'BTC/USD', 'ETH/USD', 'XRP/USD', 'SOL/USD', 'BNB/USD',
-        'DOGE/USD', 'ADA/USD', 'TRX/USD', 'AVAX/USD', 'LINK/USD',
-        // 11-20
-        'DOT/USD', 'BCH/USD', 'NEAR/USD', 'LTC/USD', 'UNI/USD',
-        'APT/USD', 'ICP/USD', 'MATIC/USD', 'ATOM/USD', 'XLM/USD',
-        // 21-30
-        'FIL/USD', 'ARB/USD', 'ALGO/USD', 'SAND/USD', 'MANA/USD',
-        'GRT/USD', 'AAVE/USD', 'SNX/USD', 'AXS/USD', 'FLOW/USD',
-        // 31-40
-        'EOS/USD', 'XTZ/USD', 'ZEC/USD', 'DASH/USD', 'COMP/USD',
-        'YFI/USD', 'MKR/USD', 'SUSHI/USD', 'BAT/USD', 'ZRX/USD',
-        // 41-50
-        'ENJ/USD', 'CRV/USD', 'BAL/USD', 'BAND/USD', 'KNC/USD',
-        'REN/USD', 'STORJ/USD', 'KSM/USD', 'KAVA/USD', 'OCEAN/USD',
-        // 51-60
-        'WAVES/USD', 'ICX/USD', 'SC/USD', 'OMG/USD', 'ANT/USD',
-        'REP/USD', 'LSK/USD', 'QTUM/USD', 'PAXG/USD', 'DAI/USD',
-        // 61-70
-        'USDC/USD', 'USDT/USD', 'GHST/USD', 'KEEP/USD', 'PERP/USD',
-        'RARI/USD', 'OXT/USD', 'MLN/USD', 'TBTC/USD', 'ETH2/USD',
-        // 71-80
-        'MOVR/USD', 'PHA/USD', 'KILT/USD', 'SDN/USD', 'KINT/USD',
-        'AIR/USD', 'XRT/USD', 'EWT/USD', 'SPELL/USD', 'RUNE/USD',
-        // 81-90
-        'LPT/USD', 'FET/USD', 'INJ/USD', 'AKT/USD', 'GLM/USD',
-        'OP/USD', 'ORCA/USD', 'IMX/USD', 'BLUR/USD', 'T/USD',
-        // 91-100
-        'LDO/USD', 'RPL/USD', 'API3/USD', 'CFG/USD', 'SRM/USD',
-        'RAY/USD', 'BNT/USD', 'MNGO/USD', 'BADGER/USD', '1INCH/USD',
+        // Top 30 - Mega/Large caps (matching frontend globalPriceManager)
+        'BTC/USD', 'ETH/USD', 'USDT/USD', 'XRP/USD', 'BNB/USD',
+        'SOL/USD', 'USDC/USD', 'DOGE/USD', 'TON/USD', 'ADA/USD',
+        'TRX/USD', 'AVAX/USD', 'SHIB/USD', 'WBTC/USD', 'DOT/USD',
+        'LINK/USD', 'BCH/USD', 'POL/USD', 'LTC/USD', 'DAI/USD',
+        'UNI/USD', 'NEAR/USD', 'ICP/USD', 'KAS/USD', 'ETC/USD',
+        'XLM/USD', 'ATOM/USD', 'XMR/USD', 'FIL/USD',
+        // 31-60 - Large caps
+        'LDO/USD', 'APT/USD', 'HBAR/USD', 'ARB/USD', 'VET/USD',
+        'IMX/USD', 'CRO/USD', 'RNDR/USD', 'INJ/USD', 'OP/USD',
+        'MNT/USD', 'GRT/USD', 'QNT/USD', 'AAVE/USD', 'FTM/USD',
+        'SUI/USD', 'MKR/USD', 'THETA/USD', 'ALGO/USD', 'TIA/USD',
+        'XTZ/USD', 'EOS/USD', 'FLOW/USD', 'AXS/USD', 'NEO/USD',
+        'KAVA/USD', 'MINA/USD', 'IOTA/USD', 'CRV/USD',
+        // 61-100 - Mid caps
+        'CHZ/USD', 'GALA/USD', 'CAKE/USD', 'ZEC/USD', 'DASH/USD',
+        'ENJ/USD', 'WAVES/USD', 'BAT/USD', 'LRC/USD', '1INCH/USD',
+        'GMX/USD', 'SNX/USD', 'COMP/USD', 'ROSE/USD', 'YFI/USD',
+        'DYDX/USD', 'RON/USD', 'BLUR/USD', 'ILV/USD', 'HNT/USD',
+        'KLAY/USD', 'AUDIO/USD', 'CVX/USD', 'AR/USD', 'FET/USD',
+        'AGIX/USD', 'CELO/USD', 'STX/USD', 'ONE/USD', 'OCEAN/USD',
+        'BAND/USD', 'GNO/USD', 'RLC/USD', 'ANKR/USD', 'LSK/USD',
+        'SNT/USD', 'STORJ/USD', 'NMR/USD', 'OXT/USD', 'GLM/USD',
+        // 101-140 - Mid/Small caps on Kraken
+        'BAL/USD', 'KSM/USD', 'ZIL/USD', 'ZRX/USD', 'LPT/USD',
+        'SUSHI/USD', 'API3/USD', 'CTSI/USD', 'MASK/USD', 'MANA/USD',
+        'SAND/USD', 'REN/USD', 'BNT/USD', 'NKN/USD', 'REQ/USD',
+        'ASTR/USD', 'EGLD/USD', 'PEPE/USD', 'BONK/USD', 'FLOKI/USD',
+        'WIF/USD', 'SEI/USD', 'RUNE/USD', 'TAO/USD', 'WLD/USD',
+        'JUP/USD', 'PYTH/USD', 'ONDO/USD', 'ENA/USD', 'NOT/USD',
+        'PENGU/USD', 'TRUMP/USD', 'APE/USD', 'RAY/USD', 'RBN/USD',
+        'PERP/USD', 'SPELL/USD', 'ALICE/USD', 'OGN/USD', 'SKL/USD',
+        // 141-180 - Additional Kraken-supported assets
+        'RARE/USD', 'PHA/USD', 'BADGER/USD', 'KNC/USD', 'DODO/USD',
+        'CVC/USD', 'POWR/USD', 'MOVR/USD', 'SC/USD', 'OMG/USD',
+        'IOTX/USD', 'JASMY/USD', 'GLMR/USD', 'QTUM/USD', 'AMP/USD',
+        'PAXG/USD', 'CFG/USD', 'RSR/USD', 'EWT/USD', 'AKT/USD',
+        'T/USD', 'KILT/USD', 'SDN/USD', 'KINT/USD', 'AIR/USD',
+        'XRT/USD', 'RPL/USD', 'ORCA/USD', 'MNGO/USD', 'SRM/USD',
+        'KEEP/USD', 'RARI/USD', 'ANT/USD', 'ICX/USD', 'GHST/USD',
+        'TBTC/USD', 'ENS/USD', 'MIR/USD', 'POLY/USD', 'ROOK/USD',
+        // 181-200 - Remaining Kraken assets
+        'TRIBE/USD', 'AUCTION/USD', 'WNXM/USD', 'BOND/USD', 'FARM/USD',
+        'BERA/USD', 'BEAM/USD', 'ALCX/USD', 'REP/USD', 'MLN/USD',
+        'BABY/USD', 'ETH2/USD',
       ];
 
       const trends: any[] = [];

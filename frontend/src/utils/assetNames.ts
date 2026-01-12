@@ -89,6 +89,7 @@ const KRAKEN_TO_COMMON_NAME: Record<string, string> = {
   'ADA': 'ADA',
   'DOT': 'DOT',
   'MATIC': 'MATIC',
+  'POL': 'POL',  // Polygon (rebranded from MATIC)
   'AVAX': 'AVAX',
   'LINK': 'LINK',
   'UNI': 'UNI',
@@ -180,6 +181,9 @@ const KRAKEN_TO_COMMON_NAME: Record<string, string> = {
   'WAVES': 'WAVES',
   'XRT': 'XRT',
   'ZRX': 'ZRX',
+
+  // Additional assets
+  'BABY': 'BABY',  // Babylon
 };
 
 /**
@@ -201,6 +205,7 @@ const COMMON_NAME_TO_PAIR: Record<string, string> = {
   'ADA': 'ADA/USD',
   'DOT': 'DOT/USD',
   'MATIC': 'MATIC/USD',
+  'POL': 'POL/USD',  // Polygon (rebranded from MATIC)
   'AVAX': 'AVAX/USD',
   'LINK': 'LINK/USD',
   'UNI': 'UNI/USD',
@@ -291,6 +296,9 @@ const COMMON_NAME_TO_PAIR: Record<string, string> = {
   'WAVES': 'WAVES/USD',
   'XRT': 'XRT/USD',
   'ZRX': 'ZRX/USD',
+
+  // Additional assets
+  'BABY': 'BABY/USD',  // Babylon
 
   // Stablecoins
   'USDT': 'USDT/USD',

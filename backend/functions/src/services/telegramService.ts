@@ -171,23 +171,30 @@ export class TelegramService {
   /**
    * Send a trade entry notification
    */
-  async sendTradeEntry(tradeData: any, balance: any): Promise<any> {
+  async sendTradeEntry(tradeData: any): Promise<any> {
     if (!this.notifications.trades) {
       return { sent: false, reason: 'trade_notifications_disabled' };
     }
 
-    const { pair, type, volume, price, amount, orderResult } = tradeData;
+    const { pair, price, totalPurchased, remainingValue, topHoldings } = tradeData;
 
-    const message = `🟢 *TRADE ENTRY*\n\n` +
-      `*Pair:* ${pair}\n` +
-      `*Type:* ${type.toUpperCase()}\n` +
-      `*Volume:* ${parseFloat(volume).toFixed(8)}\n` +
+    // Build top 10 holdings table
+    let holdingsTable = '';
+    if (topHoldings && topHoldings.length > 0) {
+      holdingsTable = '\n📊 *Top Holdings*\n```\n';
+      for (const holding of topHoldings.slice(0, 10)) {
+        const assetName = holding.asset.padEnd(8);
+        const value = `$${holding.value.toFixed(2)}`.padStart(10);
+        holdingsTable += `${assetName} ${value}\n`;
+      }
+      holdingsTable += '```';
+    }
+
+    const message = `🟢 *OPEN ${pair}*\n\n` +
       `*Price:* $${parseFloat(price).toFixed(2)}\n` +
-      `*Amount:* $${parseFloat(amount).toFixed(2)}\n` +
-      `*Order ID:* \`${orderResult?.txid?.[0] || 'N/A'}\`\n\n` +
-      `💰 *Portfolio Balance*\n` +
-      `*Total:* $${parseFloat(balance.total || 0).toFixed(2)}\n` +
-      `*Stables:* $${parseFloat(balance.stables || 0).toFixed(2)}\n\n` +
+      `*Total Purchased:* $${parseFloat(totalPurchased || 0).toFixed(2)}\n` +
+      `*Est. Value:* $${parseFloat(remainingValue || 0).toFixed(2)}\n` +
+      holdingsTable + `\n\n` +
       `⏰ ${new Date().toLocaleString()}`;
 
     return await this.sendMessage(message);
@@ -196,27 +203,42 @@ export class TelegramService {
   /**
    * Send a trade closure notification
    */
-  async sendTradeClosure(tradeData: any, balance: any): Promise<any> {
+  async sendTradeClosure(tradeData: any): Promise<any> {
     if (!this.notifications.trades) {
       return { sent: false, reason: 'trade_notifications_disabled' };
     }
 
-    const { pair, type, volume, price, amount, profit, profitPercent, orderResult } = tradeData;
+    const { pair, price, totalPurchased, totalSold, profit, profitPercent, remainingBalance, symbol, topHoldings } = tradeData;
 
     const profitEmoji = profit >= 0 ? '📈' : '📉';
-    const message = `🔴 *TRADE CLOSED*\n\n` +
-      `*Pair:* ${pair}\n` +
-      `*Type:* ${type.toUpperCase()}\n` +
-      `*Volume:* ${parseFloat(volume).toFixed(8)}\n` +
+
+    // Build top 10 holdings table
+    let holdingsTable = '';
+    if (topHoldings && topHoldings.length > 0) {
+      holdingsTable = '\n📊 *Top Holdings*\n```\n';
+      for (const holding of topHoldings.slice(0, 10)) {
+        const assetName = holding.asset.padEnd(8);
+        const value = `$${holding.value.toFixed(2)}`.padStart(10);
+        holdingsTable += `${assetName} ${value}\n`;
+      }
+      holdingsTable += '```';
+    }
+
+    // Format remaining balance line (show USD estimated value)
+    const remainingUsdValue = remainingBalance !== undefined ? parseFloat(remainingBalance) * parseFloat(price) : 0;
+    const remainingLine = remainingBalance !== undefined && symbol
+      ? `*${symbol} Bal:* $${remainingUsdValue.toFixed(2)}\n`
+      : '';
+
+    const message = `🔴 *CLOSE ${pair}*\n\n` +
       `*Price:* $${parseFloat(price).toFixed(2)}\n` +
-      `*Amount:* $${parseFloat(amount).toFixed(2)}\n` +
-      `*Order ID:* \`${orderResult?.txid?.[0] || 'N/A'}\`\n\n` +
+      `*Total Purchased:* $${parseFloat(totalPurchased || 0).toFixed(2)}\n` +
+      `*Total Sold:* $${parseFloat(totalSold || 0).toFixed(2)}\n` +
+      remainingLine + `\n` +
       `${profitEmoji} *Profit/Loss*\n` +
       `*Amount:* ${profit >= 0 ? '+' : ''}$${parseFloat(profit || 0).toFixed(2)}\n` +
-      `*Percent:* ${profitPercent >= 0 ? '+' : ''}${parseFloat(profitPercent || 0).toFixed(2)}%\n\n` +
-      `💰 *Portfolio Balance*\n` +
-      `*Total:* $${parseFloat(balance.total || 0).toFixed(2)}\n` +
-      `*Stables:* $${parseFloat(balance.stables || 0).toFixed(2)}\n\n` +
+      `*Percent:* ${profitPercent >= 0 ? '+' : ''}${parseFloat(profitPercent || 0).toFixed(2)}%\n` +
+      holdingsTable + `\n\n` +
       `⏰ ${new Date().toLocaleString()}`;
 
     return await this.sendMessage(message);

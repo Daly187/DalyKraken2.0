@@ -173,11 +173,7 @@ class FundingArbitrageService {
   ): FundingSpread | null {
     if (!asterRate || !hlRate) return null;
 
-    // Determine which exchange has higher rate (long) and lower rate (short)
-    const isAsterHigher = asterRate.rate > hlRate.rate;
-    const spread = Math.abs(asterRate.rate - hlRate.rate);
-
-    // Calculate annualized spread
+    // Calculate annualized spread using MASTER DECISION TREE LOGIC
     // Aster: Shows and pays 8-hour rate → 3 payments/day
     // HyperLiquid: API returns hourly rate → 24 payments/day
 
@@ -187,11 +183,31 @@ class FundingArbitrageService {
     // HyperLiquid daily payments (rate is already hourly × 24 payments)
     const hlDailyPayments = hlRate.rate * 24;
 
-    // Daily spread
-    const dailySpread = Math.abs(asterDailyPayments - hlDailyPayments);
+    // MASTER DECISION TREE LOGIC:
+    // Use ABSOLUTE values to handle all scenarios (positive, negative, mixed)
+    // - SHORT the exchange with HIGHER absolute funding rate (receive more)
+    // - LONG the exchange with LOWER absolute funding rate (pay less)
+    // This works for ALL 4 scenarios: +/+, -/-, +/-, -/+
 
-    // Annualized spread
+    const asterAbsRate = Math.abs(asterDailyPayments);
+    const hlAbsRate = Math.abs(hlDailyPayments);
+
+    // Determine exchange assignments based on absolute funding rates
+    const isAsterHigherAbs = asterAbsRate > hlAbsRate;
+
+    // SHORT = exchange with higher absolute rate (receives more funding)
+    // LONG = exchange with lower absolute rate (pays less funding)
+    const shortExchange = isAsterHigherAbs ? 'aster' : 'hyperliquid';
+    const longExchange = isAsterHigherAbs ? 'hyperliquid' : 'aster';
+
+    // Daily spread = funding RECEIVED - funding PAID
+    const dailySpread = Math.abs(asterAbsRate - hlAbsRate);
+
+    // Annualized spread (APR)
     const annualSpread = dailySpread * 365;
+
+    // For display: keep original period rates
+    const spread = Math.abs(asterRate.rate - hlRate.rate);
 
     return {
       canonical: asterRate.symbol, // Assuming both use same canonical format
@@ -207,10 +223,10 @@ class FundingArbitrageService {
       },
       spread,
       annualSpread,
-      longExchange: isAsterHigher ? 'aster' : 'hyperliquid',
-      shortExchange: isAsterHigher ? 'hyperliquid' : 'aster',
-      longRate: isAsterHigher ? asterRate.rate : hlRate.rate,
-      shortRate: isAsterHigher ? hlRate.rate : asterRate.rate,
+      longExchange,
+      shortExchange,
+      longRate: isAsterHigherAbs ? hlRate.rate : asterRate.rate,
+      shortRate: isAsterHigherAbs ? asterRate.rate : hlRate.rate,
       timestamp: Date.now(),
     };
   }

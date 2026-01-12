@@ -386,7 +386,7 @@ export default function DalyTracker() {
 
       {/* Status Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-slate-800 rounded-lg p-4 border border-slate-700">
+        <div className="bg-white dark:bg-slate-800 rounded-lg p-4 border border-slate-200 dark:border-slate-700 shadow-sm">
           <div className="flex items-center justify-between mb-2">
             <span className="text-gray-400 text-sm">Strategy Status</span>
             {config.enabled ? (
@@ -403,7 +403,7 @@ export default function DalyTracker() {
           </div>
         </div>
 
-        <div className="bg-slate-800 rounded-lg p-4 border border-slate-700">
+        <div className="bg-white dark:bg-slate-800 rounded-lg p-4 border border-slate-200 dark:border-slate-700 shadow-sm">
           <div className="flex items-center justify-between mb-2">
             <span className="text-gray-400 text-sm">Tracked Wallets</span>
             <Users className="h-4 w-4 text-primary-500" />
@@ -414,7 +414,7 @@ export default function DalyTracker() {
           </div>
         </div>
 
-        <div className="bg-slate-800 rounded-lg p-4 border border-slate-700">
+        <div className="bg-white dark:bg-slate-800 rounded-lg p-4 border border-slate-200 dark:border-slate-700 shadow-sm">
           <div className="flex items-center justify-between mb-2">
             <span className="text-gray-400 text-sm">Open Positions</span>
             <Activity className="h-4 w-4 text-blue-400" />
@@ -425,7 +425,7 @@ export default function DalyTracker() {
           </div>
         </div>
 
-        <div className="bg-slate-800 rounded-lg p-4 border border-slate-700">
+        <div className="bg-white dark:bg-slate-800 rounded-lg p-4 border border-slate-200 dark:border-slate-700 shadow-sm">
           <div className="flex items-center justify-between mb-2">
             <span className="text-gray-400 text-sm">Total P&L</span>
             {totalPnL >= 0 ? (
@@ -444,7 +444,7 @@ export default function DalyTracker() {
       </div>
 
       {/* Tracked Wallets Section */}
-      <div className="bg-slate-800 rounded-lg border border-slate-700">
+      <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm">
         <div
           className="flex items-center justify-between p-4 cursor-pointer"
           onClick={() => setIsWalletsExpanded(!isWalletsExpanded)}
@@ -499,7 +499,7 @@ export default function DalyTracker() {
               wallets.map((wallet) => (
                 <div
                   key={wallet.id}
-                  className="bg-slate-900 rounded-lg p-4 border border-slate-700 hover:border-slate-600 transition-colors"
+                  className="bg-slate-50 dark:bg-slate-900 rounded-lg p-4 border border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 transition-colors"
                 >
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
@@ -566,7 +566,7 @@ export default function DalyTracker() {
       </div>
 
       {/* Recent Signals Section */}
-      <div className="bg-slate-800 rounded-lg border border-slate-700">
+      <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm">
         <div
           className="flex items-center justify-between p-4 cursor-pointer"
           onClick={() => setIsSignalsExpanded(!isSignalsExpanded)}
@@ -594,7 +594,7 @@ export default function DalyTracker() {
                 {signals.map((signal) => (
                   <div
                     key={signal.id}
-                    className="bg-slate-900 rounded p-3 border border-slate-700 text-sm"
+                    className="bg-slate-50 dark:bg-slate-900 rounded p-3 border border-slate-200 dark:border-slate-700 text-sm"
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
@@ -638,7 +638,7 @@ export default function DalyTracker() {
       </div>
 
       {/* Open Positions Section */}
-      <div className="bg-slate-800 rounded-lg border border-slate-700">
+      <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm">
         <div
           className="flex items-center justify-between p-4 cursor-pointer"
           onClick={() => setIsPositionsExpanded(!isPositionsExpanded)}
@@ -666,7 +666,7 @@ export default function DalyTracker() {
                 {positions.map((position) => (
                   <div
                     key={position.id}
-                    className="bg-slate-900 rounded-lg p-4 border border-slate-700"
+                    className="bg-slate-50 dark:bg-slate-900 rounded-lg p-4 border border-slate-200 dark:border-slate-700"
                   >
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
@@ -733,7 +733,7 @@ export default function DalyTracker() {
       {/* Add Wallet Modal */}
       {showAddWallet && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-slate-800 rounded-lg p-6 w-full max-w-md border border-slate-700">
+          <div className="bg-white dark:bg-slate-800 rounded-lg p-6 w-full max-w-md border border-slate-200 dark:border-slate-700 shadow-lg">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-xl font-bold text-white">Add Wallet to Track</h3>
               <button
@@ -752,7 +752,7 @@ export default function DalyTracker() {
                   value={newWallet.address}
                   onChange={(e) => setNewWallet({ ...newWallet, address: e.target.value })}
                   placeholder="0x... or solana address"
-                  className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded text-white"
+                  className="w-full px-3 py-2 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-slate-800 dark:text-white"
                 />
               </div>
 
@@ -761,7 +761,7 @@ export default function DalyTracker() {
                 <select
                   value={newWallet.chain}
                   onChange={(e) => setNewWallet({ ...newWallet, chain: e.target.value as any })}
-                  className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded text-white"
+                  className="w-full px-3 py-2 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-slate-800 dark:text-white"
                 >
                   <option value="ethereum">Ethereum</option>
                   <option value="solana">Solana</option>
@@ -778,7 +778,7 @@ export default function DalyTracker() {
                   value={newWallet.nickname}
                   onChange={(e) => setNewWallet({ ...newWallet, nickname: e.target.value })}
                   placeholder="e.g., SmartMoney123"
-                  className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded text-white"
+                  className="w-full px-3 py-2 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-slate-800 dark:text-white"
                 />
               </div>
 
@@ -805,7 +805,7 @@ export default function DalyTracker() {
       {/* Discover Wallets Modal */}
       {showDiscoverWallets && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-y-auto">
-          <div className="bg-slate-800 rounded-lg p-6 w-full max-w-6xl border border-slate-700 my-8 max-h-[90vh] overflow-y-auto">
+          <div className="bg-white dark:bg-slate-800 rounded-lg p-6 w-full max-w-6xl border border-slate-200 dark:border-slate-700 my-8 max-h-[90vh] overflow-y-auto shadow-lg">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-xl font-bold text-white flex items-center gap-2">
                 <Search className="h-6 w-6" />
@@ -820,7 +820,7 @@ export default function DalyTracker() {
             </div>
 
             {/* Search Filters */}
-            <div className="bg-slate-900 rounded-lg p-4 mb-4">
+            <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-4 mb-4">
               <div className="flex items-center gap-2 mb-3">
                 <Filter className="h-4 w-4 text-gray-400" />
                 <span className="text-sm font-semibold text-gray-300">Filters</span>
@@ -833,7 +833,7 @@ export default function DalyTracker() {
                     value={searchFilters.minPnL || ''}
                     onChange={(e) => setSearchFilters({ ...searchFilters, minPnL: e.target.value ? parseFloat(e.target.value) : undefined })}
                     placeholder="e.g. 1000000"
-                    className="w-full px-2 py-1 bg-slate-800 border border-slate-700 rounded text-sm text-white"
+                    className="w-full px-2 py-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded text-sm text-slate-800 dark:text-white"
                   />
                 </div>
                 <div>
@@ -843,7 +843,7 @@ export default function DalyTracker() {
                     value={searchFilters.minWinRate || ''}
                     onChange={(e) => setSearchFilters({ ...searchFilters, minWinRate: e.target.value ? parseFloat(e.target.value) : undefined })}
                     placeholder="e.g. 65"
-                    className="w-full px-2 py-1 bg-slate-800 border border-slate-700 rounded text-sm text-white"
+                    className="w-full px-2 py-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded text-sm text-slate-800 dark:text-white"
                   />
                 </div>
                 <div>
@@ -853,7 +853,7 @@ export default function DalyTracker() {
                     value={searchFilters.minTrades || ''}
                     onChange={(e) => setSearchFilters({ ...searchFilters, minTrades: e.target.value ? parseInt(e.target.value) : undefined })}
                     placeholder="e.g. 100"
-                    className="w-full px-2 py-1 bg-slate-800 border border-slate-700 rounded text-sm text-white"
+                    className="w-full px-2 py-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded text-sm text-slate-800 dark:text-white"
                   />
                 </div>
                 <div className="flex items-end">
@@ -878,7 +878,7 @@ export default function DalyTracker() {
                 discoveredWallets.map((wallet, index) => (
                   <div
                     key={wallet.address}
-                    className="bg-slate-900 rounded-lg p-4 border border-slate-700 hover:border-slate-600 transition-colors"
+                    className="bg-slate-50 dark:bg-slate-900 rounded-lg p-4 border border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 transition-colors"
                   >
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
@@ -1017,7 +1017,7 @@ export default function DalyTracker() {
                       type="number"
                       value={config.totalAllocationPercent}
                       onChange={(e) => setConfig({ ...config, totalAllocationPercent: parseFloat(e.target.value) })}
-                      className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded text-white"
+                      className="w-full px-3 py-2 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-slate-800 dark:text-white"
                     />
                   </div>
                   <div>
@@ -1028,7 +1028,7 @@ export default function DalyTracker() {
                       type="number"
                       value={config.perTradeAllocationPercent}
                       onChange={(e) => setConfig({ ...config, perTradeAllocationPercent: parseFloat(e.target.value) })}
-                      className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded text-white"
+                      className="w-full px-3 py-2 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-slate-800 dark:text-white"
                     />
                   </div>
                   <div>
@@ -1039,7 +1039,7 @@ export default function DalyTracker() {
                       type="number"
                       value={config.maxPositionSize}
                       onChange={(e) => setConfig({ ...config, maxPositionSize: parseFloat(e.target.value) })}
-                      className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded text-white"
+                      className="w-full px-3 py-2 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-slate-800 dark:text-white"
                     />
                   </div>
                   <div>
@@ -1050,7 +1050,7 @@ export default function DalyTracker() {
                       type="number"
                       value={config.maxConcurrentPositions}
                       onChange={(e) => setConfig({ ...config, maxConcurrentPositions: parseInt(e.target.value) })}
-                      className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded text-white"
+                      className="w-full px-3 py-2 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-slate-800 dark:text-white"
                     />
                   </div>
                 </div>
@@ -1069,7 +1069,7 @@ export default function DalyTracker() {
                       step="0.1"
                       value={config.dailyLossCapPercent}
                       onChange={(e) => setConfig({ ...config, dailyLossCapPercent: parseFloat(e.target.value) })}
-                      className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded text-white"
+                      className="w-full px-3 py-2 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-slate-800 dark:text-white"
                     />
                   </div>
                   <div>
@@ -1081,7 +1081,7 @@ export default function DalyTracker() {
                       step="0.1"
                       value={config.stopLossPercent}
                       onChange={(e) => setConfig({ ...config, stopLossPercent: parseFloat(e.target.value) })}
-                      className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded text-white"
+                      className="w-full px-3 py-2 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-slate-800 dark:text-white"
                     />
                   </div>
                 </div>
@@ -1099,7 +1099,7 @@ export default function DalyTracker() {
                       type="number"
                       value={config.minWalletScore}
                       onChange={(e) => setConfig({ ...config, minWalletScore: parseInt(e.target.value) })}
-                      className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded text-white"
+                      className="w-full px-3 py-2 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-slate-800 dark:text-white"
                     />
                   </div>
                   <div>
@@ -1110,7 +1110,7 @@ export default function DalyTracker() {
                       type="number"
                       value={config.maxPriceMovementBps}
                       onChange={(e) => setConfig({ ...config, maxPriceMovementBps: parseInt(e.target.value) })}
-                      className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded text-white"
+                      className="w-full px-3 py-2 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-slate-800 dark:text-white"
                     />
                   </div>
                 </div>

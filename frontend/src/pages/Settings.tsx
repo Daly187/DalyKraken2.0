@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useStore } from '@/store/useStore';
 import { apiService } from '@/services/apiService';
 import { useTheme } from '@/contexts/ThemeContext';
+import { ASSET_MAPPINGS, type AssetMapping } from '@/data/assetMappings';
 import {
   Key,
   Save,
@@ -20,6 +21,9 @@ import {
   Palette,
   ChevronDown,
   ChevronRight,
+  ArrowUpDown,
+  Search,
+  Database,
 } from 'lucide-react';
 
 interface KrakenApiKey {
@@ -33,7 +37,283 @@ interface KrakenApiKey {
   status: 'untested' | 'testing' | 'success' | 'failed';
 }
 
-type SettingsTab = 'apis' | 'themes';
+type SettingsTab = 'apis' | 'themes' | 'cryptoMapping';
+
+type SortDirection = 'asc' | 'desc';
+type SortColumn = 'rank' | 'assetName' | 'marketCap' | 'coinGeckoId' | 'kraken' | 'aster' | 'hyperliquid' | 'lighter';
+
+// Helper function to format market cap
+const formatMarketCap = (marketCap: number | null): string => {
+  if (marketCap === null) return '-';
+  if (marketCap >= 1e12) return `$${(marketCap / 1e12).toFixed(2)}T`;
+  if (marketCap >= 1e9) return `$${(marketCap / 1e9).toFixed(2)}B`;
+  if (marketCap >= 1e6) return `$${(marketCap / 1e6).toFixed(1)}M`;
+  if (marketCap >= 1e3) return `$${(marketCap / 1e3).toFixed(0)}K`;
+  return `$${marketCap.toFixed(0)}`;
+};
+
+// Crypto Mapping Tab Component
+function CryptoMappingTab() {
+  const [sortColumn, setSortColumn] = useState<SortColumn>('rank');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+  const [filters, setFilters] = useState<{ [key: string]: string }>({
+    assetName: '',
+    coinGeckoId: '',
+    kraken: '',
+    aster: '',
+    hyperliquid: '',
+    lighter: '',
+  });
+
+  // Handle column sort
+  const handleSort = (column: SortColumn) => {
+    if (sortColumn === column) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortColumn(column);
+      setSortDirection(column === 'marketCap' ? 'desc' : 'asc');
+    }
+  };
+
+  // Handle filter change
+  const handleFilterChange = (column: string, value: string) => {
+    setFilters(prev => ({ ...prev, [column]: value }));
+  };
+
+  // Clear all filters
+  const clearFilters = () => {
+    setFilters({
+      assetName: '',
+      coinGeckoId: '',
+      kraken: '',
+      aster: '',
+      hyperliquid: '',
+      lighter: '',
+    });
+  };
+
+  // Filter and sort data
+  const filteredAndSortedData = useMemo(() => {
+    let data = [...ASSET_MAPPINGS];
+
+    // Apply filters
+    Object.entries(filters).forEach(([column, filterValue]) => {
+      if (filterValue) {
+        const lowerFilter = filterValue.toLowerCase();
+        data = data.filter(item => {
+          const value = item[column as keyof AssetMapping];
+          if (value === null) return false;
+          return String(value).toLowerCase().includes(lowerFilter);
+        });
+      }
+    });
+
+    // Sort data
+    data.sort((a, b) => {
+      let aValue = a[sortColumn];
+      let bValue = b[sortColumn];
+
+      // Handle null values
+      if (aValue === null && bValue === null) return 0;
+      if (aValue === null) return 1;
+      if (bValue === null) return -1;
+
+      // Numeric sort for rank and market cap
+      if (sortColumn === 'rank' || sortColumn === 'marketCap') {
+        const comparison = (aValue as number) - (bValue as number);
+        return sortDirection === 'asc' ? comparison : -comparison;
+      }
+
+      // Alphabetical sort for strings
+      const aStr = String(aValue).toLowerCase();
+      const bStr = String(bValue).toLowerCase();
+      const comparison = aStr.localeCompare(bStr);
+      return sortDirection === 'asc' ? comparison : -comparison;
+    });
+
+    return data;
+  }, [filters, sortColumn, sortDirection]);
+
+  const hasActiveFilters = Object.values(filters).some(f => f !== '');
+
+  // Column header component with sort functionality
+  const SortableHeader = ({ column, label, isLast = false }: { column: SortColumn; label: string; isLast?: boolean }) => (
+    <th
+      className={`px-3 py-3 text-left text-xs font-semibold text-slate-600 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-600/50 transition-colors ${!isLast ? 'border-r border-slate-200 dark:border-slate-700' : ''}`}
+      onClick={() => handleSort(column)}
+    >
+      <div className="flex items-center gap-1">
+        {label}
+        <ArrowUpDown className={`h-3 w-3 ${sortColumn === column ? 'text-primary-500' : 'text-gray-400'}`} />
+        {sortColumn === column && (
+          <span className="text-primary-500 text-xs">
+            {sortDirection === 'asc' ? '↑' : '↓'}
+          </span>
+        )}
+      </div>
+    </th>
+  );
+
+  // Filter input component
+  const FilterInput = ({ column, placeholder }: { column: string; placeholder: string }) => (
+    <input
+      type="text"
+      value={filters[column] || ''}
+      onChange={(e) => handleFilterChange(column, e.target.value)}
+      placeholder={placeholder}
+      className="w-full px-2 py-1 text-xs bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded focus:outline-none focus:ring-1 focus:ring-primary-500 text-slate-800 dark:text-white"
+    />
+  );
+
+  return (
+    <div className="card">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <Database className="h-6 w-6 text-primary-500" />
+          <h2 className="text-xl font-bold">Asset Mapping Table</h2>
+          <span className="text-sm text-slate-500 dark:text-gray-400">
+            ({filteredAndSortedData.length} of {ASSET_MAPPINGS.length} assets)
+          </span>
+        </div>
+        {hasActiveFilters && (
+          <button
+            onClick={clearFilters}
+            className="btn btn-secondary btn-sm flex items-center gap-1"
+          >
+            <Search className="h-3 w-3" />
+            Clear Filters
+          </button>
+        )}
+      </div>
+      <p className="text-sm text-slate-500 dark:text-gray-400 mb-4">
+        View and search asset symbol mappings across CoinGecko, Kraken, Aster, Hyperliquid, and Lighter exchanges.
+        Click column headers to sort. Use the filter inputs to search.
+      </p>
+
+      {/* Table Container with horizontal scroll for mobile */}
+      <div className="overflow-x-auto -mx-4 sm:mx-0">
+        <div className="inline-block min-w-full align-middle">
+          <table className="min-w-full border border-slate-200 dark:border-slate-700">
+            <thead className="bg-slate-100 dark:bg-slate-700/80 border-b border-slate-200 dark:border-slate-700">
+              <tr>
+                <SortableHeader column="rank" label="Rank" />
+                <SortableHeader column="assetName" label="Asset Name" />
+                <SortableHeader column="marketCap" label="Market Cap" />
+                <SortableHeader column="coinGeckoId" label="CoinGecko ID" />
+                <SortableHeader column="kraken" label="Kraken" />
+                <SortableHeader column="aster" label="Aster" />
+                <SortableHeader column="hyperliquid" label="Hyperliquid" />
+                <SortableHeader column="lighter" label="Lighter" isLast />
+              </tr>
+              {/* Filter row */}
+              <tr className="bg-slate-50 dark:bg-slate-700/30 border-b border-slate-200 dark:border-slate-700">
+                <td className="px-3 py-2 border-r border-slate-200 dark:border-slate-700">
+                  <span className="text-xs text-slate-400">Sort only</span>
+                </td>
+                <td className="px-3 py-2 border-r border-slate-200 dark:border-slate-700">
+                  <FilterInput column="assetName" placeholder="Filter..." />
+                </td>
+                <td className="px-3 py-2 border-r border-slate-200 dark:border-slate-700">
+                  <span className="text-xs text-slate-400">Sort only</span>
+                </td>
+                <td className="px-3 py-2 border-r border-slate-200 dark:border-slate-700">
+                  <FilterInput column="coinGeckoId" placeholder="Filter..." />
+                </td>
+                <td className="px-3 py-2 border-r border-slate-200 dark:border-slate-700">
+                  <FilterInput column="kraken" placeholder="Filter..." />
+                </td>
+                <td className="px-3 py-2 border-r border-slate-200 dark:border-slate-700">
+                  <FilterInput column="aster" placeholder="Filter..." />
+                </td>
+                <td className="px-3 py-2 border-r border-slate-200 dark:border-slate-700">
+                  <FilterInput column="hyperliquid" placeholder="Filter..." />
+                </td>
+                <td className="px-3 py-2">
+                  <FilterInput column="lighter" placeholder="Filter..." />
+                </td>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+              {filteredAndSortedData.map((asset) => (
+                <tr
+                  key={asset.canonical}
+                  className="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors"
+                >
+                  <td className="px-3 py-2.5 whitespace-nowrap text-center font-medium text-slate-600 dark:text-gray-300 border-r border-slate-200 dark:border-slate-700">
+                    {asset.rank}
+                  </td>
+                  <td className="px-3 py-2.5 whitespace-nowrap border-r border-slate-200 dark:border-slate-700">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-slate-800 dark:text-white">{asset.assetName}</span>
+                      <span className="text-xs text-slate-500 dark:text-gray-500">({asset.canonical})</span>
+                    </div>
+                  </td>
+                  <td className="px-3 py-2.5 whitespace-nowrap text-sm font-mono text-slate-600 dark:text-gray-300 border-r border-slate-200 dark:border-slate-700">
+                    {formatMarketCap(asset.marketCap)}
+                  </td>
+                  <td className="px-3 py-2.5 whitespace-nowrap border-r border-slate-200 dark:border-slate-700">
+                    <span className="text-xs font-mono text-slate-700 dark:text-gray-300">
+                      {asset.coinGeckoId || '-'}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2.5 whitespace-nowrap border-r border-slate-200 dark:border-slate-700">
+                    <span className="text-xs font-mono text-slate-700 dark:text-gray-300">
+                      {asset.kraken || '-'}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2.5 whitespace-nowrap border-r border-slate-200 dark:border-slate-700">
+                    <span className="text-xs font-mono text-slate-700 dark:text-gray-300">
+                      {asset.aster || '-'}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2.5 whitespace-nowrap border-r border-slate-200 dark:border-slate-700">
+                    <span className="text-xs font-mono text-slate-700 dark:text-gray-300">
+                      {asset.hyperliquid || '-'}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2.5 whitespace-nowrap">
+                    <span className="text-xs font-mono text-slate-700 dark:text-gray-300">
+                      {asset.lighter || '-'}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {filteredAndSortedData.length === 0 && (
+        <div className="text-center py-8 text-slate-500 dark:text-gray-400">
+          No assets match your filter criteria.
+          <button
+            onClick={clearFilters}
+            className="ml-2 text-primary-500 hover:text-primary-400"
+          >
+            Clear filters
+          </button>
+        </div>
+      )}
+
+      {/* Info section */}
+      <div className="mt-4 p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+        <div className="flex items-start gap-3">
+          <AlertTriangle className="h-5 w-5 text-blue-500 mt-0.5" />
+          <div className="text-sm text-slate-600 dark:text-gray-300">
+            <p className="font-semibold mb-2">About Asset Mappings</p>
+            <ul className="space-y-1 text-xs">
+              <li>• <strong>Canonical</strong>: Standard symbol used internally for matching across exchanges</li>
+              <li>• <strong>CoinGecko ID</strong>: Identifier used for fetching market cap and price data</li>
+              <li>• <strong>Kraken</strong>: Symbol format used on Kraken exchange (e.g., XXBT for Bitcoin)</li>
+              <li>• <strong>Aster/Hyperliquid</strong>: Perpetual futures symbols (note: 1000PEPE = 1000x multiplier)</li>
+              <li>• <strong>Lighter</strong>: Perpetual contract symbols on Lighter exchange</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function Settings() {
   const systemStatus = useStore((state) => state.systemStatus);
@@ -52,6 +332,7 @@ export default function Settings() {
     aster: boolean;
     hyperliquid: boolean;
     liquid: boolean;
+    polymarket: boolean;
   }>({
     kraken: true,
     quantify: false,
@@ -60,6 +341,7 @@ export default function Settings() {
     aster: false,
     hyperliquid: false,
     liquid: false,
+    polymarket: false,
   });
 
   const toggleSection = (section: keyof typeof expandedSections) => {
@@ -117,6 +399,15 @@ export default function Settings() {
   const [liquidApiToken, setLiquidApiToken] = useState('');
   const [liquidApiSecret, setLiquidApiSecret] = useState('');
 
+  // Polymarket API Keys
+  const [polymarketApiKey, setPolymarketApiKey] = useState('');
+  const [polymarketApiSecret, setPolymarketApiSecret] = useState('');
+  const [polymarketPassphrase, setPolymarketPassphrase] = useState('');
+  const [polymarketAddress, setPolymarketAddress] = useState('');
+  const [polymarketPrivateKey, setPolymarketPrivateKey] = useState('');
+  const [polymarketFunderAddress, setPolymarketFunderAddress] = useState('');
+  const [derivingApiKey, setDerivingApiKey] = useState(false);
+
   // Visibility toggles
   const [showSecrets, setShowSecrets] = useState<{ [key: string]: boolean }>({});
   const [saving, setSaving] = useState(false);
@@ -171,6 +462,25 @@ export default function Settings() {
 
     const savedLiquidSecret = localStorage.getItem('liquid_api_secret');
     if (savedLiquidSecret) setLiquidApiSecret(savedLiquidSecret);
+
+    // Load Polymarket API keys
+    const savedPolymarketKey = localStorage.getItem('polymarket_api_key');
+    if (savedPolymarketKey) setPolymarketApiKey(savedPolymarketKey);
+
+    const savedPolymarketSecret = localStorage.getItem('polymarket_api_secret');
+    if (savedPolymarketSecret) setPolymarketApiSecret(savedPolymarketSecret);
+
+    const savedPolymarketPassphrase = localStorage.getItem('polymarket_passphrase');
+    if (savedPolymarketPassphrase) setPolymarketPassphrase(savedPolymarketPassphrase);
+
+    const savedPolymarketAddress = localStorage.getItem('polymarket_address');
+    if (savedPolymarketAddress) setPolymarketAddress(savedPolymarketAddress);
+
+    const savedPolymarketPrivateKey = localStorage.getItem('polymarket_private_key');
+    if (savedPolymarketPrivateKey) setPolymarketPrivateKey(savedPolymarketPrivateKey);
+
+    const savedPolymarketFunderAddress = localStorage.getItem('polymarket_funder_address');
+    if (savedPolymarketFunderAddress) setPolymarketFunderAddress(savedPolymarketFunderAddress);
   };
 
   const toggleSecretVisibility = (keyId: string) => {
@@ -718,6 +1028,160 @@ export default function Settings() {
     return liquidApiToken.length > 0 && liquidApiSecret.length > 0;
   };
 
+  const isPolymarketActive = () => {
+    // Either has API credentials OR has private key for signing
+    return (polymarketApiKey.length > 0 && polymarketApiSecret.length > 0 && polymarketPassphrase.length > 0 && polymarketAddress.length > 0) ||
+           (polymarketPrivateKey.length > 0);
+  };
+
+  const savePolymarketConfig = async () => {
+    // Need either API credentials OR private key
+    const hasApiCreds = polymarketApiKey && polymarketApiSecret && polymarketPassphrase && polymarketAddress;
+    const hasPrivateKey = polymarketPrivateKey;
+
+    if (!hasApiCreds && !hasPrivateKey) {
+      addNotification({
+        type: 'error',
+        title: 'Missing Credentials',
+        message: 'Please enter either API credentials (Key, Secret, Passphrase, Address) or a wallet private key',
+      });
+      return;
+    }
+
+    setSaving(true);
+
+    try {
+      // Save to localStorage
+      localStorage.setItem('polymarket_api_key', polymarketApiKey);
+      localStorage.setItem('polymarket_api_secret', polymarketApiSecret);
+      localStorage.setItem('polymarket_passphrase', polymarketPassphrase);
+      localStorage.setItem('polymarket_address', polymarketAddress);
+      localStorage.setItem('polymarket_private_key', polymarketPrivateKey);
+      localStorage.setItem('polymarket_funder_address', polymarketFunderAddress);
+
+      // Determine signature type based on whether using a proxy wallet
+      // If funder address is set and different from derived wallet address, use POLY_PROXY (1)
+      // Otherwise use EOA (0) for standard wallets
+      const signatureType = polymarketFunderAddress ? '1' : '0';
+      localStorage.setItem('polymarket_signature_type', signatureType);
+      console.log('[Settings] Set signature type:', signatureType, '(1=POLY_PROXY, 0=EOA)');
+
+      // Also save to backend (API credentials only, not private key)
+      if (hasApiCreds) {
+        await apiService.savePolymarketCredentials({
+          apiKey: polymarketApiKey,
+          apiSecret: polymarketApiSecret,
+          passphrase: polymarketPassphrase,
+          address: polymarketAddress,
+        });
+      }
+
+      addNotification({
+        type: 'success',
+        title: 'Polymarket Config Saved',
+        message: 'Your Polymarket credentials have been saved',
+      });
+    } catch (error: any) {
+      console.error('[Settings] Error saving Polymarket config:', error);
+      addNotification({
+        type: 'error',
+        title: 'Save Failed',
+        message: error.message || 'Failed to save Polymarket config',
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const derivePolymarketApiKey = async () => {
+    if (!polymarketPrivateKey) {
+      addNotification({
+        type: 'error',
+        title: 'Missing Private Key',
+        message: 'Please enter your wallet private key first',
+      });
+      return;
+    }
+
+    setDerivingApiKey(true);
+
+    try {
+      // First save the private key so it's available in headers
+      localStorage.setItem('polymarket_private_key', polymarketPrivateKey);
+
+      const result = await apiService.derivePolymarketApiKey();
+
+      if (result.success && result.credentials) {
+        // Update state with derived credentials
+        setPolymarketApiKey(result.credentials.apiKey);
+        setPolymarketApiSecret(result.credentials.apiSecret);
+        setPolymarketPassphrase(result.credentials.passphrase);
+
+        // Save to localStorage
+        localStorage.setItem('polymarket_api_key', result.credentials.apiKey);
+        localStorage.setItem('polymarket_api_secret', result.credentials.apiSecret);
+        localStorage.setItem('polymarket_passphrase', result.credentials.passphrase);
+
+        addNotification({
+          type: 'success',
+          title: 'API Credentials Derived',
+          message: 'Your API key, secret, and passphrase have been derived from your wallet. Save your settings.',
+        });
+      } else {
+        throw new Error(result.error || 'Failed to derive credentials');
+      }
+    } catch (error: any) {
+      console.error('[Settings] Error deriving Polymarket API key:', error);
+      addNotification({
+        type: 'error',
+        title: 'Derive Failed',
+        message: error.message || 'Failed to derive API credentials',
+      });
+    } finally {
+      setDerivingApiKey(false);
+    }
+  };
+
+  const testPolymarketConnection = async () => {
+    if (!polymarketApiKey) {
+      addNotification({
+        type: 'error',
+        title: 'Missing Credentials',
+        message: 'Please enter at least the API Key',
+      });
+      return;
+    }
+
+    setTesting((prev) => ({ ...prev, polymarket: true }));
+    setTestResults((prev) => ({ ...prev, polymarket: null }));
+
+    try {
+      const result = await apiService.testPolymarketConnection();
+
+      if (result.success) {
+        setTestResults((prev) => ({
+          ...prev,
+          polymarket: {
+            success: true,
+            message: `Connected! Balance: $${(result.balance || 0).toFixed(2)} USDC`,
+          },
+        }));
+      } else {
+        setTestResults((prev) => ({
+          ...prev,
+          polymarket: { success: false, message: result.message || 'Connection failed' },
+        }));
+      }
+    } catch (error: any) {
+      setTestResults((prev) => ({
+        ...prev,
+        polymarket: { success: false, message: error.message || 'Connection test failed' },
+      }));
+    } finally {
+      setTesting((prev) => ({ ...prev, polymarket: false }));
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -729,7 +1193,7 @@ export default function Settings() {
               systemStatus.wsConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'
             }`}
           />
-          <span className="text-sm text-gray-400">
+          <span className="text-sm text-slate-500 dark:text-gray-400">
             {systemStatus.wsConnected ? 'Connected' : 'Disconnected'}
           </span>
         </div>
@@ -737,13 +1201,13 @@ export default function Settings() {
 
       {/* Tab Navigation */}
       <div className="card">
-        <div className="flex gap-2 border-b border-slate-600 pb-4">
+        <div className="flex gap-2 border-b border-slate-200 dark:border-slate-600 pb-4">
           <button
             onClick={() => setActiveTab('apis')}
             className={`flex items-center gap-2 px-6 py-3 rounded-lg font-semibold transition-all ${
               activeTab === 'apis'
                 ? 'bg-primary-500 text-white'
-                : 'bg-slate-700/50 text-gray-400 hover:bg-slate-700 hover:text-white'
+                : 'bg-slate-100 dark:bg-slate-700/50 text-slate-600 dark:text-gray-400 hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-slate-800 dark:hover:text-white'
             }`}
           >
             <Key className="h-5 w-5" />
@@ -754,11 +1218,22 @@ export default function Settings() {
             className={`flex items-center gap-2 px-6 py-3 rounded-lg font-semibold transition-all ${
               activeTab === 'themes'
                 ? 'bg-primary-500 text-white'
-                : 'bg-slate-700/50 text-gray-400 hover:bg-slate-700 hover:text-white'
+                : 'bg-slate-100 dark:bg-slate-700/50 text-slate-600 dark:text-gray-400 hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-slate-800 dark:hover:text-white'
             }`}
           >
             <Palette className="h-5 w-5" />
             Themes
+          </button>
+          <button
+            onClick={() => setActiveTab('cryptoMapping')}
+            className={`flex items-center gap-2 px-6 py-3 rounded-lg font-semibold transition-all ${
+              activeTab === 'cryptoMapping'
+                ? 'bg-primary-500 text-white'
+                : 'bg-slate-100 dark:bg-slate-700/50 text-slate-600 dark:text-gray-400 hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-slate-800 dark:hover:text-white'
+            }`}
+          >
+            <Database className="h-5 w-5" />
+            Crypto Mapping
           </button>
         </div>
       </div>
@@ -770,12 +1245,12 @@ export default function Settings() {
             <Palette className="h-6 w-6 text-primary-500" />
             <h2 className="text-xl font-bold">Appearance</h2>
           </div>
-          <p className="text-sm text-gray-400 mb-4">
+          <p className="text-sm text-slate-500 dark:text-gray-400 mb-4">
             Customize the look and feel of your dashboard
           </p>
 
           <div className="space-y-3">
-            <label className="block text-sm font-medium text-gray-300 mb-2">
+            <label className="block text-sm font-medium text-slate-600 dark:text-gray-300 mb-2">
               Theme
             </label>
             <div className="grid grid-cols-2 gap-4">
@@ -793,7 +1268,7 @@ export default function Settings() {
                 </div>
                 <div className="text-center">
                   <p className="font-semibold">Light Mode</p>
-                  <p className="text-xs text-gray-400 mt-1">Clean and bright interface</p>
+                  <p className="text-xs text-slate-500 dark:text-gray-400 mt-1">Clean and bright interface</p>
                 </div>
                 {theme === 'light' && (
                   <div className="absolute top-2 right-2">
@@ -816,7 +1291,7 @@ export default function Settings() {
                 </div>
                 <div className="text-center">
                   <p className="font-semibold">Dark Mode</p>
-                  <p className="text-xs text-gray-400 mt-1">Easy on the eyes</p>
+                  <p className="text-xs text-slate-500 dark:text-gray-400 mt-1">Easy on the eyes</p>
                 </div>
                 {theme === 'dark' && (
                   <div className="absolute top-2 right-2">
@@ -827,6 +1302,11 @@ export default function Settings() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Crypto Mapping Tab Content */}
+      {activeTab === 'cryptoMapping' && (
+        <CryptoMappingTab />
       )}
 
       {/* APIs Tab Content */}
@@ -869,7 +1349,7 @@ export default function Settings() {
                 <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4 mb-6">
                   <div className="flex items-start gap-3">
                     <AlertTriangle className="h-5 w-5 text-blue-500 mt-0.5" />
-                    <div className="text-sm text-gray-300">
+                    <div className="text-sm text-slate-600 dark:text-gray-300">
                       <p className="font-semibold mb-2">Fallback Configuration</p>
                       <p>
                         Configure up to 3 Kraken API keys for redundancy. If the primary key
@@ -883,10 +1363,10 @@ export default function Settings() {
           {krakenKeys.map((key) => (
             <div
               key={key.id}
-              className={`bg-slate-700/50 rounded-lg p-5 border-2 ${
+              className={`bg-slate-50 dark:bg-slate-700/50 rounded-lg p-5 border-2 ${
                 key.type === 'primary'
                   ? 'border-primary-500/30'
-                  : 'border-slate-600/30'
+                  : 'border-slate-200 dark:border-slate-600/30'
               }`}
             >
               {/* Header */}
@@ -907,7 +1387,7 @@ export default function Settings() {
                 </div>
                 <div className="flex items-center gap-2">
                   <label className="flex items-center gap-2 cursor-pointer">
-                    <span className="text-sm text-gray-400">Active</span>
+                    <span className="text-sm text-slate-500 dark:text-gray-400">Active</span>
                     <input
                       type="checkbox"
                       checked={key.isActive}
@@ -923,7 +1403,7 @@ export default function Settings() {
               {/* API Key Input */}
               <div className="grid gap-4">
                 <div>
-                  <label className="block text-sm text-gray-400 mb-2">
+                  <label className="block text-sm text-slate-500 dark:text-gray-400 mb-2">
                     API Key
                   </label>
                   <div className="flex gap-2">
@@ -934,7 +1414,7 @@ export default function Settings() {
                         handleKrakenKeyChange(key.id, 'apiKey', e.target.value)
                       }
                       placeholder="Enter your Kraken API key"
-                      className="flex-1 bg-slate-700 text-white px-4 py-2 rounded-lg font-mono text-sm"
+                      className="flex-1 bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-white px-4 py-2 rounded-lg font-mono text-sm border border-slate-200 dark:border-slate-600"
                     />
                     <button
                       onClick={() => toggleSecretVisibility(key.id)}
@@ -950,7 +1430,7 @@ export default function Settings() {
                 </div>
 
                 <div>
-                  <label className="block text-sm text-gray-400 mb-2">
+                  <label className="block text-sm text-slate-500 dark:text-gray-400 mb-2">
                     API Secret
                   </label>
                   <input
@@ -960,7 +1440,7 @@ export default function Settings() {
                       handleKrakenKeyChange(key.id, 'apiSecret', e.target.value)
                     }
                     placeholder="Enter your Kraken API secret"
-                    className="w-full bg-slate-700 text-white px-4 py-2 rounded-lg font-mono text-sm"
+                    className="w-full bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-white px-4 py-2 rounded-lg font-mono text-sm border border-slate-200 dark:border-slate-600"
                   />
                 </div>
               </div>
@@ -1041,17 +1521,17 @@ export default function Settings() {
             {/* Collapsible Content */}
             {expandedSections.quantify && (
               <>
-                <p className="text-sm text-gray-400 mb-4">
+                <p className="text-sm text-slate-500 dark:text-gray-400 mb-4">
                   Used for enhanced market trends and technical analysis
                 </p>
                 <div>
-                  <label className="block text-sm text-gray-400 mb-2">API Key</label>
+                  <label className="block text-sm text-slate-500 dark:text-gray-400 mb-2">API Key</label>
                   <input
                     type={showSecrets['quantify'] ? 'text' : 'password'}
                     value={quantifyCryptoKey}
                     onChange={(e) => setQuantifyCryptoKey(e.target.value)}
                     placeholder="Enter your Quantify Crypto API key"
-                    className="w-full bg-slate-700 text-white px-4 py-2 rounded-lg font-mono"
+                    className="w-full bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-white px-4 py-2 rounded-lg font-mono border border-slate-200 dark:border-slate-600"
                   />
                   <button
                     onClick={() => toggleSecretVisibility('quantify')}
@@ -1098,17 +1578,17 @@ export default function Settings() {
             {/* Collapsible Content */}
             {expandedSections.coinmarketcap && (
               <>
-                <p className="text-sm text-gray-400 mb-4">
+                <p className="text-sm text-slate-500 dark:text-gray-400 mb-4">
                   Used for additional market data and coin information
                 </p>
                 <div>
-                  <label className="block text-sm text-gray-400 mb-2">API Key</label>
+                  <label className="block text-sm text-slate-500 dark:text-gray-400 mb-2">API Key</label>
                   <input
                     type={showSecrets['cmc'] ? 'text' : 'password'}
                     value={coinMarketCapKey}
                     onChange={(e) => setCoinMarketCapKey(e.target.value)}
                     placeholder="Enter your CoinMarketCap API key"
-                    className="w-full bg-slate-700 text-white px-4 py-2 rounded-lg font-mono"
+                    className="w-full bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-white px-4 py-2 rounded-lg font-mono border border-slate-200 dark:border-slate-600"
                   />
                   <button
                     onClick={() => toggleSecretVisibility('cmc')}
@@ -1155,28 +1635,28 @@ export default function Settings() {
             {/* Collapsible Content */}
             {expandedSections.telegram && (
               <>
-                <p className="text-sm text-gray-400 mb-4">
+                <p className="text-sm text-slate-500 dark:text-gray-400 mb-4">
                   Receive trading alerts and system notifications via Telegram
                 </p>
                 <div className="grid md:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm text-gray-400 mb-2">Bot Token</label>
+                    <label className="block text-sm text-slate-500 dark:text-gray-400 mb-2">Bot Token</label>
                     <input
                       type={showSecrets['telegram'] ? 'text' : 'password'}
                       value={telegramBotToken}
                       onChange={(e) => setTelegramBotToken(e.target.value)}
                       placeholder="Enter your Telegram bot token"
-                      className="w-full bg-slate-700 text-white px-4 py-2 rounded-lg font-mono"
+                      className="w-full bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-white px-4 py-2 rounded-lg font-mono border border-slate-200 dark:border-slate-600"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm text-gray-400 mb-2">Chat ID</label>
+                    <label className="block text-sm text-slate-500 dark:text-gray-400 mb-2">Chat ID</label>
                     <input
                       type="text"
                       value={telegramChatId}
                       onChange={(e) => setTelegramChatId(e.target.value)}
                       placeholder="Enter your Telegram chat ID"
-                      className="w-full bg-slate-700 text-white px-4 py-2 rounded-lg font-mono"
+                      className="w-full bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-white px-4 py-2 rounded-lg font-mono border border-slate-200 dark:border-slate-600"
                     />
                   </div>
                 </div>
@@ -1246,28 +1726,28 @@ export default function Settings() {
             {/* Collapsible Content */}
             {expandedSections.aster && (
               <>
-                <p className="text-sm text-gray-400 mb-4">
+                <p className="text-sm text-slate-500 dark:text-gray-400 mb-4">
                   Aster is a decentralized perpetuals exchange. API keys are used for real-time funding rate monitoring and automated position management.
                 </p>
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-sm text-gray-400 mb-2">API Key</label>
+                    <label className="block text-sm text-slate-500 dark:text-gray-400 mb-2">API Key</label>
                     <input
                       type={showSecrets['aster-key'] ? 'text' : 'password'}
                       value={asterApiKey}
                       onChange={(e) => setAsterApiKey(e.target.value)}
                       placeholder="Enter your Aster API key"
-                      className="w-full bg-slate-700 text-white px-4 py-2 rounded-lg font-mono"
+                      className="w-full bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-white px-4 py-2 rounded-lg font-mono border border-slate-200 dark:border-slate-600"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm text-gray-400 mb-2">API Secret</label>
+                    <label className="block text-sm text-slate-500 dark:text-gray-400 mb-2">API Secret</label>
                     <input
                       type="password"
                       value={asterApiSecret}
                       onChange={(e) => setAsterApiSecret(e.target.value)}
                       placeholder="Enter your Aster API secret"
-                      className="w-full bg-slate-700 text-white px-4 py-2 rounded-lg font-mono"
+                      className="w-full bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-white px-4 py-2 rounded-lg font-mono border border-slate-200 dark:border-slate-600"
                     />
                   </div>
                   <div className="flex gap-2">
@@ -1348,30 +1828,31 @@ export default function Settings() {
             {/* Collapsible Content */}
             {expandedSections.hyperliquid && (
               <>
-                <p className="text-sm text-gray-400 mb-4">
-                  Hyperliquid is a performant Layer-1 DEX for perpetual swaps. Uses wallet-based authentication via private key signing.
+                <p className="text-sm text-slate-500 dark:text-gray-400 mb-4">
+                  Hyperliquid uses API wallets to trade on behalf of your main account. Create an API wallet on Hyperliquid's API page.
                 </p>
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-sm text-gray-400 mb-2">Wallet Address</label>
+                    <label className="block text-sm text-slate-500 dark:text-gray-400 mb-2">Main Account Address</label>
                     <input
                       type="text"
                       value={hyperliquidWalletAddress}
                       onChange={(e) => setHyperliquidWalletAddress(e.target.value)}
-                      placeholder="0x..."
-                      className="w-full bg-slate-700 text-white px-4 py-2 rounded-lg font-mono"
+                      placeholder="0x... (your main Hyperliquid wallet with funds)"
+                      className="w-full bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-white px-4 py-2 rounded-lg font-mono border border-slate-200 dark:border-slate-600"
                     />
+                    <p className="text-xs text-slate-400 mt-1">Your main wallet address where your USDC balance is held</p>
                   </div>
                   <div>
-                    <label className="block text-sm text-gray-400 mb-2">Private Key (Agent Wallet)</label>
+                    <label className="block text-sm text-slate-500 dark:text-gray-400 mb-2">API Wallet Private Key</label>
                     <input
-                      type="password"
+                      type={showSecrets['hyperliquid-key'] ? 'text' : 'password'}
                       value={hyperliquidPrivateKey}
                       onChange={(e) => setHyperliquidPrivateKey(e.target.value)}
-                      placeholder="Enter your Hyperliquid agent wallet private key"
-                      className="w-full bg-slate-700 text-white px-4 py-2 rounded-lg font-mono"
+                      placeholder="64 hex characters (the API wallet's private key)"
+                      className="w-full bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-white px-4 py-2 rounded-lg font-mono border border-slate-200 dark:border-slate-600"
                     />
-                    <p className="text-xs text-yellow-500 mt-2">⚠️ Use a dedicated agent wallet, not your main wallet</p>
+                    <p className="text-xs text-yellow-500 mt-2">⚠️ Use your API wallet's private key (not its address). Must be 64 hex characters.</p>
                   </div>
                   <div className="flex gap-2">
                     <button
@@ -1451,28 +1932,28 @@ export default function Settings() {
             {/* Collapsible Content */}
             {expandedSections.liquid && (
               <>
-                <p className="text-sm text-gray-400 mb-4">
+                <p className="text-sm text-slate-500 dark:text-gray-400 mb-4">
                   Liquid is a centralized crypto-fiat exchange with spot and margin trading. Uses JWT-based authentication.
                 </p>
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-sm text-gray-400 mb-2">API Token ID</label>
+                    <label className="block text-sm text-slate-500 dark:text-gray-400 mb-2">API Token ID</label>
                     <input
                       type={showSecrets['liquid-token'] ? 'text' : 'password'}
                       value={liquidApiToken}
                       onChange={(e) => setLiquidApiToken(e.target.value)}
                       placeholder="Enter your Liquid API token ID"
-                      className="w-full bg-slate-700 text-white px-4 py-2 rounded-lg font-mono"
+                      className="w-full bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-white px-4 py-2 rounded-lg font-mono border border-slate-200 dark:border-slate-600"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm text-gray-400 mb-2">API Secret</label>
+                    <label className="block text-sm text-slate-500 dark:text-gray-400 mb-2">API Secret</label>
                     <input
                       type="password"
                       value={liquidApiSecret}
                       onChange={(e) => setLiquidApiSecret(e.target.value)}
                       placeholder="Enter your Liquid API secret"
-                      className="w-full bg-slate-700 text-white px-4 py-2 rounded-lg font-mono"
+                      className="w-full bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-white px-4 py-2 rounded-lg font-mono border border-slate-200 dark:border-slate-600"
                     />
                   </div>
                   <div className="flex gap-2">
@@ -1500,6 +1981,184 @@ export default function Settings() {
             )}
           </div>
 
+          {/* Polymarket API */}
+          <div className="card">
+            {/* Collapsible Header */}
+            <button
+              onClick={() => toggleSection('polymarket')}
+              className="w-full flex items-center justify-between mb-4 hover:opacity-80 transition-opacity"
+            >
+              <div className="flex items-center gap-3">
+                <Zap className="h-6 w-6 text-purple-400" />
+                <h2 className="text-xl font-bold">Polymarket API</h2>
+                <div className="flex items-center gap-2">
+                  {isPolymarketActive() ? (
+                    <>
+                      <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                      <span className="text-sm text-green-500 font-semibold">Active</span>
+                    </>
+                  ) : (
+                    <>
+                      <div className="w-2 h-2 rounded-full bg-gray-500" />
+                      <span className="text-sm text-gray-500 font-semibold">Inactive</span>
+                    </>
+                  )}
+                </div>
+              </div>
+              {expandedSections.polymarket ? (
+                <ChevronDown className="h-5 w-5 text-gray-400" />
+              ) : (
+                <ChevronRight className="h-5 w-5 text-gray-400" />
+              )}
+            </button>
+
+            {/* Collapsible Content */}
+            {expandedSections.polymarket && (
+              <>
+                <p className="text-sm text-slate-500 dark:text-gray-400 mb-4">
+                  Polymarket is a crypto prediction market. You need a wallet private key to sign orders. Optionally, you can also provide API credentials for read-only operations.
+                </p>
+                <div className="space-y-4">
+                  {/* Private Key Section - Required for Trading */}
+                  <div className="p-4 bg-purple-500/10 border border-purple-500/30 rounded-lg">
+                    <h3 className="text-sm font-semibold text-purple-400 mb-3">Wallet Authentication (Required for Trading)</h3>
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-sm text-slate-500 dark:text-gray-400 mb-2">Private Key</label>
+                        <input
+                          type={showSecrets['polymarket-privkey'] ? 'text' : 'password'}
+                          value={polymarketPrivateKey}
+                          onChange={(e) => setPolymarketPrivateKey(e.target.value)}
+                          placeholder="0x... (your wallet's private key)"
+                          className="w-full bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-white px-4 py-2 rounded-lg font-mono border border-slate-200 dark:border-slate-600"
+                        />
+                        <p className="text-xs text-gray-500 mt-1">⚠️ Never share this. Used locally to sign orders (EIP-712).</p>
+                      </div>
+                      <div>
+                        <label className="block text-sm text-slate-500 dark:text-gray-400 mb-2">Funder/Proxy Address (Optional)</label>
+                        <input
+                          type="text"
+                          value={polymarketFunderAddress}
+                          onChange={(e) => setPolymarketFunderAddress(e.target.value)}
+                          placeholder="0x... (leave blank to use wallet address)"
+                          className="w-full bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-white px-4 py-2 rounded-lg font-mono border border-slate-200 dark:border-slate-600"
+                        />
+                        <p className="text-xs text-gray-500 mt-1">Your proxy wallet shown on Polymarket.com (if different from signing wallet)</p>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => toggleSecretVisibility('polymarket-privkey')}
+                          className="btn btn-secondary btn-sm"
+                        >
+                          {showSecrets['polymarket-privkey'] ? 'Hide' : 'Show'} Key
+                        </button>
+                        <button
+                          onClick={derivePolymarketApiKey}
+                          disabled={derivingApiKey || !polymarketPrivateKey}
+                          className="btn btn-secondary btn-sm flex items-center gap-2"
+                        >
+                          {derivingApiKey ? (
+                            <RefreshCw className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <Zap className="h-3 w-3" />
+                          )}
+                          Derive API Credentials
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* API Credentials Section - Optional */}
+                  <div className="p-4 bg-slate-500/10 border border-slate-500/30 rounded-lg">
+                    <h3 className="text-sm font-semibold text-slate-400 mb-3">API Credentials (Optional - Auto-derived from wallet)</h3>
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-sm text-slate-500 dark:text-gray-400 mb-2">API Key</label>
+                        <input
+                          type={showSecrets['polymarket-key'] ? 'text' : 'password'}
+                          value={polymarketApiKey}
+                          onChange={(e) => setPolymarketApiKey(e.target.value)}
+                          placeholder="Enter your Polymarket API key"
+                          className="w-full bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-white px-4 py-2 rounded-lg font-mono border border-slate-200 dark:border-slate-600"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm text-slate-500 dark:text-gray-400 mb-2">API Secret</label>
+                        <input
+                          type="password"
+                          value={polymarketApiSecret}
+                          onChange={(e) => setPolymarketApiSecret(e.target.value)}
+                          placeholder="Enter your Polymarket API secret"
+                          className="w-full bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-white px-4 py-2 rounded-lg font-mono border border-slate-200 dark:border-slate-600"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm text-slate-500 dark:text-gray-400 mb-2">Passphrase</label>
+                        <input
+                          type="password"
+                          value={polymarketPassphrase}
+                          onChange={(e) => setPolymarketPassphrase(e.target.value)}
+                          placeholder="Enter your Polymarket passphrase"
+                          className="w-full bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-white px-4 py-2 rounded-lg font-mono border border-slate-200 dark:border-slate-600"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm text-slate-500 dark:text-gray-400 mb-2">Wallet Address (Polygon)</label>
+                        <input
+                          type="text"
+                          value={polymarketAddress}
+                          onChange={(e) => setPolymarketAddress(e.target.value)}
+                          placeholder="0x... (your Polymarket wallet address)"
+                          className="w-full bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-white px-4 py-2 rounded-lg font-mono border border-slate-200 dark:border-slate-600"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => toggleSecretVisibility('polymarket-key')}
+                      className="btn btn-secondary btn-sm"
+                    >
+                      {showSecrets['polymarket-key'] ? 'Hide' : 'Show'} API Key
+                    </button>
+                    <button
+                      onClick={testPolymarketConnection}
+                      disabled={testing.polymarket || (!polymarketApiKey && !polymarketPrivateKey)}
+                      className="btn btn-secondary btn-sm flex items-center gap-2"
+                    >
+                      {testing.polymarket ? (
+                        <RefreshCw className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Zap className="h-3 w-3" />
+                      )}
+                      Test Connection
+                    </button>
+                    <button
+                      onClick={savePolymarketConfig}
+                      disabled={saving || (!polymarketPrivateKey && !polymarketApiKey)}
+                      className="btn btn-primary btn-sm flex items-center gap-2"
+                    >
+                      {saving ? (
+                        <RefreshCw className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Save className="h-3 w-3" />
+                      )}
+                      Save Polymarket Config
+                    </button>
+                  </div>
+                  {testResults.polymarket && (
+                    <div className={`mt-2 p-3 rounded-lg ${testResults.polymarket.success ? 'bg-green-500/10 border border-green-500/30' : 'bg-red-500/10 border border-red-500/30'}`}>
+                      <p className={`text-sm ${testResults.polymarket.success ? 'text-green-400' : 'text-red-400'}`}>
+                        {testResults.polymarket.message}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+
           {/* Save All Button */}
           <button
             onClick={saveOtherApiKeys}
@@ -1520,7 +2179,7 @@ export default function Settings() {
               <Shield className="h-6 w-6 text-yellow-500 mt-1" />
               <div>
                 <p className="font-bold text-yellow-500 mb-2">Security Best Practices</p>
-                <ul className="text-sm text-gray-300 space-y-2">
+                <ul className="text-sm text-slate-600 dark:text-gray-300 space-y-2">
                   <li>
                     • <strong>API keys are stored locally</strong> in your browser's
                     localStorage

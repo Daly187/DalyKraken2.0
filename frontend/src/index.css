@@ -13,11 +13,11 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Light mode (default) */
+/* Light mode (default) - DalyTomorrow inspired */
 :root:not(.dark) {
   color-scheme: light;
-  color: #1a202c;
-  background-color: #f5f7fa;
+  color: #1e293b;
+  background-color: #f8fafc;
 }
 
 /* Dark mode */
@@ -63,7 +63,7 @@ body {
   }
 
   .card {
-    @apply bg-white dark:bg-slate-800 rounded-lg shadow-lg p-6 border border-gray-200 dark:border-slate-700 transition-colors duration-200;
+    @apply bg-white dark:bg-slate-800 rounded-xl shadow-sm hover:shadow-md p-6 border border-gray-100 dark:border-slate-700 transition-all duration-200;
   }
 
   .input {
@@ -97,18 +97,18 @@ body {
   height: 8px;
 }
 
-/* Light mode scrollbar */
+/* Light mode scrollbar - subtle and clean */
 :root:not(.dark) ::-webkit-scrollbar-track {
-  background: #e5e7eb;
+  background: #f1f5f9;
 }
 
 :root:not(.dark) ::-webkit-scrollbar-thumb {
-  background: #9ca3af;
+  background: #cbd5e1;
   border-radius: 4px;
 }
 
 :root:not(.dark) ::-webkit-scrollbar-thumb:hover {
-  background: #6b7280;
+  background: #94a3b8;
 }
 
 /* Dark mode scrollbar */
