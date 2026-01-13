@@ -448,6 +448,14 @@ class ApiService {
     return this.get(`/market/quantify-crypto/enhanced-trends?limit=${limit}`);
   }
 
+  /**
+   * Batch update trend scores for all user's DCA bots
+   * Persists trendScore, techScore, marketTrendScore to Firestore
+   */
+  async batchUpdateBotTrendScores(trends: Array<{ symbol: string; trend_score: number; technical_score: number }>) {
+    return this.post('/dca-bots/batch-update-trends', { trends });
+  }
+
   async getKrakenKeys() {
     return this.get('/settings/kraken-keys');
   }

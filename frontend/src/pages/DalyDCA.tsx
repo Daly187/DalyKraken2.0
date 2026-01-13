@@ -1,8 +1,15 @@
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { useStore } from '@/store/useStore';
 import config from '@/config/env';
 import { krakenApiService } from '@/services/krakenApiService';
 import { apiService } from '@/services/apiService';
+import {
+  buildTrendLookupMap,
+  getMarketTrendForSymbol,
+  debugLogLookupMap,
+  type EnhancedTrendData,
+  type MarketTrendDisplay,
+} from '@/utils/trendLookup';
 import {
   Play,
   Pause,
@@ -93,7 +100,8 @@ export default function DalyDCA() {
   const [expandedBotId, setExpandedBotId] = useState<string | null>(null);
   const [editingBotId, setEditingBotId] = useState<string | null>(null);
   const [editFormData, setEditFormData] = useState<any>({});
-  const [sortBy, setSortBy] = useState<'name' | 'invested' | 'pnl' | 'trend'>('name');
+  // DalyDCA table layout aligned to Crypto Market - sortable columns
+  const [sortBy, setSortBy] = useState<'symbol' | 'invested' | 'avgPrice' | 'spotPrice' | 'trend' | 'status' | 'pnl' | null>('symbol');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -102,6 +110,8 @@ export default function DalyDCA() {
   const [isSymbolDropdownOpen, setIsSymbolDropdownOpen] = useState(false);
 const [trendData, setTrendData] = useState<Map<string, any>>(new Map());
   const [trendDataTimestamp, setTrendDataTimestamp] = useState<number | null>(null);
+  // Store raw enhanced trends for shared lookup utility
+  const [enhancedTrends, setEnhancedTrends] = useState<EnhancedTrendData[]>([]);
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
 
   // Section collapse states - all sections start collapsed for cleaner initial view
@@ -366,6 +376,8 @@ const [trendData, setTrendData] = useState<Map<string, any>>(new Map());
       const timestamp = Date.now();
       setTrendData(trendMap);
       setTrendDataTimestamp(timestamp);
+      // Store raw enhanced trends for shared lookup utility (DalyDCA table layout aligned to Crypto Market)
+      setEnhancedTrends(trends as EnhancedTrendData[]);
       console.log('[DalyDCA] Loaded trend data for', trendMap.size, 'key mappings from', trends.length, 'trends');
       if (trends.length > 0) {
         console.log('[DalyDCA] Sample trend data:', trends[0]);
@@ -382,6 +394,25 @@ const [trendData, setTrendData] = useState<Map<string, any>>(new Map());
         };
         localStorage.setItem('dca_trend_cache', JSON.stringify(cacheData));
         console.log('[DalyDCA] Cached trend data to localStorage');
+      }
+
+      // Batch update bot documents in Firestore with trend scores
+      // This persists trendScore, techScore, marketTrendScore so the table can render from Firestore
+      if (trends.length > 0) {
+        try {
+          console.log('[DalyDCA] Batch updating bot trend scores in Firestore...');
+          const updateResult = await apiService.batchUpdateBotTrendScores(trends);
+          console.log('[DalyDCA] Batch trend update result:', updateResult);
+
+          // Refresh bots to get updated trend scores from Firestore
+          if (updateResult?.success && updateResult?.updated > 0) {
+            console.log(`[DalyDCA] Refreshing bots after trend update (${updateResult.updated} updated)`);
+            await fetchDCABots();
+          }
+        } catch (batchError: any) {
+          console.warn('[DalyDCA] Failed to batch update trend scores:', batchError.message);
+          // Non-fatal - UI will still work with client-side lookup
+        }
       }
     } catch (error: any) {
       console.error('[DalyDCA] ❌ ERROR fetching trend data:', error);
@@ -1155,6 +1186,58 @@ const [trendData, setTrendData] = useState<Map<string, any>>(new Map());
     }
   };
 
+  // DalyDCA table layout aligned to Crypto Market - Market Trend score display
+  // Score = (trendScore + techScore) / 2
+  // > 65 → BULL (green), < 35 → BEAR (red), 35-65 → NEUTRAL (gray)
+  const getMarketTrendScoreDisplay = (botWithTrend: any) => {
+    const techScore = botWithTrend.techScore;
+    const trendScore = botWithTrend.trendScore;
+
+    // Check if scores are valid numbers
+    const techNum = typeof techScore === 'number' && !isNaN(techScore) ? techScore : null;
+    const trendNum = typeof trendScore === 'number' && !isNaN(trendScore) ? trendScore : null;
+
+    // If either score is missing or invalid, show MISSING
+    if (techNum === null || trendNum === null || !botWithTrend.hasTrendData) {
+      return {
+        score: null,
+        label: 'MISSING',
+        color: 'text-yellow-400',
+        bgColor: 'bg-yellow-500/20',
+        icon: AlertTriangle,
+      };
+    }
+
+    // Calculate average score
+    const avgScore = Math.round((techNum + trendNum) / 2);
+
+    if (avgScore > 65) {
+      return {
+        score: avgScore,
+        label: 'BULL',
+        color: 'text-green-500',
+        bgColor: 'bg-green-500/10',
+        icon: TrendingUp,
+      };
+    } else if (avgScore < 35) {
+      return {
+        score: avgScore,
+        label: 'BEAR',
+        color: 'text-red-500',
+        bgColor: 'bg-red-500/10',
+        icon: TrendingDown,
+      };
+    } else {
+      return {
+        score: avgScore,
+        label: 'NEUTRAL',
+        color: 'text-gray-400',
+        bgColor: 'bg-gray-500/10',
+        icon: Activity,
+      };
+    }
+  };
+
   // Enrich all bots with Portfolio data first
   const enrichedBots = dcaBots.map(bot => getEnrichedBotData(bot));
 
@@ -1179,35 +1262,104 @@ const [trendData, setTrendData] = useState<Map<string, any>>(new Map());
     return searchMatch && statusMatch;
   });
 
-  // Sort filtered bots based on selected criteria
-  const sortedBots = [...filteredBots].sort((a, b) => {
-    let compareValue = 0;
+  // DalyDCA table layout aligned to Crypto Market - Build shared trend lookup map
+  const trendLookupMap = useMemo(() => {
+    const map = buildTrendLookupMap(enhancedTrends);
+    debugLogLookupMap(map);
+    return map;
+  }, [enhancedTrends]);
 
-    if (sortBy === 'name') {
-      compareValue = a.symbol.localeCompare(b.symbol);
-    } else if (sortBy === 'invested') {
-      compareValue = (a.totalInvested || 0) - (b.totalInvested || 0);
-    } else if (sortBy === 'pnl') {
-      compareValue = (a.unrealizedPnL || 0) - (b.unrealizedPnL || 0);
-    } else if (sortBy === 'trend') {
-      // Merge with trend data for sorting
-      const aWithTrend = getBotWithTrend(a);
-      const bWithTrend = getBotWithTrend(b);
-      compareValue = (aWithTrend.trendScore || 50) - (bWithTrend.trendScore || 50);
-    }
+  // DalyDCA table layout aligned to Crypto Market - Get trend score for a bot using shared lookup
+  const getTrendScoreForBot = (bot: any): number | null => {
+    const result = getMarketTrendForSymbol(bot.symbol, trendLookupMap, bot.id);
+    return result.score;
+  };
 
-    return sortDirection === 'asc' ? compareValue : -compareValue;
-  });
+  // DalyDCA table layout aligned to Crypto Market - Sort with proper numeric handling
+  // Nulls sort last in both directions, MISSING trend scores sort last
+  const sortedBots = useMemo(() => {
+    if (!sortBy) return filteredBots;
 
-  const handleSortChange = (newSortBy: 'name' | 'invested' | 'pnl' | 'trend') => {
-    if (sortBy === newSortBy) {
-      // Toggle direction if same sort criteria
+    return [...filteredBots].sort((a, b) => {
+      let aVal: number | string | null = null;
+      let bVal: number | string | null = null;
+
+      switch (sortBy) {
+        case 'symbol':
+          // String sort for symbol/pair
+          return sortDirection === 'asc'
+            ? a.symbol.localeCompare(b.symbol)
+            : b.symbol.localeCompare(a.symbol);
+
+        case 'invested':
+          aVal = a.totalInvested ?? null;
+          bVal = b.totalInvested ?? null;
+          break;
+
+        case 'avgPrice':
+          aVal = a.averagePurchasePrice ?? null;
+          bVal = b.averagePurchasePrice ?? null;
+          break;
+
+        case 'spotPrice':
+          aVal = a.currentPrice ?? null;
+          bVal = b.currentPrice ?? null;
+          break;
+
+        case 'trend':
+          // Priority: Firestore marketTrendScore, then client lookup fallback
+          // MISSING (null) sorts last in both directions
+          aVal = typeof a.marketTrendScore === 'number' ? a.marketTrendScore : getTrendScoreForBot(a);
+          bVal = typeof b.marketTrendScore === 'number' ? b.marketTrendScore : getTrendScoreForBot(b);
+          break;
+
+        case 'status':
+          // Sort by status string
+          const statusOrder: Record<string, number> = {
+            'active': 1,
+            'exiting': 2,
+            'paused': 3,
+            'exit_failed': 4,
+            'completed': 5,
+          };
+          aVal = statusOrder[a.status] ?? 99;
+          bVal = statusOrder[b.status] ?? 99;
+          break;
+
+        case 'pnl':
+          aVal = a.unrealizedPnL ?? null;
+          bVal = b.unrealizedPnL ?? null;
+          break;
+
+        default:
+          return 0;
+      }
+
+      // Numeric comparison with null handling (nulls sort last in both directions)
+      if (aVal === null && bVal === null) return 0;
+      if (aVal === null) return 1; // a sorts last
+      if (bVal === null) return -1; // b sorts last
+
+      const diff = (aVal as number) - (bVal as number);
+      return sortDirection === 'asc' ? diff : -diff;
+    });
+  }, [filteredBots, sortBy, sortDirection, trendLookupMap]);
+
+  // DalyDCA table layout aligned to Crypto Market - Column header click handler
+  const handleColumnSort = (column: typeof sortBy) => {
+    if (sortBy === column) {
+      // Toggle direction if same column
       setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
     } else {
-      // New sort criteria - default to ascending
-      setSortBy(newSortBy);
-      setSortDirection('asc');
+      // New column - default to descending for numeric, ascending for symbol
+      setSortBy(column);
+      setSortDirection(column === 'symbol' ? 'asc' : 'desc');
     }
+  };
+
+  // Legacy handler for sort buttons (kept for backwards compatibility)
+  const handleSortChange = (newSortBy: 'symbol' | 'invested' | 'pnl' | 'trend') => {
+    handleColumnSort(newSortBy);
   };
 
   return (
@@ -1756,14 +1908,14 @@ const [trendData, setTrendData] = useState<Map<string, any>>(new Map());
           <div className="flex items-center gap-2 mb-4 pb-4 border-b border-slate-700">
             <span className="text-sm text-gray-400">Sort by:</span>
             <button
-              onClick={() => handleSortChange('name')}
+              onClick={() => handleSortChange('symbol')}
               className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                sortBy === 'name'
+                sortBy === 'symbol'
                   ? 'bg-primary-500/20 text-primary-300'
                   : 'bg-slate-700/50 text-gray-400 hover:bg-slate-700'
               }`}
             >
-              Name {sortBy === 'name' && (sortDirection === 'asc' ? '↑' : '↓')}
+              Name {sortBy === 'symbol' && (sortDirection === 'asc' ? '↑' : '↓')}
             </button>
             <button
               onClick={() => handleSortChange('invested')}
@@ -1845,222 +1997,327 @@ const [trendData, setTrendData] = useState<Map<string, any>>(new Map());
           </div>
         )}
 
+        {/* DalyDCA table layout aligned to Crypto Market */}
         {dcaBots.length > 0 && sortedBots.length > 0 ? (
-          <div className="space-y-3">
-            {sortedBots.map((bot) => {
-              // Merge with trend data to show latest market trends
-              const botWithTrend = getBotWithTrend(bot);
-              const isExpanded = expandedBotId === bot.id;
-              const isEditing = editingBotId === bot.id;
-              const nextAction = getNextActionMessage(bot);
-
-              return (
-                <div
-                  key={bot.id}
-                  className={`border rounded-xl transition-all duration-200 ${
-                    isExpanded
-                      ? 'border-primary-500/50 bg-gradient-to-br from-primary-500/5 to-purple-500/5'
-                      : 'border-slate-700 bg-slate-800/30 hover:border-slate-600'
-                  }`}
-                >
-                  {/* Bot Header - Always Visible */}
-                  <div
-                    className="p-4 cursor-pointer"
-                    onClick={() => toggleBotExpanded(bot.id)}
+          <div className="overflow-x-auto max-h-[70vh] overflow-y-auto">
+            <table className="w-full">
+              {/* Sticky header row - matching Crypto Market page - DalyDCA table layout aligned to Crypto Market */}
+              <thead className="sticky top-0 z-10 bg-slate-800">
+                <tr className="text-left text-gray-400 text-sm border-b border-slate-700">
+                  <th
+                    className="pb-3 px-3 font-medium cursor-pointer hover:text-white transition-colors"
+                    onClick={() => handleColumnSort('symbol')}
                   >
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center gap-3 flex-wrap">
-                        <h3 className="text-lg font-bold text-white">{bot.symbol}</h3>
-                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${getStatusColor(getDisplayStatus(bot).status)}`}>
-                          {getDisplayStatus(bot).displayText}
-                        </span>
-                        <span className="text-xs text-gray-400">
-                          {bot.currentEntryCount || 0}/{bot.reEntryCount} entries
-                        </span>
-                        {bot.createdAt && (
-                          <span className="text-xs text-gray-500 flex items-center gap-1">
-                            <Clock className="h-3 w-3" />
-                            {formatTimestamp(bot.createdAt)}
-                          </span>
-                        )}
-                      </div>
+                    Bot / Pair {sortBy === 'symbol' && (sortDirection === 'asc' ? '↑' : '↓')}
+                  </th>
+                  <th
+                    className="pb-3 px-3 font-medium cursor-pointer hover:text-white transition-colors"
+                    onClick={() => handleColumnSort('invested')}
+                  >
+                    Invested {sortBy === 'invested' && (sortDirection === 'asc' ? '↑' : '↓')}
+                  </th>
+                  <th
+                    className="pb-3 px-3 font-medium cursor-pointer hover:text-white transition-colors"
+                    onClick={() => handleColumnSort('avgPrice')}
+                  >
+                    Avg Price {sortBy === 'avgPrice' && (sortDirection === 'asc' ? '↑' : '↓')}
+                  </th>
+                  <th
+                    className="pb-3 px-3 font-medium cursor-pointer hover:text-white transition-colors"
+                    onClick={() => handleColumnSort('spotPrice')}
+                  >
+                    Spot Price {sortBy === 'spotPrice' && (sortDirection === 'asc' ? '↑' : '↓')}
+                  </th>
+                  <th className="pb-3 px-3 font-medium">
+                    Next Entry
+                  </th>
+                  <th
+                    className="pb-3 px-3 font-medium cursor-pointer hover:text-white transition-colors"
+                    onClick={() => handleColumnSort('trend')}
+                  >
+                    Market Trend {sortBy === 'trend' && (sortDirection === 'asc' ? '↑' : '↓')}
+                  </th>
+                  <th className="pb-3 px-3 font-medium text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sortedBots.map((bot) => {
+                  // Merge with trend data to show latest market trends
+                  const botWithTrend = getBotWithTrend(bot);
+                  const isExpanded = expandedBotId === bot.id;
+                  const isEditing = editingBotId === bot.id;
+                  const nextAction = getNextActionMessage(bot);
 
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handlePauseResume(bot);
-                          }}
-                          className="btn btn-sm btn-secondary"
-                          title={bot.status === 'active' || bot.status === 'exiting' ? 'Pause bot' : 'Resume bot'}
-                        >
-                          {bot.status === 'active' || bot.status === 'exiting' ? (
-                            <Pause className="h-3 w-3" />
-                          ) : (
-                            <Play className="h-3 w-3" />
-                          )}
-                        </button>
-                        {isExpanded ? (
-                          <ChevronUp className="h-5 w-5 text-gray-400" />
-                        ) : (
-                          <ChevronDown className="h-5 w-5 text-gray-400" />
-                        )}
-                      </div>
-                    </div>
+                  // DalyDCA table - Market Trend display
+                  // Priority: 1) Firestore marketTrendScore, 2) Client-side lookup fallback
+                  // This ensures consistent values that match what's stored in the database
+                  const firestoreScore = typeof bot.marketTrendScore === 'number' ? bot.marketTrendScore : null;
+                  const clientLookup = getMarketTrendForSymbol(bot.symbol, trendLookupMap, bot.id);
 
-                    {!isExpanded && (
-                      <div className="grid grid-cols-2 md:grid-cols-7 gap-3 text-sm">
-                        <div>
-                          <p className="text-xs text-gray-500">Invested</p>
-                          <p className="font-semibold text-white">{formatCurrency(bot.totalInvested || 0)}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-gray-500">Holdings</p>
-                          <p className="font-semibold text-purple-400">
-                            {bot.totalQuantity ? bot.totalQuantity.toFixed(6) : '0.000000'}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-gray-500">Avg Price</p>
-                          <p className="font-semibold text-white">{formatCurrency(bot.averagePurchasePrice || 0)}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-gray-500">Spot Price</p>
-                          <p className="font-semibold text-white">{formatCurrency(bot.currentPrice || 0)}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-gray-500">Next Entry</p>
-                          <p className="font-semibold text-blue-400">
-                            {bot.nextEntryPrice ? formatCurrency(bot.nextEntryPrice) : 'N/A'}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-gray-500">Market Trend</p>
-                          {(() => {
-                            const trend = getTrendDisplay(botWithTrend.recommendation, botWithTrend.hasTrendData);
-                            const TrendIcon = trend.icon;
-                            // Show stored market_trend timestamp if available, otherwise use cache timestamp
-                            const trendTimestamp = botWithTrend.marketTrendUpdated
-                              ? new Date(botWithTrend.marketTrendUpdated).getTime()
-                              : trendDataTimestamp;
-                            return (
-                              <div>
-                                <div className={`flex items-center gap-1 px-2 py-1 rounded ${trend.bgColor} border ${trend.borderColor}`}>
-                                  <TrendIcon className={`h-3 w-3 ${trend.color}`} />
-                                  <span className={`text-xs font-bold ${trend.color}`}>
-                                    {trend.label}
-                                  </span>
-                                </div>
-                                <p className="text-[10px] text-gray-500 mt-1">
-                                  {formatTrendTimestamp(trendTimestamp)}
-                                </p>
-                              </div>
-                            );
-                          })()}
-                        </div>
-                        <div>
-                          <p className="text-xs text-gray-500">P&L</p>
-                          <p className={`font-semibold ${bot.unrealizedPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                            {formatCurrency(bot.unrealizedPnL || 0)}
-                          </p>
-                        </div>
-                      </div>
-                    )}
+                  // Use Firestore score if available, otherwise fall back to client lookup
+                  const displayScore = firestoreScore !== null ? firestoreScore : clientLookup.score;
+                  const hasValidScore = displayScore !== null;
 
-                    <p className={`text-xs mt-2 ${nextAction.color}`}>
-                      {nextAction.message}
-                    </p>
+                  // Determine label based on score thresholds (same as backend)
+                  let trendLabel: 'BULL' | 'BEAR' | 'NEUTRAL' | 'MISSING' = 'MISSING';
+                  let trendColor = 'text-yellow-400';
+                  let trendBgColor = 'bg-yellow-500/20';
 
-                    {/* Exit Status Indicators */}
-                    {/* Auto-Retry in Progress (exiting with failure reason) */}
-                    {bot.status === 'exiting' && bot.exitFailureReason && (
-                      <div className="mt-3 p-3 bg-yellow-900/20 border border-yellow-500/30 rounded">
-                        <div className="flex items-start gap-2">
-                          <RefreshCw className="h-5 w-5 text-yellow-400 flex-shrink-0 mt-0.5 animate-spin" />
-                          <div className="flex-1">
-                            <h4 className="text-sm font-semibold text-yellow-400 mb-1">Auto-Retrying Exit Order</h4>
-                            <p className="text-xs text-yellow-300 mb-2">{bot.exitFailureReason}</p>
-                            <div className="flex items-center gap-4 text-xs text-gray-400">
-                              {bot.exitFailureTime && (
-                                <span className="flex items-center gap-1">
-                                  <Clock className="h-3 w-3" />
-                                  Last attempt: {new Date(bot.exitFailureTime).toLocaleString()}
-                                </span>
-                              )}
-                              {bot.exitAttempts && (
-                                <span>Retry #{bot.exitAttempts}</span>
-                              )}
-                            </div>
-                            <p className="text-xs text-yellow-400 mt-2">
-                              System will automatically retry until success. No action needed.
-                            </p>
+                  if (hasValidScore) {
+                    if (displayScore > 65) {
+                      trendLabel = 'BULL';
+                      trendColor = 'text-green-500';
+                      trendBgColor = 'bg-green-500/10';
+                    } else if (displayScore < 35) {
+                      trendLabel = 'BEAR';
+                      trendColor = 'text-red-500';
+                      trendBgColor = 'bg-red-500/10';
+                    } else {
+                      trendLabel = 'NEUTRAL';
+                      trendColor = 'text-gray-400';
+                      trendBgColor = 'bg-gray-500/10';
+                    }
+                  }
+
+                  const TrendIcon = trendLabel === 'BULL' ? TrendingUp
+                    : trendLabel === 'BEAR' ? TrendingDown
+                    : trendLabel === 'MISSING' ? AlertTriangle
+                    : Activity;
+
+                  return (
+                    <React.Fragment key={bot.id}>
+                      {/* Main table row */}
+                      <tr
+                        className={`border-t border-slate-700 transition-colors cursor-pointer ${
+                          isExpanded
+                            ? 'bg-primary-500/5'
+                            : 'hover:bg-slate-700/30'
+                        }`}
+                        onClick={() => toggleBotExpanded(bot.id)}
+                      >
+                        {/* Bot / Pair column */}
+                        <td className="py-3 px-3">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-white">{bot.symbol}</span>
+                            <span className={`px-2 py-0.5 rounded text-xs font-medium ${getStatusColor(getDisplayStatus(bot).status)}`}>
+                              {getDisplayStatus(bot).displayText}
+                            </span>
                           </div>
-                        </div>
-                      </div>
-                    )}
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="text-xs text-gray-500">
+                              {bot.currentEntryCount || 0}/{bot.reEntryCount} entries
+                            </span>
+                            {bot.createdAt && (
+                              <span className="text-xs text-gray-500">
+                                {formatTimestamp(bot.createdAt)}
+                              </span>
+                            )}
+                          </div>
+                        </td>
 
-                    {/* Permanent Failure - Requires Manual Retry */}
-                    {bot.status === 'exit_failed' && bot.exitFailureReason && (
-                      <div className="mt-3 p-3 bg-red-900/20 border border-red-500/30 rounded">
-                        <div className="flex items-start gap-2">
-                          <AlertTriangle className="h-5 w-5 text-red-400 flex-shrink-0 mt-0.5" />
-                          <div className="flex-1">
-                            <h4 className="text-sm font-semibold text-red-400 mb-1">Exit Order Failed (Manual Retry Required)</h4>
-                            <p className="text-xs text-red-300 mb-2">{bot.exitFailureReason}</p>
-                            <div className="flex items-center gap-4 text-xs text-gray-400 mb-3">
-                              {bot.exitFailureTime && (
-                                <span className="flex items-center gap-1">
-                                  <Clock className="h-3 w-3" />
-                                  {new Date(bot.exitFailureTime).toLocaleString()}
-                                </span>
-                              )}
-                              {bot.exitAttempts && (
-                                <span>Failed attempts: {bot.exitAttempts}</span>
-                              )}
-                            </div>
-                            <p className="text-xs text-gray-400 mb-3">
-                              This error cannot be auto-retried. Please fix the issue and click retry.
-                            </p>
+                        {/* Invested column */}
+                        <td className="py-3 px-3 font-mono">
+                          <span className="font-medium text-white">{formatCurrency(bot.totalInvested || 0)}</span>
+                          <p className={`text-xs ${(bot.unrealizedPnL || 0) >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                            P&L: {formatCurrency(bot.unrealizedPnL || 0)}
+                          </p>
+                        </td>
+
+                        {/* Avg Price column */}
+                        <td className="py-3 px-3 font-mono text-gray-300">
+                          {bot.averagePurchasePrice ? formatCurrency(bot.averagePurchasePrice) : '—'}
+                        </td>
+
+                        {/* Spot Price column */}
+                        <td className="py-3 px-3 font-mono text-gray-300">
+                          {bot.currentPrice ? formatCurrency(bot.currentPrice) : '—'}
+                        </td>
+
+                        {/* Next Entry column */}
+                        <td className="py-3 px-3 font-mono text-blue-400">
+                          {bot.nextEntryPrice ? formatCurrency(bot.nextEntryPrice) : '—'}
+                        </td>
+
+                        {/* Market Trend column - reads from Firestore marketTrendScore with client fallback */}
+                        <td className="py-3 px-3">
+                          <div className={`inline-flex items-center gap-1.5 px-2 py-1 rounded ${trendBgColor}`}>
+                            <TrendIcon className={`h-4 w-4 ${trendColor}`} />
+                            <span className={`text-sm font-bold ${trendColor}`}>
+                              {hasValidScore ? displayScore : trendLabel}
+                            </span>
+                            {hasValidScore && (
+                              <span className={`text-xs ${trendColor}`}>
+                                {trendLabel}
+                              </span>
+                            )}
+                          </div>
+                        </td>
+
+                        {/* Actions column */}
+                        <td className="py-3 px-3">
+                          <div className="flex items-center justify-end gap-1">
+                            {/* Edit button */}
                             <button
-                              onClick={async (e) => {
+                              onClick={(e) => {
                                 e.stopPropagation();
-                                try {
-                                  const response = await fetch(`${config.api.mainUrl}/dca-bots/${bot.id}/retry-exit`, {
-                                    method: 'POST',
-                                    headers: {
-                                      'Content-Type': 'application/json',
-                                      'Authorization': `Bearer ${localStorage.getItem('token')}`,
-                                      'x-kraken-api-key': localStorage.getItem('krakenApiKey') || '',
-                                      'x-kraken-api-secret': localStorage.getItem('krakenApiSecret') || '',
-                                    },
-                                  });
-
-                                  if (response.ok) {
-                                    fetchDCABots();
-                                    alert('Exit retry initiated successfully');
-                                  } else {
-                                    const error = await response.json();
-                                    alert(`Retry failed: ${error.error}`);
-                                  }
-                                } catch (error: any) {
-                                  alert(`Error: ${error.message}`);
-                                }
+                                handleEditBot(bot);
+                                setExpandedBotId(bot.id);
                               }}
-                              className="btn btn-sm bg-red-600 hover:bg-red-700 text-white flex items-center gap-1"
+                              className="p-1.5 rounded hover:bg-slate-600 text-gray-400 hover:text-white transition-colors"
+                              title="Edit bot"
                             >
-                              <RefreshCw className="h-3 w-3" />
-                              Retry Exit
+                              <Edit className="h-4 w-4" />
                             </button>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
 
-                  {/* Expanded Details */}
-                  {isExpanded && (
-                    <div className="border-t border-slate-700 p-4 space-y-4">
-                      {/* Performance Section */}
+                            {/* Pause/Resume button */}
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handlePauseResume(bot);
+                              }}
+                              className="p-1.5 rounded hover:bg-slate-600 text-gray-400 hover:text-white transition-colors"
+                              title={bot.status === 'active' || bot.status === 'exiting' ? 'Pause bot' : 'Resume bot'}
+                            >
+                              {bot.status === 'active' || bot.status === 'exiting' ? (
+                                <Pause className="h-4 w-4" />
+                              ) : (
+                                <Play className="h-4 w-4" />
+                              )}
+                            </button>
+
+                            {/* Exit button (only if has entries) */}
+                            {bot.currentEntryCount > 0 && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleManualExit(bot.id, bot.symbol);
+                                }}
+                                disabled={executing}
+                                className="p-1.5 rounded hover:bg-orange-600/20 text-orange-400 hover:text-orange-300 transition-colors"
+                                title="Exit position"
+                              >
+                                <LogOut className="h-4 w-4" />
+                              </button>
+                            )}
+
+                            {/* Delete button */}
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDelete(bot.id);
+                              }}
+                              className="p-1.5 rounded hover:bg-red-600/20 text-red-400 hover:text-red-300 transition-colors"
+                              title="Delete bot"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+
+                            {/* Expand/Collapse indicator */}
+                            {isExpanded ? (
+                              <ChevronUp className="h-4 w-4 text-gray-400 ml-1" />
+                            ) : (
+                              <ChevronDown className="h-4 w-4 text-gray-400 ml-1" />
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+
+                      {/* Expanded details row */}
+                      {isExpanded && (
+                        <tr>
+                          <td colSpan={7} className="p-0">
+                            <div className="border-t border-primary-500/30 bg-gradient-to-br from-primary-500/5 to-purple-500/5 p-4">
+                              {/* Status message */}
+                              <p className={`text-xs mb-4 ${nextAction.color}`}>
+                                {nextAction.message}
+                              </p>
+
+                              {/* Exit Status Indicators */}
+                              {/* Auto-Retry in Progress (exiting with failure reason) */}
+                              {bot.status === 'exiting' && bot.exitFailureReason && (
+                                <div className="mb-4 p-3 bg-yellow-900/20 border border-yellow-500/30 rounded">
+                                  <div className="flex items-start gap-2">
+                                    <RefreshCw className="h-5 w-5 text-yellow-400 flex-shrink-0 mt-0.5 animate-spin" />
+                                    <div className="flex-1">
+                                      <h4 className="text-sm font-semibold text-yellow-400 mb-1">Auto-Retrying Exit Order</h4>
+                                      <p className="text-xs text-yellow-300 mb-2">{bot.exitFailureReason}</p>
+                                      <div className="flex items-center gap-4 text-xs text-gray-400">
+                                        {bot.exitFailureTime && (
+                                          <span className="flex items-center gap-1">
+                                            <Clock className="h-3 w-3" />
+                                            Last attempt: {new Date(bot.exitFailureTime).toLocaleString()}
+                                          </span>
+                                        )}
+                                        {bot.exitAttempts && (
+                                          <span>Retry #{bot.exitAttempts}</span>
+                                        )}
+                                      </div>
+                                      <p className="text-xs text-yellow-400 mt-2">
+                                        System will automatically retry until success. No action needed.
+                                      </p>
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Permanent Failure - Requires Manual Retry */}
+                              {bot.status === 'exit_failed' && bot.exitFailureReason && (
+                                <div className="mb-4 p-3 bg-red-900/20 border border-red-500/30 rounded">
+                                  <div className="flex items-start gap-2">
+                                    <AlertTriangle className="h-5 w-5 text-red-400 flex-shrink-0 mt-0.5" />
+                                    <div className="flex-1">
+                                      <h4 className="text-sm font-semibold text-red-400 mb-1">Exit Order Failed (Manual Retry Required)</h4>
+                                      <p className="text-xs text-red-300 mb-2">{bot.exitFailureReason}</p>
+                                      <div className="flex items-center gap-4 text-xs text-gray-400 mb-3">
+                                        {bot.exitFailureTime && (
+                                          <span className="flex items-center gap-1">
+                                            <Clock className="h-3 w-3" />
+                                            {new Date(bot.exitFailureTime).toLocaleString()}
+                                          </span>
+                                        )}
+                                        {bot.exitAttempts && (
+                                          <span>Failed attempts: {bot.exitAttempts}</span>
+                                        )}
+                                      </div>
+                                      <p className="text-xs text-gray-400 mb-3">
+                                        This error cannot be auto-retried. Please fix the issue and click retry.
+                                      </p>
+                                      <button
+                                        onClick={async (e) => {
+                                          e.stopPropagation();
+                                          try {
+                                            const response = await fetch(`${config.api.mainUrl}/dca-bots/${bot.id}/retry-exit`, {
+                                              method: 'POST',
+                                              headers: {
+                                                'Content-Type': 'application/json',
+                                                'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                                                'x-kraken-api-key': localStorage.getItem('krakenApiKey') || '',
+                                                'x-kraken-api-secret': localStorage.getItem('krakenApiSecret') || '',
+                                              },
+                                            });
+
+                                            if (response.ok) {
+                                              fetchDCABots();
+                                              alert('Exit retry initiated successfully');
+                                            } else {
+                                              const error = await response.json();
+                                              alert(`Retry failed: ${error.error}`);
+                                            }
+                                          } catch (error: any) {
+                                            alert(`Error: ${error.message}`);
+                                          }
+                                        }}
+                                        className="btn btn-sm bg-red-600 hover:bg-red-700 text-white flex items-center gap-1"
+                                      >
+                                        <RefreshCw className="h-3 w-3" />
+                                        Retry Exit
+                                      </button>
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Performance Section - DalyDCA table layout aligned to Crypto Market */}
                       <div>
                         <h4 className="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2">
                           <BarChart3 className="h-4 w-4 text-blue-400" />
@@ -2463,11 +2720,15 @@ const [trendData, setTrendData] = useState<Map<string, any>>(new Map());
                           Delete Bot
                         </button>
                       </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         ) : loading || dcaBotsLoading ? (
           <div className="text-center py-16">

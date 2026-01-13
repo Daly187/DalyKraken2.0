@@ -176,7 +176,7 @@ export class TelegramService {
       return { sent: false, reason: 'trade_notifications_disabled' };
     }
 
-    const { pair, price, totalPurchased, remainingValue, topHoldings } = tradeData;
+    const { pair, price, totalPurchased, remainingValue, topHoldings, totalKrakenBalance } = tradeData;
 
     // Build top 10 holdings table
     let holdingsTable = '';
@@ -190,11 +190,13 @@ export class TelegramService {
       holdingsTable += '```';
     }
 
+    const balanceLine = totalKrakenBalance ? `\n💰 *Est. Kraken Balance:* $${parseFloat(totalKrakenBalance).toFixed(2)}` : '';
+
     const message = `🟢 *OPEN ${pair}*\n\n` +
       `*Price:* $${parseFloat(price).toFixed(2)}\n` +
       `*Total Purchased:* $${parseFloat(totalPurchased || 0).toFixed(2)}\n` +
       `*Est. Value:* $${parseFloat(remainingValue || 0).toFixed(2)}\n` +
-      holdingsTable + `\n\n` +
+      holdingsTable + balanceLine + `\n\n` +
       `⏰ ${new Date().toLocaleString()}`;
 
     return await this.sendMessage(message);
@@ -208,7 +210,7 @@ export class TelegramService {
       return { sent: false, reason: 'trade_notifications_disabled' };
     }
 
-    const { pair, price, totalPurchased, totalSold, profit, profitPercent, remainingBalance, symbol, topHoldings } = tradeData;
+    const { pair, price, totalPurchased, totalSold, profit, profitPercent, remainingBalance, symbol, topHoldings, totalKrakenBalance } = tradeData;
 
     const profitEmoji = profit >= 0 ? '📈' : '📉';
 
@@ -230,6 +232,8 @@ export class TelegramService {
       ? `*${symbol} Bal:* $${remainingUsdValue.toFixed(2)}\n`
       : '';
 
+    const balanceLine = totalKrakenBalance ? `\n💰 *Est. Kraken Balance:* $${parseFloat(totalKrakenBalance).toFixed(2)}` : '';
+
     const message = `🔴 *CLOSE ${pair}*\n\n` +
       `*Price:* $${parseFloat(price).toFixed(2)}\n` +
       `*Total Purchased:* $${parseFloat(totalPurchased || 0).toFixed(2)}\n` +
@@ -238,7 +242,7 @@ export class TelegramService {
       `${profitEmoji} *Profit/Loss*\n` +
       `*Amount:* ${profit >= 0 ? '+' : ''}$${parseFloat(profit || 0).toFixed(2)}\n` +
       `*Percent:* ${profitPercent >= 0 ? '+' : ''}${parseFloat(profitPercent || 0).toFixed(2)}%\n` +
-      holdingsTable + `\n\n` +
+      holdingsTable + balanceLine + `\n\n` +
       `⏰ ${new Date().toLocaleString()}`;
 
     return await this.sendMessage(message);

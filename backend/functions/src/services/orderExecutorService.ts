@@ -1164,14 +1164,20 @@ export class OrderExecutorService {
             }
           }
 
-          // Sort by value descending and take top 10
+          // Sort by value descending
           topHoldings.sort((a, b) => b.value - a.value);
 
-          console.log(`[OrderExecutor] Top holdings: ${topHoldings.slice(0, 10).map(h => `${h.asset}: $${h.value.toFixed(2)}`).join(', ')}`);
+          // Calculate total Kraken balance from ALL holdings (not just top 10)
+          const totalBalance = topHoldings.reduce((sum, h) => sum + h.value, 0);
+          console.log(`[OrderExecutor] Total Kraken balance: $${totalBalance.toFixed(2)} from ${topHoldings.length} holdings`);
+          console.log(`[OrderExecutor] Top 10 holdings: ${topHoldings.slice(0, 10).map(h => `${h.asset}: $${h.value.toFixed(2)}`).join(', ')}`);
         }
       } catch (error: any) {
         console.error('[OrderExecutor] ❌ CRITICAL ERROR fetching balance:', error?.message || error);
       }
+
+      // Calculate total Kraken balance from all holdings
+      const totalKrakenBalance = topHoldings.reduce((sum, h) => sum + h.value, 0);
 
       // Calculate price
       const price = result.executedPrice ? parseFloat(result.executedPrice) : parseFloat(order.price || '0');
@@ -1220,6 +1226,7 @@ export class OrderExecutorService {
           symbol,
           remainingBalance,
           topHoldings,
+          totalKrakenBalance,
         });
       } else {
         // Get bot data for total purchased and remaining value
@@ -1245,6 +1252,7 @@ export class OrderExecutorService {
           totalPurchased,
           remainingValue,
           topHoldings,
+          totalKrakenBalance,
         });
       }
 

@@ -845,5 +845,159 @@ export function createDCABotsRouter(db: Firestore): Router {
     }
   });
 
+  /**
+   * POST /dca-bots/batch-update-trends
+   * Batch update trend scores for all user's bots
+   * This is called from the frontend when trend data is refreshed
+   *
+   * Body: { trends: Array<{ symbol, trendScore, techScore }> }
+   *
+   * For each bot:
+   * - Looks up trend data by normalized symbol
+   * - Stores trendScore, techScore, marketTrendScore to Firestore
+   * - Skips update if trend data not found (preserves existing values)
+   */
+  router.post('/batch-update-trends', async (req, res) => {
+    try {
+      const userId = req.user!.userId;
+      const { trends } = req.body;
+
+      if (!trends || !Array.isArray(trends)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Missing or invalid trends array in request body',
+        });
+      }
+
+      console.log(`[DCABots API] Batch trend update requested by user ${userId} with ${trends.length} trend entries`);
+
+      // Build lookup map from trends array
+      const trendMap = new Map<string, { trendScore: number; techScore: number }>();
+      for (const trend of trends) {
+        if (!trend?.symbol) continue;
+
+        // Normalize symbol for lookup
+        const normalizedKey = normalizeSymbolForTrends(trend.symbol);
+        const data = {
+          trendScore: typeof trend.trendScore === 'number' ? trend.trendScore : (trend.trend_score ?? null),
+          techScore: typeof trend.techScore === 'number' ? trend.techScore : (trend.technical_score ?? null),
+        };
+
+        // Only store if both scores are valid numbers
+        if (typeof data.trendScore === 'number' && typeof data.techScore === 'number') {
+          trendMap.set(normalizedKey, data);
+          // Also store by original symbol uppercase
+          trendMap.set(trend.symbol.toUpperCase(), data);
+          // And by symbol with /USD
+          trendMap.set(`${normalizedKey}/USD`, data);
+        }
+      }
+
+      console.log(`[DCABots API] Built trend lookup map with ${trendMap.size} entries`);
+
+      // Get user's bots
+      const botsSnapshot = await db
+        .collection('dcaBots')
+        .where('userId', '==', userId)
+        .get();
+
+      if (botsSnapshot.empty) {
+        return res.json({
+          success: true,
+          message: 'No bots to update',
+          updated: 0,
+          skipped: 0,
+        });
+      }
+
+      // Batch update bots
+      const batch = db.batch();
+      let updatedCount = 0;
+      let skippedCount = 0;
+      const now = new Date().toISOString();
+      const debugLogs: any[] = [];
+
+      for (const doc of botsSnapshot.docs) {
+        const botData = doc.data();
+        const symbol = botData.symbol || '';
+
+        // Try multiple key variations to find trend data
+        const normalizedKey = normalizeSymbolForTrends(symbol);
+        const candidateKeys = [
+          normalizedKey,
+          `${normalizedKey}/USD`,
+          symbol.toUpperCase(),
+          symbol.toUpperCase().replace('/', ''),
+        ];
+
+        let trendData = null;
+        let matchedKey = null;
+        for (const key of candidateKeys) {
+          if (trendMap.has(key)) {
+            trendData = trendMap.get(key);
+            matchedKey = key;
+            break;
+          }
+        }
+
+        // Debug logging
+        debugLogs.push({
+          botId: doc.id,
+          symbol,
+          normalizedKey,
+          matchedKey,
+          found: !!trendData,
+          trendScore: trendData?.trendScore ?? null,
+          techScore: trendData?.techScore ?? null,
+        });
+
+        if (!trendData) {
+          // Skip update if no trend data found - preserve existing values
+          skippedCount++;
+          console.log(`[DCABots API] No trend data for ${symbol} (${doc.id}) - skipping`);
+          continue;
+        }
+
+        // Calculate marketTrendScore as (trendScore + techScore) / 2
+        const marketTrendScore = Math.round((trendData.trendScore + trendData.techScore) / 2);
+
+        // Calculate market_trend string for backwards compatibility
+        const trendResult = calculateMarketTrend(trendData.trendScore, trendData.techScore);
+
+        // Update bot document with trend scores
+        batch.update(doc.ref, {
+          trendScore: trendData.trendScore,
+          techScore: trendData.techScore,
+          marketTrendScore: marketTrendScore,
+          market_trend: trendResult.market_trend,
+          market_trend_updated: now,
+          trendDataUpdatedAt: now,
+        });
+
+        updatedCount++;
+      }
+
+      // Commit batch
+      await batch.commit();
+
+      console.log(`[DCABots API] Batch trend update complete: ${updatedCount} updated, ${skippedCount} skipped`);
+
+      res.json({
+        success: true,
+        message: `Updated trend scores for ${updatedCount} bots`,
+        updated: updatedCount,
+        skipped: skippedCount,
+        total: botsSnapshot.size,
+        debug: debugLogs.slice(0, 10), // Return first 10 for debugging
+      });
+    } catch (error: any) {
+      console.error('[DCABots API] Error batch updating trend scores:', error);
+      res.status(500).json({
+        success: false,
+        error: error.message,
+      });
+    }
+  });
+
   return router;
 }
