@@ -1110,6 +1110,66 @@ export default function DalyFunding() {
         additionalWarnings.push('No manual asset mappings configured - strategy requires at least one mapping');
       }
 
+      // Step 6: Hyperliquid dry-run validation for selected spreads
+      const dryRunErrors: string[] = [];
+      const dryRunLogs: string[] = [];
+      const spreadsToTest = selectedSpreads.slice(0, numberOfPairs);
+
+      for (let i = 0; i < spreadsToTest.length; i++) {
+        const spread = spreadsToTest[i];
+        const longData = spread.longExchange === 'aster' ? spread.aster! : spread.hyperliquid!;
+        const shortData = spread.shortExchange === 'aster' ? spread.aster! : spread.hyperliquid!;
+        const executionPrice = (longData.markPrice + shortData.markPrice) / 2;
+        const positionSize = fundingArbitrageService.calculatePositionSize(i + 1);
+
+        if (!Number.isFinite(executionPrice) || executionPrice <= 0) {
+          dryRunErrors.push(`Invalid execution price for ${spread.canonical}: ${executionPrice}`);
+          continue;
+        }
+
+        try {
+          if (spread.longExchange === 'hyperliquid') {
+            const result = await exchangeTradeService.placeHyperliquidOrder({
+              symbol: longData.symbol,
+              side: 'buy',
+              size: positionSize,
+              price: executionPrice,
+              orderType: 'MARKET',
+              dryRun: true,
+              execId: `test-long-${spread.canonical}-${i + 1}`,
+            });
+            if (!result.success) {
+              dryRunErrors.push(`HL dry-run long failed for ${spread.canonical}: ${result.error || 'Unknown error'}`);
+            } else {
+              dryRunLogs.push(`HL dry-run long OK: ${spread.canonical} ${longData.symbol}`);
+            }
+          }
+
+          if (spread.shortExchange === 'hyperliquid') {
+            const result = await exchangeTradeService.placeHyperliquidOrder({
+              symbol: shortData.symbol,
+              side: 'sell',
+              size: positionSize,
+              price: executionPrice,
+              orderType: 'MARKET',
+              dryRun: true,
+              execId: `test-short-${spread.canonical}-${i + 1}`,
+            });
+            if (!result.success) {
+              dryRunErrors.push(`HL dry-run short failed for ${spread.canonical}: ${result.error || 'Unknown error'}`);
+            } else {
+              dryRunLogs.push(`HL dry-run short OK: ${spread.canonical} ${shortData.symbol}`);
+            }
+          }
+        } catch (error: any) {
+          dryRunErrors.push(`HL dry-run error for ${spread.canonical}: ${error.message || 'Unknown error'}`);
+        }
+      }
+
+      if (dryRunErrors.length > 0) {
+        additionalWarnings.push(...dryRunErrors);
+      }
+
       // Fetch actual balances for display
       let asterBal = 0;
       let hlBal = 0;
@@ -1157,7 +1217,7 @@ export default function DalyFunding() {
         valid: validation.valid && additionalWarnings.length === 0,
         errors: validation.errors,
         warnings: [...validation.warnings, ...additionalWarnings],
-        debugLogs: validation.debugLogs || [],
+        debugLogs: [...(validation.debugLogs || []), ...dryRunLogs],
         selectedSpreads: selectedSpreads.slice(0, numberOfPairs),
         asterBalance: asterBal,
         hyperliquidBalance: hlBal,
@@ -2698,13 +2758,13 @@ export default function DalyFunding() {
 
                   {/* Debug Logs (collapsible) */}
                   {testResults.debugLogs.length > 0 && (
-                    <details className="bg-slate-100 dark:bg-slate-100 dark:bg-slate-700/30 rounded-lg">
-                      <summary className="cursor-pointer p-3 text-sm font-medium text-slate-600 dark:text-gray-300 hover:text-slate-800 dark:hover:text-white">
+                    <details className="bg-slate-900 text-slate-100 border border-slate-800 rounded-lg">
+                      <summary className="cursor-pointer p-3 text-sm font-semibold text-slate-100 hover:text-white">
                         Debug Logs ({testResults.debugLogs.length} entries)
                       </summary>
-                      <div className="p-3 pt-0 text-xs font-mono text-slate-500 dark:text-gray-400 max-h-40 overflow-y-auto">
+                      <div className="p-3 pt-0 text-xs font-mono text-slate-200 max-h-40 overflow-y-auto">
                         {testResults.debugLogs.map((log, i) => (
-                          <div key={i}>{log}</div>
+                          <div key={i} className="whitespace-pre-wrap break-words">{log}</div>
                         ))}
                       </div>
                     </details>

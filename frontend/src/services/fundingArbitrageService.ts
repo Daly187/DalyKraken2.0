@@ -33,6 +33,7 @@ export interface FundingSpread {
   longRate: number;
   shortRate: number;
   timestamp: number;
+  multiplier?: number;
 }
 
 export interface StrategyPosition {
@@ -347,13 +348,14 @@ class FundingArbitrageService {
     price: number,
     size: number
   ): Promise<{ success: boolean; longOrderId?: string; shortOrderId?: string; error?: string }> {
-    console.log(`[HedgedEntry] Starting hedged entry for ${longSymbol}/${shortSymbol}`);
-    console.log(`[HedgedEntry] Long: ${longExchange}, Short: ${shortExchange}, Price: ${price}, Size: $${size}`);
+    const execId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    console.log(`[HedgedEntry] [${execId}] Starting hedged entry for ${longSymbol}/${shortSymbol}`);
+    console.log(`[HedgedEntry] [${execId}] Long: ${longExchange}, Short: ${shortExchange}, Price: ${price}, Size: $${size}`);
 
     try {
       // Step 1: Place both limit orders simultaneously
-      console.log(`[HedgedEntry] Placing limit orders on both exchanges...`);
-      console.log(`[HedgedEntry] Long will go to: ${longExchange}, Short will go to: ${shortExchange}`);
+      console.log(`[HedgedEntry] [${execId}] Placing limit orders on both exchanges...`);
+      console.log(`[HedgedEntry] [${execId}] Long will go to: ${longExchange}, Short will go to: ${shortExchange}`);
 
       // Dynamically route orders based on which exchange should be long/short
       const [longOrder, shortOrder] = await Promise.all([
@@ -372,6 +374,7 @@ class FundingArbitrageService {
               size,
               price,
               orderType: 'MARKET',
+              execId,
             }).catch(err => ({ success: false, error: err.message })) as Promise<any>,
         // Place short order on the correct exchange
         shortExchange === 'aster'
@@ -388,6 +391,7 @@ class FundingArbitrageService {
               size,
               price,
               orderType: 'MARKET',
+              execId,
             }).catch(err => ({ success: false, error: err.message })) as Promise<any>,
       ]);
 
@@ -396,10 +400,10 @@ class FundingArbitrageService {
         return { success: false, error: `Order placement failed: ${longOrder.error || shortOrder.error}` };
       }
 
-      console.log(`[HedgedEntry] Orders placed. Long: ${longOrder.orderId}, Short: ${shortOrder.orderId}`);
+      console.log(`[HedgedEntry] [${execId}] Orders placed. Long: ${longOrder.orderId}, Short: ${shortOrder.orderId}`);
 
       // Step 2: Wait fillTimeout for both to fill
-      console.log(`[HedgedEntry] Waiting ${this.config.fillTimeout}ms for fills...`);
+      console.log(`[HedgedEntry] [${execId}] Waiting ${this.config.fillTimeout}ms for fills...`);
       await new Promise(resolve => setTimeout(resolve, this.config.fillTimeout));
 
       // Step 3: Check fill status
@@ -411,18 +415,18 @@ class FundingArbitrageService {
       const longFilled = longStatus === 'FILLED';
       const shortFilled = shortStatus === 'FILLED';
 
-      console.log(`[HedgedEntry] Fill status - Long: ${longStatus}, Short: ${shortStatus}`);
+      console.log(`[HedgedEntry] [${execId}] Fill status - Long: ${longStatus}, Short: ${shortStatus}`);
 
       // Step 4: Handle outcomes
       if (longFilled && shortFilled) {
         // ✅ SUCCESS: Both filled, position is hedged
-        console.log(`[HedgedEntry] ✅ SUCCESS: Both orders filled, position is hedged`);
+        console.log(`[HedgedEntry] [${execId}] ✅ SUCCESS: Both orders filled, position is hedged`);
         console.log(`[Telegram] ✅ Hedged Entry Success: ${longSymbol}/${shortSymbol}`);
         return { success: true, longOrderId: longOrder.orderId, shortOrderId: shortOrder.orderId };
 
       } else if (!longFilled && !shortFilled) {
         // ⚠️ Neither filled, cancel both and skip
-        console.log(`[HedgedEntry] ⚠️ Neither order filled, cancelling both...`);
+        console.log(`[HedgedEntry] [${execId}] ⚠️ Neither order filled, cancelling both...`);
         await Promise.all([
           exchangeTradeService.cancelOrder(longExchange, longOrder.orderId!, longSymbol),
           exchangeTradeService.cancelOrder(shortExchange, shortOrder.orderId!, shortSymbol),
@@ -432,11 +436,11 @@ class FundingArbitrageService {
 
       } else {
         // 🚨 PARTIAL FILL - EMERGENCY HEDGE WITH MARKET ORDER
-        console.log(`[HedgedEntry] 🚨 PARTIAL FILL DETECTED - Emergency hedging with market order...`);
+        console.log(`[HedgedEntry] [${execId}] 🚨 PARTIAL FILL DETECTED - Emergency hedging with market order...`);
 
         if (longFilled && !shortFilled) {
           // Long filled, short didn't - cancel short and place market short to hedge
-          console.log(`[HedgedEntry] Long filled, short didn't. Cancelling short and placing market order on ${shortExchange}...`);
+          console.log(`[HedgedEntry] [${execId}] Long filled, short didn't. Cancelling short and placing market order on ${shortExchange}...`);
           await exchangeTradeService.cancelOrder(shortExchange, shortOrder.orderId!, shortSymbol);
 
           // Place market order on the correct exchange for the short side
@@ -454,21 +458,22 @@ class FundingArbitrageService {
                 size,
                 price, // Use last price as estimate
                 orderType: 'MARKET',
+                execId,
               });
 
           if (marketShort.success) {
-            console.log(`[HedgedEntry] ✅ Hedged with market order: ${marketShort.orderId}`);
+            console.log(`[HedgedEntry] [${execId}] ✅ Hedged with market order: ${marketShort.orderId}`);
             console.log(`[Telegram] ⚠️ Partial Fill - Hedged with market order`);
             return { success: true, longOrderId: longOrder.orderId, shortOrderId: marketShort.orderId };
           } else {
-            console.error(`[HedgedEntry] ❌ Failed to place market hedge order`);
+            console.error(`[HedgedEntry] [${execId}] ❌ Failed to place market hedge order`);
             console.error(`[Telegram] 🚨 URGENT: Unhedged Position - ${longSymbol}/${shortSymbol}`);
             return { success: false, error: 'Failed to hedge with market order' };
           }
 
         } else if (shortFilled && !longFilled) {
           // Short filled, long didn't - cancel long and place market long to hedge
-          console.log(`[HedgedEntry] Short filled, long didn't. Cancelling long and placing market order on ${longExchange}...`);
+          console.log(`[HedgedEntry] [${execId}] Short filled, long didn't. Cancelling long and placing market order on ${longExchange}...`);
           await exchangeTradeService.cancelOrder(longExchange, longOrder.orderId!, longSymbol);
 
           // Place market order on the correct exchange for the long side
@@ -486,14 +491,15 @@ class FundingArbitrageService {
                 size,
                 price, // Use last price as estimate
                 orderType: 'MARKET',
+                execId,
               });
 
           if (marketLong.success) {
-            console.log(`[HedgedEntry] ✅ Hedged with market order: ${marketLong.orderId}`);
+            console.log(`[HedgedEntry] [${execId}] ✅ Hedged with market order: ${marketLong.orderId}`);
             console.log(`[Telegram] ⚠️ Partial Fill - Hedged with market order`);
             return { success: true, longOrderId: marketLong.orderId, shortOrderId: shortOrder.orderId };
           } else {
-            console.error(`[HedgedEntry] ❌ Failed to place market hedge order`);
+            console.error(`[HedgedEntry] [${execId}] ❌ Failed to place market hedge order`);
             console.error(`[Telegram] 🚨 URGENT: Unhedged Position - ${longSymbol}/${shortSymbol}`);
             return { success: false, error: 'Failed to hedge with market order' };
           }
@@ -503,7 +509,7 @@ class FundingArbitrageService {
       return { success: false, error: 'Unknown hedging outcome' };
 
     } catch (error: any) {
-      console.error(`[HedgedEntry] Error:`, error);
+      console.error(`[HedgedEntry] [${execId}] Error:`, error);
       console.error(`[Telegram] ❌ Hedged Entry Failed: ${longSymbol}/${shortSymbol} - ${error.message}`);
       return { success: false, error: error.message };
     }
@@ -522,9 +528,19 @@ class FundingArbitrageService {
 
     console.log(`[Arbitrage] Creating position: ${spread.canonical} (Rank ${rank}, ${allocation}%, $${positionSize.toFixed(2)} per exchange)`);
 
+    const mappingMultiplier = this.config.manualMappings?.find(m => m.canonical === spread.canonical)?.multiplier || 1;
+    if (mappingMultiplier !== 1) {
+      const message = `Unsupported multiplier ${mappingMultiplier}x for ${spread.canonical} - manual mapping requires sizing adjustment`;
+      console.warn(`[Arbitrage] ${message}`);
+      throw new Error(message);
+    }
+
     // Use the same price for both sides to avoid slippage
     // Use the average of both mark prices
     const executionPrice = (longData.markPrice + shortData.markPrice) / 2;
+    if (!Number.isFinite(executionPrice) || executionPrice <= 0) {
+      throw new Error(`Invalid execution price for ${spread.canonical}: ${executionPrice}`);
+    }
 
     // Execute hedged entry with matched fill validation
     const hedgedResult = await this.executeHedgedEntry(

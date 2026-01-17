@@ -20,6 +20,9 @@ export interface OrderParams {
   size: number; // Position size in USD
   price?: number; // Limit price (optional for market orders)
   orderType?: 'LIMIT' | 'MARKET'; // Order type (default: LIMIT)
+  dryRun?: boolean; // Build/sign request without sending
+  vaultAddress?: string | null; // Optional Hyperliquid vault address
+  execId?: string; // Optional execution id for logging
 }
 
 export interface OrderResult {
@@ -81,6 +84,7 @@ class ExchangeTradeService {
   private rateLimiter = new RateLimiter();
   private hlAssetCache: Map<string, number> = new Map();
   private initialized = false;
+  private readonly hlDebugEnabled = true;
 
   /**
    * Initialize the service (must be called before use)
@@ -713,7 +717,11 @@ class ExchangeTradeService {
       if (!response.ok) throw new Error(`Status check failed: ${response.statusText}`);
 
       const data = await response.json();
-      return data.order?.status || 'UNKNOWN';
+      const rawStatus = data.order?.status || 'UNKNOWN';
+      if (!data.order?.status) {
+        console.warn('[HyperLiquid] Order status missing in response:', data);
+      }
+      return String(rawStatus).toUpperCase();
     }
   }
 
@@ -761,10 +769,13 @@ class ExchangeTradeService {
         const privateKey = localStorage.getItem('hyperliquid_private_key');
 
         if (!walletAddress || !privateKey) throw new Error('Wallet credentials not found');
+        if (!symbol) throw new Error('Symbol required for HyperLiquid cancel');
+
+        const assetIndex = await this.getHyperliquidAssetIndex(symbol);
 
         const action = {
           type: 'cancel',
-          cancels: [{ a: 0, o: parseInt(orderId) }], // Asset index 0 for now, should be dynamic
+          cancels: [{ a: assetIndex, o: parseInt(orderId) }],
         };
 
         const nonce = Date.now();
@@ -958,9 +969,13 @@ class ExchangeTradeService {
    * Matches the working test-hyperliquid-trade.js implementation
    */
   async placeHyperliquidOrder(params: OrderParams): Promise<OrderResult> {
-    const { symbol, side, size, price, orderType = 'LIMIT' } = params;
+    const { symbol, side, size, price, orderType = 'LIMIT', dryRun = false, vaultAddress = null, execId } = params;
 
     try {
+      if (!price || !Number.isFinite(price) || price <= 0) {
+        throw new Error('Invalid price for HyperLiquid order');
+      }
+
       // Get asset index
       const assetIndex = await this.getHyperliquidAssetIndex(symbol);
 
@@ -974,7 +989,9 @@ class ExchangeTradeService {
         throw new Error(`Order validation failed for ${symbol} on HyperLiquid`);
       }
 
-      console.log(`[HyperLiquid] Placing ${orderType} ${side} order for ${symbol}: ${formattedQty} @ ${price}`);
+      if (this.hlDebugEnabled) {
+        console.log(`[HyperLiquid] [${execId || 'no-exec'}] Placing ${orderType} ${side} order for ${symbol}: ${formattedQty} @ ${price}`);
+      }
 
       // Get wallet credentials
       // For Hyperliquid, we need the private key of the wallet that has funds
@@ -992,8 +1009,11 @@ class ExchangeTradeService {
         const wallet = new ethers.Wallet(privateKey);
         const derivedAddress = wallet.address;
 
-        console.log(`[HyperLiquid] Configured wallet: ${walletAddress}`);
-        console.log(`[HyperLiquid] Derived from private key: ${derivedAddress}`);
+        if (this.hlDebugEnabled) {
+          const mask = (value: string) => `${value.slice(0, 6)}...${value.slice(-4)}`;
+          console.log(`[HyperLiquid] [${execId || 'no-exec'}] Configured wallet: ${mask(walletAddress)}`);
+          console.log(`[HyperLiquid] [${execId || 'no-exec'}] Derived wallet: ${mask(derivedAddress)}`);
+        }
 
         if (walletAddress.toLowerCase() !== derivedAddress.toLowerCase()) {
           console.warn(`[HyperLiquid] ⚠️ WARNING: Wallet address mismatch!`);
@@ -1009,7 +1029,9 @@ class ExchangeTradeService {
         );
       }
 
-      console.log(`[HyperLiquid] Asset index for ${symbol}: ${assetIndex}`);
+      if (this.hlDebugEnabled) {
+        console.log(`[HyperLiquid] [${execId || 'no-exec'}] Asset index for ${symbol}: ${assetIndex}`);
+      }
 
       // Rate limit check
       await this.rateLimiter.checkHL();
@@ -1031,7 +1053,9 @@ class ExchangeTradeService {
       const cleanPrice = orderPrice.replace(/\.?0+$/, '');
       const cleanSize = orderSize.replace(/\.?0+$/, '');
 
-      console.log(`[HyperLiquid] Order - price: ${cleanPrice}, size: ${cleanSize}`);
+      if (this.hlDebugEnabled) {
+        console.log(`[HyperLiquid] [${execId || 'no-exec'}] Order - price: ${cleanPrice}, size: ${cleanSize}`);
+      }
 
       // Build the order type object for the API
       const orderTypeObj = orderType === 'LIMIT'
@@ -1055,30 +1079,49 @@ class ExchangeTradeService {
         grouping: 'na',
       };
 
-      console.log(`[HyperLiquid] Action for API:`, JSON.stringify(action, null, 2));
+      if (this.hlDebugEnabled) {
+        console.log(`[HyperLiquid] [${execId || 'no-exec'}] Action for API:`, JSON.stringify(action, null, 2));
+      }
 
       // Generate nonce
       const nonce = Date.now();
 
       // Sign using Phantom Agent method (Hyperliquid's official L1 action signing)
       // This hashes the action with msgpack and signs a phantom agent with the hash
-      const signature = await this.signHyperliquidL1Action(action, privateKey, nonce, null, true);
+      const signature = await this.signHyperliquidL1Action(action, privateKey, nonce, vaultAddress, true);
 
-      console.log(`[HyperLiquid] Signature generated:`, {
-        r: signature.r.substring(0, 16) + '...',
-        s: signature.s.substring(0, 16) + '...',
-        v: signature.v
-      });
+      if (this.hlDebugEnabled) {
+        console.log(`[HyperLiquid] [${execId || 'no-exec'}] Signature generated:`, {
+          r: signature.r.substring(0, 16) + '...',
+          s: signature.s.substring(0, 16) + '...',
+          v: signature.v
+        });
+      }
 
       // Create the final request
       const orderRequest = {
         action,
         nonce,
         signature,
-        vaultAddress: null,
+        vaultAddress,
       };
 
-      console.log(`[HyperLiquid] Sending order request to API...`);
+      if (this.hlDebugEnabled) {
+        console.log(`[HyperLiquid] [${execId || 'no-exec'}] Sending order request to API...`);
+      }
+
+      if (dryRun) {
+        if (this.hlDebugEnabled) {
+          console.log(`[HyperLiquid] [${execId || 'no-exec'}] Dry run enabled - request not sent`);
+        }
+        return {
+          success: true,
+          orderId: 'dry-run',
+          price: parseFloat(orderPrice),
+          size: parseFloat(orderSize) * parseFloat(orderPrice),
+          filled: false,
+        };
+      }
 
       // Send the order
       const response = await fetch(`${HL_API}/exchange`, {
@@ -1135,7 +1178,9 @@ class ExchangeTradeService {
       }
 
       const result = await response.json();
-      console.log(`[HyperLiquid] Order response (full):`, JSON.stringify(result, null, 2));
+      if (this.hlDebugEnabled) {
+        console.log(`[HyperLiquid] [${execId || 'no-exec'}] Order response (full):`, JSON.stringify(result, null, 2));
+      }
 
       // Check for error in response
       if (result.status === 'err' || result.response?.type === 'error') {
@@ -1155,21 +1200,29 @@ class ExchangeTradeService {
       if (result.response?.data?.statuses?.[0]) {
         const status = result.response.data.statuses[0];
         orderId = status.resting?.oid?.toString() || status.filled?.oid?.toString() || 'unknown';
-        orderStatus = status.resting ? 'resting' : status.filled ? 'filled' : status.error || 'unknown';
+        orderStatus = status.resting ? 'RESTING' : status.filled ? 'FILLED' : (status.error || 'UNKNOWN').toString().toUpperCase();
       } else if (result.status?.statuses?.[0]) {
         const status = result.status.statuses[0];
         orderId = status.resting?.oid?.toString() || status.filled?.oid?.toString() || 'unknown';
-        orderStatus = status.resting ? 'resting' : status.filled ? 'filled' : status.error || 'unknown';
+        orderStatus = status.resting ? 'RESTING' : status.filled ? 'FILLED' : (status.error || 'UNKNOWN').toString().toUpperCase();
       }
 
-      console.log(`[HyperLiquid] Order ID: ${orderId}, Status: ${orderStatus}`);
+      if (this.hlDebugEnabled) {
+        console.log(`[HyperLiquid] [${execId || 'no-exec'}] Order ID: ${orderId}, Status: ${orderStatus}`);
+      }
+
+      if (orderId === 'unknown') {
+        throw new Error(`Order accepted but orderId missing in response: ${JSON.stringify(result)}`);
+      }
 
       // Check fill status
       let filled = false;
       if (orderType === 'MARKET') {
         // IoC orders fill or cancel immediately
-        filled = orderStatus === 'filled';
-        console.log(`[HyperLiquid] Market order status: ${orderStatus}, filled: ${filled}`);
+        filled = orderStatus === 'FILLED';
+        if (this.hlDebugEnabled) {
+          console.log(`[HyperLiquid] [${execId || 'no-exec'}] Market order status: ${orderStatus}, filled: ${filled}`);
+        }
       } else {
         // For limit orders, verify fill status
         if (orderId !== 'unknown') {

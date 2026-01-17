@@ -391,9 +391,12 @@ class PrecisionManager {
     }
 
     // Validate notional
-    const notional = orderType !== 'MARKET' ? correctedPrice * correctedQuantity : 0;
+    const effectivePrice = orderType === 'MARKET' ? price : correctedPrice;
+    const notional = Number.isFinite(effectivePrice) ? effectivePrice * correctedQuantity : 0;
 
-    if (orderType !== 'MARKET' && notional < rules.minNotional) {
+    if (!Number.isFinite(effectivePrice) || effectivePrice <= 0) {
+      errors.push(`Invalid price for notional calculation: ${effectivePrice}`);
+    } else if (notional < rules.minNotional) {
       errors.push(`Notional value ${notional.toFixed(2)} below minimum ${rules.minNotional}`);
     }
 
