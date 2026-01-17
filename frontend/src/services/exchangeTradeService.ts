@@ -1037,14 +1037,15 @@ class ExchangeTradeService {
       await this.rateLimiter.checkHL();
 
       // Format price - use toFixed(8) then remove trailing zeros
-      let orderPrice: string;
-      if (orderType === 'MARKET') {
-        // For market orders (IoC), set extreme prices to ensure fill
-        const marketPrice = side === 'buy' ? price! * 1.05 : price! * 0.95;
-        orderPrice = marketPrice.toFixed(8);
-      } else {
-        orderPrice = price!.toFixed(8);
+      // Build a price that respects Hyperliquid tick size
+      const basePrice = orderType === 'MARKET'
+        ? (side === 'buy' ? price! * 1.05 : price! * 0.95)
+        : price!;
+      const roundedPrice = precisionManager.roundPrice('hyperliquid', symbol, basePrice);
+      if (!Number.isFinite(roundedPrice) || roundedPrice <= 0) {
+        throw new Error(`Invalid rounded price for ${symbol}: ${roundedPrice}`);
       }
+      const orderPrice = roundedPrice.toFixed(8);
 
       // Format size - use toFixed(8)
       const orderSize = formattedQty.toFixed(8);
@@ -1054,7 +1055,7 @@ class ExchangeTradeService {
       const cleanSize = orderSize.replace(/\.?0+$/, '');
 
       if (this.hlDebugEnabled) {
-        console.log(`[HyperLiquid] [${execId || 'no-exec'}] Order - price: ${cleanPrice}, size: ${cleanSize}`);
+        console.log(`[HyperLiquid] [${execId || 'no-exec'}] Order - price: ${cleanPrice}, size: ${cleanSize}, basePrice: ${basePrice.toFixed(8)}, roundedPrice: ${roundedPrice}`);
       }
 
       // Build the order type object for the API
