@@ -615,6 +615,7 @@ export function createPolymarketRouter(): Router {
         maxProbability: 0.98,
         minVolume: 1000, // Lower volume threshold
         minLiquidity: 5000,
+        closeDate: null,
       };
 
       const config = configDoc.exists ? { ...defaultConfig, ...configDoc.data() } : defaultConfig;
