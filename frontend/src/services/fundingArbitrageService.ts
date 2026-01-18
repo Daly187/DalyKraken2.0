@@ -41,6 +41,7 @@ export interface StrategyPosition {
   canonical: string;
   allocation: number; // Percentage of total capital (30, 30, 20, 10, 10)
   rank: number; // 1-5
+  source?: 'auto' | 'manual';
 
   // Long side
   longExchange: 'aster' | 'hyperliquid';
@@ -610,6 +611,83 @@ class FundingArbitrageService {
       position.shortEntryPrice,
       spread.spread,
       positionSize
+    );
+
+    return position;
+  }
+
+  /**
+   * Manually create a position with custom sizing
+   */
+  async createManualPosition(
+    spread: FundingSpread,
+    size: number,
+    priceOverride?: number
+  ): Promise<StrategyPosition> {
+    if (this.positions.has(spread.canonical)) {
+      throw new Error(`Position already open for ${spread.canonical}`);
+    }
+
+    const longData = spread.longExchange === 'aster' ? spread.aster! : spread.hyperliquid!;
+    const shortData = spread.shortExchange === 'aster' ? spread.aster! : spread.hyperliquid!;
+    const executionPrice = priceOverride ?? (longData.markPrice + shortData.markPrice) / 2;
+
+    if (!Number.isFinite(executionPrice) || executionPrice <= 0) {
+      throw new Error(`Invalid execution price for ${spread.canonical}: ${executionPrice}`);
+    }
+
+    const hedgedResult = await this.executeHedgedEntry(
+      spread.longExchange,
+      spread.shortExchange,
+      longData.symbol,
+      shortData.symbol,
+      executionPrice,
+      size
+    );
+
+    if (!hedgedResult.success) {
+      throw new Error(`Hedged entry failed: ${hedgedResult.error}`);
+    }
+
+    const position: StrategyPosition = {
+      id: `${spread.canonical}-manual-${Date.now()}`,
+      canonical: spread.canonical,
+      allocation: 0,
+      rank: 0,
+      source: 'manual',
+      longExchange: spread.longExchange,
+      longSymbol: longData.symbol,
+      longSize: size,
+      longEntryPrice: executionPrice,
+      longCurrentPrice: executionPrice,
+      longFundingRate: longData.rate,
+      shortExchange: spread.shortExchange,
+      shortSymbol: shortData.symbol,
+      shortSize: size,
+      shortEntryPrice: executionPrice,
+      shortCurrentPrice: executionPrice,
+      shortFundingRate: shortData.rate,
+      spread: spread.spread,
+      entrySpread: spread.spread,
+      fundingEarned: 0,
+      pnl: 0,
+      status: 'open',
+      entryTime: Date.now(),
+    };
+
+    this.positions.set(position.canonical, position);
+    this.saveState();
+
+    await telegramNotificationService.notifyPositionOpened(
+      position.canonical,
+      position.rank,
+      position.allocation,
+      position.longExchange,
+      position.shortExchange,
+      position.longEntryPrice,
+      position.shortEntryPrice,
+      spread.spread,
+      size
     );
 
     return position;

@@ -37,6 +37,11 @@ export default function DalyFunding() {
   const addNotification = useStore((state) => state.addNotification);
 
   const [selectedPair, setSelectedPair] = useState('BTCUSDT');
+  const [showExecuteModal, setShowExecuteModal] = useState(false);
+  const [executePair, setExecutePair] = useState<MatchedPair | null>(null);
+  const [executeSizeUsd, setExecuteSizeUsd] = useState<number>(0);
+  const [executePrice, setExecutePrice] = useState<string>('');
+  const [isExecutingPair, setIsExecutingPair] = useState(false);
   const [selectedExchange, setSelectedExchange] = useState<'all' | 'aster' | 'hyperliquid'>('all');
   const [fundingRates, setFundingRates] = useState<FundingRate[]>([]);
   const [positions, setPositions] = useState<FundingPosition[]>([]);
@@ -367,7 +372,7 @@ export default function DalyFunding() {
               const parsed = parseFloat(perpsData.marginSummary.totalRawUsd);
               if (!isNaN(parsed) && parsed > 0) {
                 perpsBalance = parsed;
-                totalBalance += perpsBalance;
+                totalBalance = perpsBalance;
                 debugLog.push(`  ✅ Using totalRawUsd: $${perpsBalance}`);
               }
             }
@@ -377,7 +382,7 @@ export default function DalyFunding() {
               const parsed = parseFloat(perpsData.marginSummary.accountValue);
               if (!isNaN(parsed) && parsed > 0) {
                 perpsBalance = parsed;
-                totalBalance += perpsBalance;
+                totalBalance = perpsBalance;
                 debugLog.push(`  ✅ Using accountValue: $${perpsBalance}`);
               }
             }
@@ -397,7 +402,7 @@ export default function DalyFunding() {
               const parsed = parseFloat(perpsData.crossMarginSummary.totalRawUsd);
               if (!isNaN(parsed) && parsed > 0) {
                 perpsBalance = parsed;
-                totalBalance += perpsBalance;
+                totalBalance = perpsBalance;
                 debugLog.push(`  ✅ Found balance in totalRawUsd: $${perpsBalance}`);
               }
             }
@@ -406,7 +411,7 @@ export default function DalyFunding() {
               const parsed = parseFloat(perpsData.crossMarginSummary.accountValue);
               if (!isNaN(parsed) && parsed > 0) {
                 perpsBalance = parsed;
-                totalBalance += perpsBalance;
+                totalBalance = perpsBalance;
                 debugLog.push(`  ✅ Found balance in accountValue: $${perpsBalance}`);
               }
             }
@@ -434,14 +439,14 @@ export default function DalyFunding() {
               debugLog.push(`  ⚠️ All balances are zero`);
             }
 
-            totalBalance += spotBalance;
+            // Spot balances are not added to the perps total (spot values are not USD)
           } else {
             debugLog.push(`❌ No balances array found`);
             debugLog.push(`Spot response keys: ${Object.keys(spotData || {}).join(', ')}`);
           }
 
           debugLog.push(`\n💰 SPOT BALANCE: $${spotBalance}`);
-          debugLog.push(`\n💵 TOTAL BALANCE: $${totalBalance}`);
+          debugLog.push(`\n💵 TOTAL BALANCE (PERPS ONLY): $${totalBalance}`);
 
           setHlDebugAnalysis(debugLog);
 
@@ -843,6 +848,10 @@ export default function DalyFunding() {
   const totalInvested = strategyPositions.reduce((sum, p) => sum + (p.longSize + p.shortSize), 0);
   const totalFundingEarned = strategyPositions.reduce((sum, p) => sum + p.fundingEarned, 0);
   const totalPnL = strategyPositions.reduce((sum, p) => sum + p.pnl, 0);
+  const openCounts = strategyPositions.reduce<Record<string, number>>((acc, position) => {
+    acc[position.canonical] = (acc[position.canonical] || 0) + 1;
+    return acc;
+  }, {});
 
   // Calculate time until next rebalance
   const getTimeUntilRebalance = () => {
@@ -875,6 +884,92 @@ export default function DalyFunding() {
     } else if (newCount < allocations.length) {
       // Remove extra allocations and redistribute
       setAllocations(allocations.slice(0, newCount));
+    }
+  };
+
+  const buildSpreadFromPair = (pair: MatchedPair): FundingSpread | null => {
+    if (!pair.aster || !pair.hyperliquid || pair.spread === undefined || pair.annualSpread === undefined) {
+      return null;
+    }
+
+    const longExchange = pair.opportunity === 'short_aster_long_hl' ? 'hyperliquid' : 'aster';
+    const shortExchange = longExchange === 'aster' ? 'hyperliquid' : 'aster';
+
+    return {
+      canonical: pair.canonical,
+      aster: {
+        symbol: pair.aster.symbol,
+        rate: pair.aster.fundingRate,
+        markPrice: pair.aster.markPrice,
+      },
+      hyperliquid: {
+        symbol: pair.hyperliquid.symbol,
+        rate: pair.hyperliquid.fundingRate,
+        markPrice: pair.hyperliquid.markPrice,
+      },
+      spread: Math.abs(pair.spread),
+      annualSpread: Math.abs(pair.annualSpread),
+      longExchange,
+      shortExchange,
+      longRate: longExchange === 'aster' ? pair.aster.fundingRate : pair.hyperliquid.fundingRate,
+      shortRate: shortExchange === 'aster' ? pair.aster.fundingRate : pair.hyperliquid.fundingRate,
+      timestamp: Date.now(),
+    };
+  };
+
+  const handleOpenExecuteModal = (pair: MatchedPair) => {
+    const averagePrice = pair.aster && pair.hyperliquid
+      ? ((pair.aster.markPrice + pair.hyperliquid.markPrice) / 2)
+      : 0;
+    setExecutePair(pair);
+    setExecuteSizeUsd(totalCapital);
+    setExecutePrice(averagePrice > 0 ? averagePrice.toFixed(4) : '');
+    setShowExecuteModal(true);
+  };
+
+  const handleExecutePair = async () => {
+    if (!executePair) return;
+    const spread = buildSpreadFromPair(executePair);
+    if (!spread) {
+      addNotification({
+        type: 'error',
+        title: 'Execute Failed',
+        message: 'Pair is missing required exchange data.',
+      });
+      return;
+    }
+
+    const priceOverride = executePrice ? Number(executePrice) : undefined;
+    if (priceOverride !== undefined && (!Number.isFinite(priceOverride) || priceOverride <= 0)) {
+      addNotification({
+        type: 'error',
+        title: 'Invalid Price',
+        message: 'Enter a valid reference price.',
+      });
+      return;
+    }
+
+    setIsExecutingPair(true);
+    try {
+      const position = await fundingArbitrageService.createManualPosition(
+        spread,
+        executeSizeUsd,
+        priceOverride
+      );
+      setShowExecuteModal(false);
+      addNotification({
+        type: 'success',
+        title: 'Position Opened',
+        message: `Opened ${position.canonical} with $${executeSizeUsd} per exchange`,
+      });
+    } catch (error: any) {
+      addNotification({
+        type: 'error',
+        title: 'Execute Failed',
+        message: error.message || 'Failed to execute position',
+      });
+    } finally {
+      setIsExecutingPair(false);
     }
   };
 
@@ -1636,7 +1731,14 @@ export default function DalyFunding() {
                       <td className="px-4 py-4">
                         <div className="flex items-center gap-3">
                           <div className="w-2 h-2 rounded-full bg-emerald-400" />
-                          <span className="font-semibold text-slate-900 dark:text-white">{pair.canonical || 'Unknown'}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-slate-900 dark:text-white">{pair.canonical || 'Unknown'}</span>
+                            {openCounts[pair.canonical] ? (
+                              <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200">
+                                {openCounts[pair.canonical]}
+                              </span>
+                            ) : null}
+                          </div>
                         </div>
                       </td>
                       <td className="px-4 py-4 text-center">
@@ -1725,18 +1827,28 @@ export default function DalyFunding() {
                         </div>
                       </td>
                       <td className="px-4 py-4 text-center">
-                        <button
-                          className="px-4 py-2 rounded-lg text-xs font-bold bg-gradient-to-r from-green-500 to-emerald-500 text-white hover:from-green-600 hover:to-emerald-600 transition-all"
-                          onClick={() => {
-                            addNotification({
-                              type: 'success',
-                              title: 'Arbitrage Opportunity',
-                              message: `${pair.canonical}: ${pair.annualSpread?.toFixed(2)}% annual spread`,
-                            });
-                          }}
-                        >
-                          Execute
-                        </button>
+                        {openCounts[pair.canonical] ? (
+                          <button
+                            className="px-4 py-2 rounded-lg text-xs font-bold bg-gradient-to-r from-red-500 to-red-600 text-white hover:from-red-600 hover:to-red-700 transition-all"
+                            onClick={async () => {
+                              await fundingArbitrageService.manualClose(pair.canonical);
+                              addNotification({
+                                type: 'info',
+                                title: 'Position Closed',
+                                message: `${pair.canonical} position exit requested`,
+                              });
+                            }}
+                          >
+                            Exit
+                          </button>
+                        ) : (
+                          <button
+                            className="px-4 py-2 rounded-lg text-xs font-bold bg-gradient-to-r from-green-500 to-emerald-500 text-white hover:from-green-600 hover:to-emerald-600 transition-all"
+                            onClick={() => handleOpenExecuteModal(pair)}
+                          >
+                            Execute
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -2653,6 +2765,94 @@ export default function DalyFunding() {
             </div>
           )}
 
+          {/* Execute Trade Modal */}
+          {showExecuteModal && executePair && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+              <div className="bg-slate-100 dark:bg-gray-800 border border-slate-200 dark:border-gray-700 rounded-xl shadow-2xl max-w-lg w-full p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h3 className="text-xl font-bold text-slate-800 dark:text-white">Execute Trade</h3>
+                    <p className="text-xs text-slate-500 dark:text-gray-400 mt-1">
+                      {executePair.canonical} • {executePair.opportunity === 'short_aster_long_hl' ? 'Long HL / Short Aster' : 'Long Aster / Short HL'}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setShowExecuteModal(false)}
+                    className="text-slate-500 dark:text-gray-400 hover:text-slate-700 dark:hover:text-white text-2xl"
+                  >
+                    ×
+                  </button>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-3 text-xs text-slate-600 dark:text-gray-300">
+                    <div className="bg-white dark:bg-slate-700/50 rounded-lg p-3 border border-slate-200 dark:border-slate-600/50">
+                      <div className="font-semibold text-slate-700 dark:text-gray-200">Long</div>
+                      <div className="mt-1">
+                        {executePair.opportunity === 'short_aster_long_hl' ? 'Hyperliquid' : 'AsterDEX'}
+                      </div>
+                      <div className="text-slate-500 dark:text-gray-400 mt-0.5">
+                        {executePair.opportunity === 'short_aster_long_hl' ? executePair.hyperliquid?.symbol : executePair.aster?.symbol}
+                      </div>
+                    </div>
+                    <div className="bg-white dark:bg-slate-700/50 rounded-lg p-3 border border-slate-200 dark:border-slate-600/50">
+                      <div className="font-semibold text-slate-700 dark:text-gray-200">Short</div>
+                      <div className="mt-1">
+                        {executePair.opportunity === 'short_aster_long_hl' ? 'AsterDEX' : 'Hyperliquid'}
+                      </div>
+                      <div className="text-slate-500 dark:text-gray-400 mt-0.5">
+                        {executePair.opportunity === 'short_aster_long_hl' ? executePair.aster?.symbol : executePair.hyperliquid?.symbol}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 dark:text-gray-200 mb-2">
+                      Size per exchange (USD)
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      step="1"
+                      value={executeSizeUsd}
+                      onChange={(e) => setExecuteSizeUsd(Number(e.target.value))}
+                      className="w-full bg-white dark:bg-slate-700 text-slate-800 dark:text-white px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 dark:text-gray-200 mb-2">
+                      Reference price (used for market IOC)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.0001"
+                      value={executePrice}
+                      onChange={(e) => setExecutePrice(e.target.value)}
+                      className="w-full bg-white dark:bg-slate-700 text-slate-800 dark:text-white px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600"
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-6 flex gap-3">
+                  <button
+                    onClick={() => setShowExecuteModal(false)}
+                    className="flex-1 px-4 py-2 rounded-lg font-medium bg-slate-200 dark:bg-gray-700 hover:bg-slate-300 dark:hover:bg-gray-600 text-slate-800 dark:text-white transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleExecutePair}
+                    disabled={isExecutingPair}
+                    className="flex-1 px-4 py-2 rounded-lg font-medium bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-600 hover:to-cyan-600 text-white transition-colors disabled:opacity-50"
+                  >
+                    {isExecutingPair ? 'Executing...' : 'Execute'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Test Results Modal */}
           {showTestResults && testResults && (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
@@ -2857,6 +3057,7 @@ export default function DalyFunding() {
                   <th className="px-4 py-3 text-right text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase">Position Size</th>
                   <th className="px-4 py-3 text-right text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase">P&L</th>
                   <th className="px-4 py-3 text-right text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase">Funding Earned</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 dark:divide-slate-700/50">
@@ -2870,7 +3071,7 @@ export default function DalyFunding() {
                           position.rank === 3 ? 'bg-orange-500/20 text-orange-400' :
                           'bg-gray-500/20 text-slate-500 dark:text-gray-400'
                         }`}>
-                          #{position.rank}
+                          {position.rank === 0 ? 'M' : `#${position.rank}`}
                         </div>
                       </div>
                     </td>
@@ -2948,6 +3149,21 @@ export default function DalyFunding() {
                       <div className="text-xs text-slate-500 dark:text-gray-500">
                         {((Date.now() - position.entryTime) / (60 * 60 * 1000)).toFixed(1)}h
                       </div>
+                    </td>
+                    <td className="px-4 py-4 text-right">
+                      <button
+                        className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-gradient-to-r from-red-500 to-red-600 text-white hover:from-red-600 hover:to-red-700 transition-all"
+                        onClick={async () => {
+                          await fundingArbitrageService.manualClose(position.canonical);
+                          addNotification({
+                            type: 'info',
+                            title: 'Exit Requested',
+                            message: `${position.canonical} exit sent`,
+                          });
+                        }}
+                      >
+                        Exit
+                      </button>
                     </td>
                   </tr>
                 ))}
