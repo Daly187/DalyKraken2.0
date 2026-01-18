@@ -189,7 +189,6 @@ export default function Gambling() {
   }>({ isOpen: false, opportunity: null });
   const [betAmount, setBetAmount] = useState<string>('10');
   const [placingBet, setPlacingBet] = useState(false);
-  const [autoClosing, setAutoClosing] = useState(false);
 
   // History tab filters
   const [historyFilter, setHistoryFilter] = useState<'all' | 'wins' | 'losses' | 'pending'>('all');
@@ -362,28 +361,6 @@ export default function Gambling() {
     }
   };
 
-  const handleAutoClose = async () => {
-    setAutoClosing(true);
-    setError(null);
-
-    try {
-      const result = await apiService.autoClosePolymarketPositions({
-        takeProfitPercent: formConfig.takeProfitPercent || 5,
-      });
-
-      if (result?.success) {
-        await apiService.triggerPolymarketScan();
-        await fetchAllData();
-      } else {
-        setError(result?.error || 'Auto-close failed');
-      }
-    } catch (err: any) {
-      console.error('[Gambling] Error auto-closing positions:', err);
-      setError(err.message || 'Failed to auto-close positions');
-    } finally {
-      setAutoClosing(false);
-    }
-  };
 
   const handleRefresh = async () => {
     setLoading(true);
@@ -1408,29 +1385,6 @@ export default function Gambling() {
               />
               <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                 Maximum downside before the bot should exit a position.
-              </p>
-            </div>
-
-            <div className="flex flex-col gap-2">
-              <button
-                onClick={handleAutoClose}
-                disabled={autoClosing}
-                className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-              >
-                {autoClosing ? (
-                  <>
-                    <RefreshCw className="h-4 w-4 animate-spin" />
-                    Closing Winners...
-                  </>
-                ) : (
-                  <>
-                    <Target className="h-4 w-4" />
-                    Auto-Close Winners & Rescan
-                  </>
-                )}
-              </button>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Closes positions above the target profit and runs a fresh scan.
               </p>
             </div>
 
