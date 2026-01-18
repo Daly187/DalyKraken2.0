@@ -42,6 +42,9 @@ export default function DalyFunding() {
   const [executeSizeUsd, setExecuteSizeUsd] = useState<number>(0);
   const [executePrice, setExecutePrice] = useState<string>('');
   const [isExecutingPair, setIsExecutingPair] = useState(false);
+  const [executeLeverage, setExecuteLeverage] = useState<number>(1);
+  const [closingSymbols, setClosingSymbols] = useState<Record<string, boolean>>({});
+  const [nowTs, setNowTs] = useState(Date.now());
   const [selectedExchange, setSelectedExchange] = useState<'all' | 'aster' | 'hyperliquid'>('all');
   const [fundingRates, setFundingRates] = useState<FundingRate[]>([]);
   const [positions, setPositions] = useState<FundingPosition[]>([]);
@@ -57,6 +60,7 @@ export default function DalyFunding() {
   const [strategyEnabled, setStrategyEnabled] = useState(false);
   const [autoStrategyCollapsed, setAutoStrategyCollapsed] = useState(false);
   const [totalCapital, setTotalCapital] = useState(50); // Capital per exchange
+  const [leverage, setLeverage] = useState(1);
   const [numberOfPairs, setNumberOfPairs] = useState(3); // Number of positions to trade
   const [allocations, setAllocations] = useState<number[]>([50, 30, 20]); // Dynamic allocations
   const [rebalanceInterval, setRebalanceInterval] = useState(60); // Interval in minutes (default: 60 = 1 hour)
@@ -630,6 +634,12 @@ export default function DalyFunding() {
     }
   }, [asterWallet, hyperliquidWallet]);
 
+  // Update countdown timer for funding payouts
+  useEffect(() => {
+    const interval = setInterval(() => setNowTs(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, []);
+
   // Update strategy status periodically
   useEffect(() => {
     const updateStrategyStatus = () => {
@@ -674,6 +684,7 @@ export default function DalyFunding() {
       setRebalanceInterval(config.rebalanceInterval);
       setMinSpreadThreshold(config.minSpreadThreshold);
       setExcludedSymbols(config.excludedSymbols);
+      setLeverage(config.leverage || 1);
       if (config.walletAddresses.aster) setAsterWallet(config.walletAddresses.aster);
       if (config.walletAddresses.hyperliquid) setHyperliquidWallet(config.walletAddresses.hyperliquid);
 
@@ -853,6 +864,33 @@ export default function DalyFunding() {
     return acc;
   }, {});
 
+  const getNextFundingTime = (exchange: 'aster' | 'hyperliquid') => {
+    const times = fundingRates
+      .filter(rate => rate.exchange === exchange && rate.nextFundingTime)
+      .map(rate => rate.nextFundingTime)
+      .filter((time) => time > 0);
+    if (times.length) return Math.min(...times);
+
+    // Fallbacks if funding data isn't available yet
+    if (exchange === 'hyperliquid') {
+      const nextHour = Math.ceil(nowTs / (60 * 60 * 1000)) * (60 * 60 * 1000);
+      return nextHour;
+    }
+    const eightHours = 8 * 60 * 60 * 1000;
+    return nowTs + eightHours;
+  };
+
+  const formatCountdown = (targetTime: number) => {
+    if (!targetTime) return 'N/A';
+    const diffMs = targetTime - nowTs;
+    if (diffMs <= 0) return 'Imminent';
+    const totalSeconds = Math.floor(diffMs / 1000);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    return `${hours}h ${minutes}m ${seconds}s`;
+  };
+
   // Calculate time until next rebalance
   const getTimeUntilRebalance = () => {
     if (!nextRebalanceTime) return 'Not scheduled';
@@ -923,6 +961,7 @@ export default function DalyFunding() {
       : 0;
     setExecutePair(pair);
     setExecuteSizeUsd(totalCapital);
+    setExecuteLeverage(leverage);
     setExecutePrice(averagePrice > 0 ? averagePrice.toFixed(4) : '');
     setShowExecuteModal(true);
   };
@@ -954,13 +993,14 @@ export default function DalyFunding() {
       const position = await fundingArbitrageService.createManualPosition(
         spread,
         executeSizeUsd,
-        priceOverride
+        priceOverride,
+        executeLeverage
       );
       setShowExecuteModal(false);
       addNotification({
         type: 'success',
         title: 'Position Opened',
-        message: `Opened ${position.canonical} with $${executeSizeUsd} per exchange`,
+        message: `Opened ${position.canonical} with $${executeSizeUsd} per exchange (${executeLeverage}x)`,
       });
     } catch (error: any) {
       addNotification({
@@ -970,6 +1010,33 @@ export default function DalyFunding() {
       });
     } finally {
       setIsExecutingPair(false);
+    }
+  };
+
+  const handleExitPosition = async (canonical: string) => {
+    if (closingSymbols[canonical]) return;
+    setClosingSymbols((prev) => ({ ...prev, [canonical]: true }));
+    try {
+      await fundingArbitrageService.manualClose(canonical);
+      const status = fundingArbitrageService.getStatus();
+      setStrategyPositions(status.positions);
+      addNotification({
+        type: 'info',
+        title: 'Exit Requested',
+        message: `${canonical} exit sent`,
+      });
+    } catch (error: any) {
+      addNotification({
+        type: 'error',
+        title: 'Exit Failed',
+        message: error.message || 'Failed to exit position',
+      });
+    } finally {
+      setClosingSymbols((prev) => {
+        const next = { ...prev };
+        delete next[canonical];
+        return next;
+      });
     }
   };
 
@@ -1179,6 +1246,7 @@ export default function DalyFunding() {
         rebalanceInterval,
         minSpreadThreshold,
         excludedSymbols,
+        leverage,
         walletAddresses: {
           aster: asterWallet || undefined,
           hyperliquid: hyperliquidWallet || undefined,
@@ -1513,6 +1581,21 @@ export default function DalyFunding() {
             </button>
           </div>
 
+          {/* Funding Countdown */}
+          <div className="flex items-center gap-3 border-r border-slate-600/50 pr-4">
+            <div className="text-right">
+              <div className="text-xs text-slate-500 dark:text-slate-400 mb-1">Next Funding</div>
+              <div className="flex items-center gap-3 text-sm">
+                <span className="text-cyan-400 font-semibold">
+                  Aster: {formatCountdown(getNextFundingTime('aster'))}
+                </span>
+                <span className="text-purple-400 font-semibold">
+                  HL: {formatCountdown(getNextFundingTime('hyperliquid'))}
+                </span>
+              </div>
+            </div>
+          </div>
+
           {/* Connection Status */}
           <div className="flex items-center gap-2">
             <div className={`w-3 h-3 rounded-full ${isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
@@ -1733,11 +1816,13 @@ export default function DalyFunding() {
                           <div className="w-2 h-2 rounded-full bg-emerald-400" />
                           <div className="flex items-center gap-2">
                             <span className="font-semibold text-slate-900 dark:text-white">{pair.canonical || 'Unknown'}</span>
-                            {openCounts[pair.canonical] ? (
-                              <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200">
-                                {openCounts[pair.canonical]}
-                              </span>
-                            ) : null}
+                            <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+                              openCounts[pair.canonical]
+                                ? 'bg-emerald-500/20 text-emerald-400'
+                                : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200'
+                            }`}>
+                              {openCounts[pair.canonical] || 0}
+                            </span>
                           </div>
                         </div>
                       </td>
@@ -1829,17 +1914,11 @@ export default function DalyFunding() {
                       <td className="px-4 py-4 text-center">
                         {openCounts[pair.canonical] ? (
                           <button
-                            className="px-4 py-2 rounded-lg text-xs font-bold bg-gradient-to-r from-red-500 to-red-600 text-white hover:from-red-600 hover:to-red-700 transition-all"
-                            onClick={async () => {
-                              await fundingArbitrageService.manualClose(pair.canonical);
-                              addNotification({
-                                type: 'info',
-                                title: 'Position Closed',
-                                message: `${pair.canonical} position exit requested`,
-                              });
-                            }}
+                            className="px-4 py-2 rounded-lg text-xs font-bold bg-gradient-to-r from-red-500 to-red-600 text-white hover:from-red-600 hover:to-red-700 transition-all disabled:opacity-50"
+                            onClick={() => handleExitPosition(pair.canonical)}
+                            disabled={closingSymbols[pair.canonical]}
                           >
-                            Exit
+                            {closingSymbols[pair.canonical] ? 'Exiting...' : 'Exit'}
                           </button>
                         ) : (
                           <button
@@ -2227,6 +2306,30 @@ export default function DalyFunding() {
               </div>
               <p className="text-xs text-slate-500 dark:text-gray-400 mt-2">
                 Per exchange (Total: ${(totalCapital * 2).toLocaleString()})
+              </p>
+            </div>
+
+            {/* Leverage */}
+            <div>
+              <label className="flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-gray-200 mb-3">
+                <Zap className="h-4 w-4 text-yellow-400" />
+                Leverage (both legs)
+                <span className="text-red-400">*</span>
+              </label>
+              <div className="relative">
+                <input
+                  type="number"
+                  step="1"
+                  min="1"
+                  value={leverage}
+                  onChange={(e) => setLeverage(Number(e.target.value))}
+                  disabled={strategyEnabled}
+                  className="w-full bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-600/50 focus:border-primary-500/50 text-slate-800 dark:text-white px-4 py-3 rounded-xl transition-all focus:ring-2 focus:ring-primary-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                  placeholder="1"
+                />
+              </div>
+              <p className="text-xs text-slate-500 dark:text-gray-400 mt-2">
+                Notional per exchange: ${(totalCapital * leverage).toLocaleString()}
               </p>
             </div>
 
@@ -2806,18 +2909,33 @@ export default function DalyFunding() {
                     </div>
                   </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 dark:text-gray-200 mb-2">
-                      Size per exchange (USD)
-                    </label>
-                    <input
-                      type="number"
-                      min="1"
-                      step="1"
-                      value={executeSizeUsd}
-                      onChange={(e) => setExecuteSizeUsd(Number(e.target.value))}
-                      className="w-full bg-white dark:bg-slate-700 text-slate-800 dark:text-white px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600"
-                    />
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 dark:text-gray-200 mb-2">
+                        Margin per exchange (USD)
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        step="1"
+                        value={executeSizeUsd}
+                        onChange={(e) => setExecuteSizeUsd(Number(e.target.value))}
+                        className="w-full bg-white dark:bg-slate-700 text-slate-800 dark:text-white px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 dark:text-gray-200 mb-2">
+                        Leverage (applied to both)
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        step="1"
+                        value={executeLeverage}
+                        onChange={(e) => setExecuteLeverage(Number(e.target.value))}
+                        className="w-full bg-white dark:bg-slate-700 text-slate-800 dark:text-white px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600"
+                      />
+                    </div>
                   </div>
 
                   <div>
@@ -2831,6 +2949,9 @@ export default function DalyFunding() {
                       onChange={(e) => setExecutePrice(e.target.value)}
                       className="w-full bg-white dark:bg-slate-700 text-slate-800 dark:text-white px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600"
                     />
+                    <p className="text-xs text-slate-500 dark:text-gray-400 mt-1">
+                      Notional size: ${(executeSizeUsd * executeLeverage).toFixed(2)} per exchange
+                    </p>
                   </div>
                 </div>
 
@@ -3152,17 +3273,11 @@ export default function DalyFunding() {
                     </td>
                     <td className="px-4 py-4 text-right">
                       <button
-                        className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-gradient-to-r from-red-500 to-red-600 text-white hover:from-red-600 hover:to-red-700 transition-all"
-                        onClick={async () => {
-                          await fundingArbitrageService.manualClose(position.canonical);
-                          addNotification({
-                            type: 'info',
-                            title: 'Exit Requested',
-                            message: `${position.canonical} exit sent`,
-                          });
-                        }}
+                        className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-gradient-to-r from-red-500 to-red-600 text-white hover:from-red-600 hover:to-red-700 transition-all disabled:opacity-50"
+                        onClick={() => handleExitPosition(position.canonical)}
+                        disabled={closingSymbols[position.canonical]}
                       >
-                        Exit
+                        {closingSymbols[position.canonical] ? 'Exiting...' : 'Exit'}
                       </button>
                     </td>
                   </tr>

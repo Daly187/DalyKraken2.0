@@ -128,7 +128,9 @@ export default function Gambling() {
       minProbability: number;
       maxProbability: number;
       minVolume: number;
+      minLiquidity?: number;
       marketScopeLimit: number;
+      closeDate?: string;
     };
   } | null>(null);
 
@@ -141,17 +143,21 @@ export default function Gambling() {
     enabled: false,
     scanIntervalMinutes: 60,
     timeframeHours: 168, // 7 days default for better initial results
-    minProbability: 0.70, // Lower threshold for more results
+    minProbability: 0.75, // Default target threshold
     maxProbability: 0.98,
     contrarianMode: false,
     contrarianThreshold: 0.95,
+    closeDate: undefined,
     marketScopeLimit: 100,
     minVolume: 1000, // Lower minimum volume for more results
+    minLiquidity: 5000,
     betSizeMode: 'fixed',
     fixedBetAmount: 10,
     percentageBetAmount: 2,
     maxBetPercent: 25,
     maxDailyBets: 10,
+    takeProfitPercent: 5,
+    stopLossPercent: 10,
   });
 
   // Section collapse states
@@ -183,6 +189,7 @@ export default function Gambling() {
   }>({ isOpen: false, opportunity: null });
   const [betAmount, setBetAmount] = useState<string>('10');
   const [placingBet, setPlacingBet] = useState(false);
+  const [autoClosing, setAutoClosing] = useState(false);
 
   // History tab filters
   const [historyFilter, setHistoryFilter] = useState<'all' | 'wins' | 'losses' | 'pending'>('all');
@@ -196,6 +203,22 @@ export default function Gambling() {
 
   const toggleSection = (section: string) => {
     setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
+  };
+
+  const handleCloseDateChange = (value: string) => {
+    if (!value) {
+      setFormConfig(prev => ({ ...prev, closeDate: undefined }));
+      return;
+    }
+
+    const endOfDay = new Date(`${value}T23:59:59`);
+    const diffHours = Math.max(1, Math.round((endOfDay.getTime() - Date.now()) / (1000 * 60 * 60)));
+
+    setFormConfig(prev => ({
+      ...prev,
+      closeDate: value,
+      timeframeHours: diffHours,
+    }));
   };
 
   // Fetch all data from API
@@ -336,6 +359,29 @@ export default function Gambling() {
       setError(err.message || 'Failed to save configuration');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleAutoClose = async () => {
+    setAutoClosing(true);
+    setError(null);
+
+    try {
+      const result = await apiService.autoClosePolymarketPositions({
+        takeProfitPercent: formConfig.takeProfitPercent || 5,
+      });
+
+      if (result?.success) {
+        await apiService.triggerPolymarketScan();
+        await fetchAllData();
+      } else {
+        setError(result?.error || 'Auto-close failed');
+      }
+    } catch (err: any) {
+      console.error('[Gambling] Error auto-closing positions:', err);
+      setError(err.message || 'Failed to auto-close positions');
+    } finally {
+      setAutoClosing(false);
     }
   };
 
@@ -634,7 +680,14 @@ export default function Gambling() {
                     </tr>
                   </thead>
                   <tbody>
-                    {positions.map((position) => (
+                    {positions.map((position) => {
+                      const takeProfitTarget = formConfig.takeProfitPercent ?? 5;
+                      const stopLossTarget = formConfig.stopLossPercent ?? 10;
+                      const pnlPercent = position.unrealizedPnLPercent * 100;
+                      const isTakeProfitReady = pnlPercent >= takeProfitTarget;
+                      const isStopLossHit = pnlPercent <= -stopLossTarget;
+
+                      return (
                       <tr key={position.id} className="border-t border-slate-100 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/30">
                         <td className="p-4">
                           <p className="font-medium text-slate-800 dark:text-white text-sm">{position.marketQuestion}</p>
@@ -661,12 +714,22 @@ export default function Gambling() {
                           <span className="block text-xs opacity-70">
                             {position.unrealizedPnLPercent >= 0 ? '+' : ''}{(position.unrealizedPnLPercent * 100).toFixed(1)}%
                           </span>
+                          {(isTakeProfitReady || isStopLossHit) && (
+                            <span className={`mt-1 inline-flex items-center gap-1 rounded px-2 py-0.5 text-[10px] font-medium ${
+                              isStopLossHit
+                                ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
+                                : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
+                            }`}>
+                              {isStopLossHit ? 'Stop Loss' : 'Take Profit'}
+                            </span>
+                          )}
                         </td>
                         <td className="p-4 text-right text-sm text-slate-600 dark:text-slate-300">
                           {formatTimeRemaining(position.endDate)}
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -981,6 +1044,7 @@ export default function Gambling() {
                 <button
                   onClick={() => setFormConfig(prev => ({
                     ...prev,
+                    closeDate: undefined,
                     timeframeHours: prev.timeframeHours && prev.timeframeHours < 9000 ? 9999 : 168
                   }))}
                   className={`px-3 py-1 text-xs font-medium rounded-lg transition-colors ${
@@ -1001,13 +1065,32 @@ export default function Gambling() {
                 </div>
               ) : (
                 <>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                      Close Date (optional)
+                    </label>
+                    <input
+                      type="date"
+                      value={formConfig.closeDate || ''}
+                      onChange={(e) => handleCloseDateChange(e.target.value)}
+                      className="w-full p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white"
+                    />
+                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                      Picks a target close date and adjusts the timeframe automatically.
+                    </p>
+                  </div>
+
                   <div className="flex items-center gap-4">
                     <input
                       type="range"
                       min="1"
                       max="365"
                       value={Math.round((formConfig.timeframeHours || 24) / 24)}
-                      onChange={(e) => setFormConfig(prev => ({ ...prev, timeframeHours: Number(e.target.value) * 24 }))}
+                      onChange={(e) => setFormConfig(prev => ({
+                        ...prev,
+                        closeDate: undefined,
+                        timeframeHours: Number(e.target.value) * 24
+                      }))}
                       className="flex-1 h-2 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer"
                     />
                     <span className="w-24 text-center font-medium text-slate-800 dark:text-white">
@@ -1115,6 +1198,28 @@ export default function Gambling() {
               </div>
               <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                 Only scan markets with trading volume above this amount
+              </p>
+            </div>
+
+            {/* Minimum Liquidity */}
+            <div>
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                Minimum Liquidity (USD)
+              </label>
+              <div className="relative">
+                <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" />
+                <input
+                  type="number"
+                  min="0"
+                  step="1000"
+                  value={formConfig.minLiquidity || 0}
+                  onChange={(e) => setFormConfig(prev => ({ ...prev, minLiquidity: Number(e.target.value) }))}
+                  className="w-full pl-10 pr-4 py-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white"
+                  placeholder="5000"
+                />
+              </div>
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                Filters out thin markets with shallow order books
               </p>
             </div>
           </div>
@@ -1268,6 +1373,65 @@ export default function Gambling() {
                 <option value={60}>Every hour</option>
                 <option value={120}>Every 2 hours</option>
               </select>
+            </div>
+
+            {/* Take Profit Target */}
+            <div>
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                Take Profit Target (%)
+              </label>
+              <input
+                type="number"
+                min="1"
+                max="100"
+                value={formConfig.takeProfitPercent || 5}
+                onChange={(e) => setFormConfig(prev => ({ ...prev, takeProfitPercent: Number(e.target.value) }))}
+                className="w-full p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white"
+              />
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                Target profit threshold for closing a position.
+              </p>
+            </div>
+
+            {/* Stop Loss */}
+            <div>
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                Stop Loss (%)
+              </label>
+              <input
+                type="number"
+                min="1"
+                max="100"
+                value={formConfig.stopLossPercent || 10}
+                onChange={(e) => setFormConfig(prev => ({ ...prev, stopLossPercent: Number(e.target.value) }))}
+                className="w-full p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-800 dark:text-white"
+              />
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                Maximum downside before the bot should exit a position.
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={handleAutoClose}
+                disabled={autoClosing}
+                className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {autoClosing ? (
+                  <>
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                    Closing Winners...
+                  </>
+                ) : (
+                  <>
+                    <Target className="h-4 w-4" />
+                    Auto-Close Winners & Rescan
+                  </>
+                )}
+              </button>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Closes positions above the target profit and runs a fresh scan.
+              </p>
             </div>
 
             {/* Enable/Disable */}
@@ -1447,7 +1611,9 @@ export default function Gambling() {
                         <p className="font-medium text-slate-800 dark:text-white text-sm truncate max-w-[300px]">
                           {bet.marketQuestion}
                         </p>
-                        <span className="text-xs text-slate-500 dark:text-slate-400">{bet.strategy}</span>
+                        <span className="text-xs text-slate-500 dark:text-slate-400">
+                          {bet.strategy === 'external' ? 'Polymarket' : bet.strategy}
+                        </span>
                       </td>
                       <td className="p-4 text-center">
                         <span className={`px-2 py-1 rounded text-xs font-medium ${

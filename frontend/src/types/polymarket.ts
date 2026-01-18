@@ -35,11 +35,17 @@ export interface PolymarketConfig {
   maxProbability: number; // Default 0.95
   contrarianMode: boolean; // Bet against heavy favorites
   contrarianThreshold: number; // Default 0.95
+  closeDate?: string; // Optional target close date (YYYY-MM-DD)
 
   // Market Scope
   marketScopeLimit: number; // Top N markets by volume
   minVolume: number; // Minimum volume in USD
+  minLiquidity?: number; // Minimum liquidity in USD
   categories: string[]; // Filter by categories (empty = all)
+
+  // Exit Strategy
+  takeProfitPercent?: number; // Auto-close when PnL reaches this %
+  stopLossPercent?: number; // Auto-close when PnL drops below this %
 
   // Bet Sizing
   betSizeMode: 'fixed' | 'percentage';
@@ -83,7 +89,7 @@ export interface PolymarketBet {
   amount: number; // USDC spent
   orderId?: string;
   status: 'pending' | 'filled' | 'cancelled' | 'resolved';
-  strategy: 'probability' | 'contrarian' | 'manual';
+  strategy: 'probability' | 'contrarian' | 'manual' | 'external';
   profit?: number;
   profitPercent?: number;
   createdAt: string;
@@ -143,13 +149,17 @@ export const DEFAULT_POLYMARKET_CONFIG: Omit<PolymarketConfig, 'id' | 'userId' |
   enabled: false,
   scanIntervalMinutes: 60,
   timeframeHours: 24,
-  minProbability: 0.80,
+  minProbability: 0.75,
   maxProbability: 0.95,
   contrarianMode: false,
   contrarianThreshold: 0.95,
+  closeDate: undefined,
   marketScopeLimit: 100,
   minVolume: 10000,
+  minLiquidity: 5000,
   categories: [],
+  takeProfitPercent: 5,
+  stopLossPercent: 10,
   betSizeMode: 'fixed',
   fixedBetAmount: 10,
   percentageBetAmount: 2,

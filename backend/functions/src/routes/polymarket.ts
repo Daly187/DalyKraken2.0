@@ -248,6 +248,7 @@ export function createPolymarketRouter(): Router {
     try {
       const userId = getUserId(req);
       const limitNum = parseInt(req.query.limit as string) || 50;
+      const polyService = getPolymarketService(req);
 
       // Try with orderBy first, fall back to simple query if index doesn't exist
       let bets: any[] = [];
@@ -272,10 +273,75 @@ export function createPolymarketRouter(): Router {
         bets.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       }
 
+      // Fetch external trade history directly from Polymarket API (covers bets made outside this app)
+      let externalBets: any[] = [];
+      try {
+        const trades = await polyService.getTradeHistory(limitNum);
+        const marketCache = new Map<string, any>();
+
+        const resolveMarket = async (marketId: string) => {
+          if (marketCache.has(marketId)) return marketCache.get(marketId);
+          try {
+            const market = await polyService.getMarket(marketId);
+            marketCache.set(marketId, market);
+            return market;
+          } catch (err: any) {
+            marketCache.set(marketId, null);
+            return null;
+          }
+        };
+
+        externalBets = await Promise.all(trades.map(async (trade: any) => {
+          const market = trade.market ? await resolveMarket(trade.market) : null;
+          const tokens = market?.tokens || [];
+          const matchedToken = tokens.find((t: any) => t.token_id === trade.asset_id);
+          const outcomeName = matchedToken?.outcome || 'Unknown';
+          const normalizedOutcome = String(outcomeName).toLowerCase();
+          const side = normalizedOutcome.includes('no') ? 'no' : 'yes';
+
+          const rawTimestamp = Number(trade.timestamp || 0);
+          const createdAt = rawTimestamp > 1e12
+            ? new Date(rawTimestamp).toISOString()
+            : new Date(rawTimestamp * 1000).toISOString();
+
+          const price = parseFloat(trade.price || '0');
+          const shares = parseFloat(trade.size || '0');
+          const amount = price * shares;
+
+          return {
+            id: `trade_${trade.id}`,
+            marketId: trade.market || 'unknown',
+            marketQuestion: market?.question || 'Unknown Market',
+            outcomeId: trade.asset_id || 'unknown',
+            outcomeName,
+            side,
+            shares,
+            amount,
+            price,
+            orderId: trade.id,
+            status: 'filled',
+            strategy: 'external',
+            createdAt,
+            externalTradeId: trade.id,
+          };
+        }));
+      } catch (externalErr: any) {
+        console.log('[Polymarket] Could not fetch external trade history:', externalErr.message);
+      }
+
+      // De-duplicate any external trades already stored as internal bets
+      const existingOrderIds = new Set(
+        bets.map((b: any) => b.orderId).filter((id: string) => !!id)
+      );
+      const mergedBets = [
+        ...bets,
+        ...externalBets.filter((b: any) => !existingOrderIds.has(b.orderId)),
+      ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
       res.json({
         success: true,
-        bets,
-        count: bets.length,
+        bets: mergedBets,
+        count: mergedBets.length,
       });
     } catch (error: any) {
       console.error('[Polymarket] Error fetching bets:', error);
@@ -545,9 +611,10 @@ export function createPolymarketRouter(): Router {
       const defaultConfig = {
         timeframeHours: 168, // 7 days
         marketScopeLimit: 100,
-        minProbability: 0.70, // Lower threshold
+        minProbability: 0.75, // Default target threshold
         maxProbability: 0.98,
         minVolume: 1000, // Lower volume threshold
+        minLiquidity: 5000,
       };
 
       const config = configDoc.exists ? { ...defaultConfig, ...configDoc.data() } : defaultConfig;
@@ -559,6 +626,8 @@ export function createPolymarketRouter(): Router {
         minProbability: config.minProbability,
         maxProbability: config.maxProbability,
         minVolume: config.minVolume,
+        minLiquidity: config.minLiquidity,
+        closeDate: config.closeDate,
         configExists: configDoc.exists,
       });
 
@@ -570,11 +639,13 @@ export function createPolymarketRouter(): Router {
         config.marketScopeLimit || 100
       );
 
-      // Filter by volume threshold first
+      // Filter by volume and liquidity thresholds first
       const minVolume = config.minVolume || 0;
+      const minLiquidity = config.minLiquidity || 0;
       const volumeFilteredMarkets = markets.filter(market => {
         const volume = parseFloat(market.volume || '0');
-        return volume >= minVolume;
+        const liquidity = parseFloat(market.liquidity || '0');
+        return volume >= minVolume && liquidity >= minLiquidity;
       });
 
       // Filter by probability threshold and build opportunity objects
@@ -676,6 +747,7 @@ export function createPolymarketRouter(): Router {
         marketsScanned: markets.length,
         marketsAfterVolumeFilter: volumeFilteredMarkets.length,
         minVolumeUsed: minVolume,
+        minLiquidityUsed: minLiquidity,
         opportunitiesFound: opportunities.length,
         betsPlaced: 0, // Manual scan doesn't auto-place bets
         timestamp: new Date().toISOString(),
@@ -684,7 +756,9 @@ export function createPolymarketRouter(): Router {
           minProbability: minProb,
           maxProbability: maxProb,
           minVolume: minVolume,
+          minLiquidity: minLiquidity,
           marketScopeLimit: config.marketScopeLimit,
+          closeDate: config.closeDate || null,
         },
       };
 
@@ -702,7 +776,9 @@ export function createPolymarketRouter(): Router {
             minProbability: minProb,
             maxProbability: maxProb,
             minVolume: minVolume,
+            minLiquidity: minLiquidity,
             marketScopeLimit: config.marketScopeLimit,
+            closeDate: config.closeDate || null,
           },
         },
       });

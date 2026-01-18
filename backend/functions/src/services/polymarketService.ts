@@ -800,7 +800,7 @@ export class PolymarketService {
         const response = await axios.get('https://data-api.polymarket.com/positions', {
           params: {
             user: addr,
-            sizeThreshold: 0,  // Include all positions
+            sizeThreshold: 0.0001,  // Exclude closed/zero-size positions
             limit: 100,
           },
           timeout: 15000,
@@ -824,8 +824,14 @@ export class PolymarketService {
       index === self.findIndex(p => p.asset?.token_id === pos.asset?.token_id)
     );
 
-    console.log(`[PolymarketService] Total unique positions found: ${uniquePositions.length}`);
-    return uniquePositions;
+    // Filter out zero-size positions that may still appear due to API lag
+    const filteredPositions = uniquePositions.filter((pos: any) => {
+      const size = parseFloat(pos.size || '0');
+      return size > 0;
+    });
+
+    console.log(`[PolymarketService] Total unique positions found: ${uniquePositions.length}, filtered to ${filteredPositions.length} open`);
+    return filteredPositions;
   }
 
   /**

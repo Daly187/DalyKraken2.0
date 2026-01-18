@@ -42,6 +42,7 @@ export interface StrategyPosition {
   allocation: number; // Percentage of total capital (30, 30, 20, 10, 10)
   rank: number; // 1-5
   source?: 'auto' | 'manual';
+  leverage?: number;
 
   // Long side
   longExchange: 'aster' | 'hyperliquid';
@@ -81,6 +82,7 @@ export interface StrategyConfig {
   minSpreadThreshold: number; // Minimum annualized spread to enter (e.g., 50 = 50% APR)
   fillTimeout: number; // Time to wait for both orders to fill (milliseconds)
   excludedSymbols: string[]; // Manual exclusions
+  leverage: number; // Same leverage for both legs
   walletAddresses: {
     aster?: string;
     hyperliquid?: string;
@@ -106,6 +108,7 @@ class FundingArbitrageService {
     minSpreadThreshold: 50, // 50% APR minimum annualized spread
     fillTimeout: 30000, // 30 seconds to wait for order fills
     excludedSymbols: [],
+    leverage: 1,
     walletAddresses: {},
     manualMappings: [], // No manual mappings by default
   };
@@ -354,6 +357,28 @@ class FundingArbitrageService {
     console.log(`[HedgedEntry] [${execId}] Long: ${longExchange}, Short: ${shortExchange}, Price: ${price}, Size: $${size}`);
 
     try {
+      const expectedLeverage = this.config.leverage || 1;
+      const [longLeverage, shortLeverage] = await Promise.all([
+        exchangeTradeService.getExchangeLeverage(longExchange, longSymbol),
+        exchangeTradeService.getExchangeLeverage(shortExchange, shortSymbol),
+      ]);
+
+      if (longLeverage === null || shortLeverage === null) {
+        throw new Error(
+          `Unable to verify leverage (expected ${expectedLeverage}x). ` +
+          `Long: ${longExchange}=${longLeverage ?? 'unknown'}x, ` +
+          `Short: ${shortExchange}=${shortLeverage ?? 'unknown'}x`
+        );
+      }
+
+      if (Math.abs(longLeverage - expectedLeverage) > 0.01 || Math.abs(shortLeverage - expectedLeverage) > 0.01) {
+        throw new Error(
+          `Leverage mismatch (expected ${expectedLeverage}x). ` +
+          `Long: ${longExchange}=${longLeverage}x, ` +
+          `Short: ${shortExchange}=${shortLeverage}x`
+        );
+      }
+
       // Step 1: Place both limit orders simultaneously
       console.log(`[HedgedEntry] [${execId}] Placing limit orders on both exchanges...`);
       console.log(`[HedgedEntry] [${execId}] Long will go to: ${longExchange}, Short will go to: ${shortExchange}`);
@@ -522,12 +547,14 @@ class FundingArbitrageService {
   async createPosition(spread: FundingSpread, rank: number): Promise<StrategyPosition> {
     const allocation = this.config.allocations[rank - 1];
     const positionSize = this.calculatePositionSize(rank);
+    const leverage = this.config.leverage || 1;
+    const notionalSize = positionSize * leverage;
     // positionSize is now the amount PER EXCHANGE (no halfSize needed)
 
     const longData = spread.longExchange === 'aster' ? spread.aster! : spread.hyperliquid!;
     const shortData = spread.shortExchange === 'aster' ? spread.aster! : spread.hyperliquid!;
 
-    console.log(`[Arbitrage] Creating position: ${spread.canonical} (Rank ${rank}, ${allocation}%, $${positionSize.toFixed(2)} per exchange)`);
+    console.log(`[Arbitrage] Creating position: ${spread.canonical} (Rank ${rank}, ${allocation}%, $${positionSize.toFixed(2)} per exchange, ${leverage}x leverage)`);
 
     const mappingMultiplier = this.config.manualMappings?.find(m => m.canonical === spread.canonical)?.multiplier || 1;
     if (mappingMultiplier !== 1) {
@@ -550,7 +577,7 @@ class FundingArbitrageService {
       longData.symbol,
       shortData.symbol,
       executionPrice,
-      positionSize
+      notionalSize
     );
 
     // Check if trade execution was successful
@@ -569,7 +596,7 @@ class FundingArbitrageService {
       // Long side
       longExchange: spread.longExchange,
       longSymbol: longData.symbol,
-      longSize: positionSize,
+      longSize: notionalSize,
       longEntryPrice: executionPrice,
       longCurrentPrice: executionPrice,
       longFundingRate: longData.rate,
@@ -577,7 +604,7 @@ class FundingArbitrageService {
       // Short side
       shortExchange: spread.shortExchange,
       shortSymbol: shortData.symbol,
-      shortSize: positionSize,
+      shortSize: notionalSize,
       shortEntryPrice: executionPrice,
       shortCurrentPrice: executionPrice,
       shortFundingRate: shortData.rate,
@@ -590,6 +617,7 @@ class FundingArbitrageService {
 
       status: 'open',
       entryTime: Date.now(),
+      leverage,
     };
 
     this.positions.set(position.canonical, position);
@@ -622,7 +650,8 @@ class FundingArbitrageService {
   async createManualPosition(
     spread: FundingSpread,
     size: number,
-    priceOverride?: number
+    priceOverride?: number,
+    leverage = 1
   ): Promise<StrategyPosition> {
     if (this.positions.has(spread.canonical)) {
       throw new Error(`Position already open for ${spread.canonical}`);
@@ -636,13 +665,14 @@ class FundingArbitrageService {
       throw new Error(`Invalid execution price for ${spread.canonical}: ${executionPrice}`);
     }
 
+    const notionalSize = size * leverage;
     const hedgedResult = await this.executeHedgedEntry(
       spread.longExchange,
       spread.shortExchange,
       longData.symbol,
       shortData.symbol,
       executionPrice,
-      size
+      notionalSize
     );
 
     if (!hedgedResult.success) {
@@ -655,15 +685,16 @@ class FundingArbitrageService {
       allocation: 0,
       rank: 0,
       source: 'manual',
+      leverage,
       longExchange: spread.longExchange,
       longSymbol: longData.symbol,
-      longSize: size,
+      longSize: notionalSize,
       longEntryPrice: executionPrice,
       longCurrentPrice: executionPrice,
       longFundingRate: longData.rate,
       shortExchange: spread.shortExchange,
       shortSymbol: shortData.symbol,
-      shortSize: size,
+      shortSize: notionalSize,
       shortEntryPrice: executionPrice,
       shortCurrentPrice: executionPrice,
       shortFundingRate: shortData.rate,
@@ -687,7 +718,7 @@ class FundingArbitrageService {
       position.longEntryPrice,
       position.shortEntryPrice,
       spread.spread,
-      size
+      notionalSize
     );
 
     return position;

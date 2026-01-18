@@ -87,6 +87,93 @@ class ExchangeTradeService {
   private readonly hlDebugEnabled = true;
 
   /**
+   * Get current leverage for Aster futures symbol
+   */
+  private async getAsterLeverage(symbol: string): Promise<number | null> {
+    const apiKey = localStorage.getItem('aster_api_key');
+    const apiSecret = localStorage.getItem('aster_api_secret');
+
+    if (!apiKey || !apiSecret) {
+      throw new Error('AsterDEX API credentials not configured');
+    }
+
+    const crypto = await import('crypto-js');
+    const timestamp = Date.now();
+    const params = `symbol=${symbol}&timestamp=${timestamp}&recvWindow=5000`;
+    const signature = crypto.default.HmacSHA256(params, apiSecret).toString();
+
+    try {
+      const response = await fetch(
+        `https://fapi.asterdex.com/fapi/v2/positionRisk?${params}&signature=${signature}`,
+        {
+          headers: { 'X-MBX-APIKEY': apiKey },
+        }
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        const entry = Array.isArray(data) ? data.find((p: any) => p.symbol === symbol) : data;
+        const leverage = entry?.leverage ? parseFloat(entry.leverage) : null;
+        return Number.isFinite(leverage) ? leverage : null;
+      }
+    } catch {
+      // Fall through to account-based fallback
+    }
+
+    // Fallback: look up leverage from account positions
+    const accountParams = `timestamp=${timestamp}&recvWindow=5000`;
+    const accountSignature = crypto.default.HmacSHA256(accountParams, apiSecret).toString();
+    const accountResponse = await fetch(
+      `https://fapi.asterdex.com/fapi/v2/account?${accountParams}&signature=${accountSignature}`,
+      { headers: { 'X-MBX-APIKEY': apiKey } }
+    );
+    if (!accountResponse.ok) return null;
+    const accountData = await accountResponse.json();
+    const position = accountData?.positions?.find((p: any) => p.symbol === symbol);
+    const leverage = position?.leverage ? parseFloat(position.leverage) : null;
+    return Number.isFinite(leverage) ? leverage : null;
+  }
+
+  /**
+   * Get current leverage for Hyperliquid symbol
+   */
+  private async getHyperliquidLeverage(symbol: string): Promise<number | null> {
+    const wallet = localStorage.getItem('hyperliquid_wallet_address');
+    if (!wallet) throw new Error('Wallet not found');
+
+    const baseAsset = symbol.replace('USDT', '').replace('PERP', '').replace('USD', '');
+    const response = await fetch(`${HL_API}/info`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'clearinghouseState',
+        user: wallet,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`HyperLiquid leverage check failed: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    const entry = data?.assetPositions?.find((ap: any) => ap.position?.coin === baseAsset);
+    const leverage = entry?.position?.leverage?.value
+      ? parseFloat(entry.position.leverage.value)
+      : null;
+    return Number.isFinite(leverage) ? leverage : null;
+  }
+
+  /**
+   * Public leverage lookup (per symbol)
+   */
+  async getExchangeLeverage(exchange: 'aster' | 'hyperliquid', symbol: string): Promise<number | null> {
+    if (exchange === 'aster') {
+      return this.getAsterLeverage(symbol);
+    }
+    return this.getHyperliquidLeverage(symbol);
+  }
+
+  /**
    * Initialize the service (must be called before use)
    */
   async initialize(): Promise<void> {
