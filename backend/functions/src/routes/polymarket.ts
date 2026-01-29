@@ -109,17 +109,18 @@ export function createPolymarketRouter(): Router {
       const doc = await configRef.get();
 
       if (!doc.exists) {
-        // Return default config - more permissive defaults for better initial results
+        // Return default config - permissive defaults to show all available markets
         const defaultConfig = {
           enabled: false,
           scanIntervalMinutes: 60,
-          timeframeHours: 168, // 7 days default
-          minProbability: 0.70, // Lower threshold
-          maxProbability: 0.98,
+          timeframeHours: 0, // 0 = no time filter, show all active markets
+          minProbability: 0.01, // Very low threshold to include most markets
+          maxProbability: 0.99,
           contrarianMode: false,
           contrarianThreshold: 0.95,
-          marketScopeLimit: 100,
-          minVolume: 1000, // Lower volume threshold
+          marketScopeLimit: 500, // Increased from 100
+          minVolume: 0, // No volume filter by default
+          minLiquidity: 0, // No liquidity filter by default
           categories: [],
           betSizeMode: 'fixed',
           fixedBetAmount: 10,
@@ -607,15 +608,16 @@ export function createPolymarketRouter(): Router {
       const configRef = db.collection('polymarketConfigs').doc(userId);
       const configDoc = await configRef.get();
 
-      // Use saved config or defaults - more permissive defaults for better initial results
+      // Use saved config or defaults - permissive defaults to show all available markets
       const defaultConfig = {
-        timeframeHours: 168, // 7 days
-        marketScopeLimit: 100,
-        minProbability: 0.75, // Default target threshold
-        maxProbability: 0.98,
-        minVolume: 1000, // Lower volume threshold
-        minLiquidity: 5000,
+        timeframeHours: 0, // 0 = no time filter, show all active markets
+        marketScopeLimit: 500, // Increased limit
+        minProbability: 0.01, // Very low to include most markets
+        maxProbability: 0.99,
+        minVolume: 0, // No volume filter by default
+        minLiquidity: 0, // No liquidity filter by default
         closeDate: null,
+        maxOpportunities: 100, // Return up to 100 opportunities
       };
 
       const config = configDoc.exists ? { ...defaultConfig, ...configDoc.data() } : defaultConfig;
@@ -765,13 +767,16 @@ export function createPolymarketRouter(): Router {
 
       await db.collection('polymarketExecutions').add(execution);
 
+      // Determine how many opportunities to return (default 100, configurable)
+      const maxOpportunities = config.maxOpportunities || 100;
+
       res.json({
         success: true,
         result: {
           marketsScanned: markets.length,
           marketsAfterVolumeFilter: volumeFilteredMarkets.length,
           opportunitiesFound: opportunities.length,
-          opportunities: opportunities.slice(0, 20), // Return top 20 opportunities
+          opportunities: opportunities.slice(0, maxOpportunities), // Return more opportunities
           filtersUsed: {
             timeframeHours: config.timeframeHours,
             minProbability: minProb,
@@ -780,6 +785,7 @@ export function createPolymarketRouter(): Router {
             minLiquidity: minLiquidity,
             marketScopeLimit: config.marketScopeLimit,
             closeDate: config.closeDate || null,
+            maxOpportunities: maxOpportunities,
           },
         },
       });

@@ -477,7 +477,7 @@ export class PolymarketService {
   // ============================================
 
   /**
-   * Get all active markets
+   * Get all active markets with pagination support
    */
   async getMarkets(options?: {
     active?: boolean;
@@ -501,6 +501,78 @@ export class PolymarketService {
   }
 
   /**
+   * Get all active markets using pagination to fetch more than API limit
+   * Fetches multiple pages in parallel for speed
+   */
+  async getAllActiveMarkets(maxMarkets: number = 2000): Promise<PolymarketMarket[]> {
+    try {
+      const pageSize = 500; // Gamma API max per request
+      const pagesToFetch = Math.ceil(maxMarkets / pageSize);
+
+      console.log(`[PolymarketService] Fetching up to ${maxMarkets} markets across ${pagesToFetch} pages`);
+
+      // Fetch first page to get initial count
+      const firstPage = await this.getMarkets({
+        active: true,
+        closed: false,
+        limit: pageSize,
+        offset: 0
+      });
+
+      if (firstPage.length < pageSize) {
+        // All markets fit in first page
+        console.log(`[PolymarketService] Got ${firstPage.length} markets (single page)`);
+        return firstPage;
+      }
+
+      // Fetch remaining pages in parallel
+      const remainingPages = [];
+      for (let i = 1; i < pagesToFetch; i++) {
+        remainingPages.push(
+          this.getMarkets({
+            active: true,
+            closed: false,
+            limit: pageSize,
+            offset: i * pageSize
+          }).catch(err => {
+            console.log(`[PolymarketService] Page ${i} fetch failed:`, err.message);
+            return [];
+          })
+        );
+      }
+
+      const additionalPages = await Promise.all(remainingPages);
+      const allMarkets = [firstPage, ...additionalPages].flat();
+
+      console.log(`[PolymarketService] Fetched ${allMarkets.length} total markets across ${pagesToFetch} pages`);
+      return allMarkets.slice(0, maxMarkets);
+    } catch (error: any) {
+      console.error('[PolymarketService] Error fetching all markets:', error.message);
+      // Fall back to single page
+      return this.getMarkets({ active: true, closed: false, limit: 500 });
+    }
+  }
+
+  /**
+   * Get active events with their markets
+   * Events contain multiple related markets (e.g., "Will BTC hit $X" with multiple price levels)
+   */
+  async getActiveEvents(limit: number = 100): Promise<any[]> {
+    try {
+      const params = new URLSearchParams();
+      params.append('active', 'true');
+      params.append('closed', 'false');
+      params.append('limit', String(limit));
+
+      const response = await this.gammaApi.get(`/events?${params.toString()}`);
+      return response.data || [];
+    } catch (error: any) {
+      console.error('[PolymarketService] Error fetching events:', error.message);
+      return [];
+    }
+  }
+
+  /**
    * Get a specific market by ID
    */
   async getMarket(marketId: string): Promise<PolymarketMarket> {
@@ -518,58 +590,99 @@ export class PolymarketService {
    * These are the "Bitcoin above __ on January 9?" style markets
    */
   async getCryptoSeriesMarkets(): Promise<PolymarketMarket[]> {
-    // Popular crypto price series IDs from Polymarket
+    // Comprehensive list of crypto price series IDs from Polymarket
+    // Including daily, 4H, weekly, and monthly timeframes
     const cryptoSeriesIds = [
+      // Bitcoin series
       '10151', // Bitcoin Hit Price Weekly
-      '10152', // Ethereum Hit Price Weekly
-      '10032', // Solana Hit Price Monthly
-      '10017', // Ethereum Hit Price Monthly
       '10103', // Bitcoin Neg Risk 4H
-      '10233', // Solana Multi Strikes 4H
+      '10229', // Bitcoin Multi Strikes 4H
+      '10246', // Bitcoin Neg Risk Weekly
+      '10253', // Bitcoin Daily Price
+
+      // Ethereum series
+      '10152', // Ethereum Hit Price Weekly
+      '10017', // Ethereum Hit Price Monthly
       '10231', // Ethereum Multi Strikes 4H
+      '42',    // Ethereum Multi Strikes Weekly
+      '10254', // Ethereum Daily Price
+
+      // Solana series
+      '10032', // Solana Hit Price Monthly
+      '10233', // Solana Multi Strikes 4H
+      '10248', // Solana Neg Risk 4H
+      '10255', // Solana Daily Price
+
+      // XRP series
       '10232', // XRP Multi Strikes 4H
       '10247', // XRP Neg Risk Weekly
-      '10248', // Solana Neg Risk 4H
       '10250', // XRP Neg Risk 4H
-      '42',    // Ethereum Multi Strikes Weekly
+
+      // Other popular crypto series
+      '10234', // DOGE Multi Strikes
+      '10235', // AVAX Multi Strikes
+      '10236', // LINK Multi Strikes
+      '10237', // MATIC Multi Strikes
     ];
 
     const allMarkets: PolymarketMarket[] = [];
 
     try {
-      // Fetch each series and extract active markets
-      for (const seriesId of cryptoSeriesIds) {
-        try {
-          const response = await this.gammaApi.get(`/series/${seriesId}`);
-          const series = response.data;
+      // Fetch series in parallel for speed (batch of 5 at a time)
+      const batchSize = 5;
+      for (let i = 0; i < cryptoSeriesIds.length; i += batchSize) {
+        const batch = cryptoSeriesIds.slice(i, i + batchSize);
+        const batchResults = await Promise.all(
+          batch.map(async (seriesId) => {
+            try {
+              const response = await this.gammaApi.get(`/series/${seriesId}`);
+              const series = response.data;
+              const markets: PolymarketMarket[] = [];
 
-          if (series?.events) {
-            // Find active (not closed) events and their markets
-            for (const event of series.events) {
-              if (!event.closed && event.markets) {
-                for (const market of event.markets) {
-                  if (market.active && !market.closed) {
-                    // Add series context to market
-                    allMarkets.push({
-                      ...market,
-                      category: 'Crypto',
-                      seriesTitle: series.title,
-                    });
+              if (series?.events) {
+                // Find active (not closed) events and their markets
+                for (const event of series.events) {
+                  if (!event.closed && event.markets) {
+                    for (const market of event.markets) {
+                      if (market.active && !market.closed) {
+                        // Add series context to market
+                        markets.push({
+                          ...market,
+                          category: 'Crypto',
+                          seriesTitle: series.title,
+                        });
+                      }
+                    }
                   }
                 }
               }
+              return markets;
+            } catch (err: any) {
+              // Skip failed series silently
+              return [];
             }
-          }
-        } catch (err: any) {
-          // Skip failed series silently
-          console.log(`[PolymarketService] Skipping series ${seriesId}: ${err.message}`);
-        }
+          })
+        );
+        allMarkets.push(...batchResults.flat());
       }
 
       console.log(`[PolymarketService] Found ${allMarkets.length} active crypto series markets`);
       return allMarkets;
     } catch (error: any) {
       console.error('[PolymarketService] Error fetching crypto series:', error.message);
+      return [];
+    }
+  }
+
+  /**
+   * Fetch all active series from Polymarket to discover new recurring markets
+   */
+  async getActiveSeries(): Promise<any[]> {
+    try {
+      const response = await this.gammaApi.get('/series?active=true&limit=100');
+      return response.data || [];
+    } catch (error: any) {
+      console.error('[PolymarketService] Error fetching series:', error.message);
       return [];
     }
   }
@@ -881,15 +994,40 @@ export class PolymarketService {
     try {
       console.log(`[PolymarketService] Fetching markets (timeframe: ${hoursFromNow}h, limit: ${limit})`);
 
-      // Fetch regular markets AND crypto series markets in parallel
-      const [regularMarkets, cryptoSeriesMarkets] = await Promise.all([
-        this.getMarkets({ active: true, closed: false, limit: 500 }),
+      // Fetch regular markets (paginated), crypto series markets, and events in parallel
+      const [regularMarkets, cryptoSeriesMarkets, events] = await Promise.all([
+        this.getAllActiveMarkets(2000), // Fetch up to 2000 markets with pagination
         this.getCryptoSeriesMarkets(),
+        this.getActiveEvents(200), // Fetch active events
       ]);
 
-      // Combine all markets
-      const allMarkets = [...(regularMarkets || []), ...cryptoSeriesMarkets];
-      console.log(`[PolymarketService] Got ${regularMarkets?.length || 0} regular + ${cryptoSeriesMarkets.length} crypto series = ${allMarkets.length} total markets`);
+      // Extract markets from events that might not be in the regular markets list
+      const eventMarkets: PolymarketMarket[] = [];
+      for (const event of events) {
+        if (event.markets && Array.isArray(event.markets)) {
+          for (const market of event.markets) {
+            if (market.active && !market.closed) {
+              eventMarkets.push({
+                ...market,
+                category: event.category || market.category,
+                eventTitle: event.title,
+              });
+            }
+          }
+        }
+      }
+
+      // Combine all markets and deduplicate by ID
+      const marketMap = new Map<string, PolymarketMarket>();
+      for (const market of [...(regularMarkets || []), ...cryptoSeriesMarkets, ...eventMarkets]) {
+        const id = market.id || (market as any).conditionId || market.condition_id;
+        if (id && !marketMap.has(id)) {
+          marketMap.set(id, market);
+        }
+      }
+      const allMarkets = Array.from(marketMap.values());
+
+      console.log(`[PolymarketService] Got ${regularMarkets?.length || 0} regular + ${cryptoSeriesMarkets.length} crypto series + ${eventMarkets.length} from events = ${allMarkets.length} unique markets`);
 
       if (allMarkets.length === 0) {
         return [];
@@ -908,21 +1046,27 @@ export class PolymarketService {
       const cutoff = new Date(now.getTime() + hoursFromNow * 60 * 60 * 1000);
 
       // Filter markets by end date - API uses endDate or endDateIso (camelCase)
+      // Also include markets with no end date (perpetual/ongoing markets)
       const filteredMarkets = allMarkets.filter(market => {
         const endDateStr = (market as any).endDate || (market as any).endDateIso || market.end_date_iso;
-        if (!endDateStr) return false;
+        if (!endDateStr) {
+          // Include markets without end dates - they might be daily/recurring
+          return true;
+        }
         const endDate = new Date(endDateStr);
         return endDate > now && endDate <= cutoff;
       });
 
-      console.log(`[PolymarketService] ${filteredMarkets.length} markets closing within ${hoursFromNow} hours`);
+      console.log(`[PolymarketService] ${filteredMarkets.length} markets closing within ${hoursFromNow} hours (or no end date)`);
 
-      // Return filtered markets sorted by end date (soonest first)
-      // Do NOT fall back to all markets - respect the timeframe filter
+      // Return filtered markets sorted by end date (soonest first), markets without end dates at the end
       return filteredMarkets
         .sort((a, b) => {
           const aEnd = (a as any).endDate || (a as any).endDateIso || a.end_date_iso;
           const bEnd = (b as any).endDate || (b as any).endDateIso || b.end_date_iso;
+          if (!aEnd && !bEnd) return 0;
+          if (!aEnd) return 1;
+          if (!bEnd) return -1;
           return new Date(aEnd).getTime() - new Date(bEnd).getTime();
         })
         .slice(0, limit);
