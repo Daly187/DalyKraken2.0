@@ -885,7 +885,7 @@ export class PolymarketService {
   /**
    * Get user positions
    * Uses the Data API to fetch user's open positions
-   * Tries both the wallet address and funder address (proxy wallet)
+   * Tries multiple methods to find the correct wallet address
    */
   async getPositions(): Promise<PolymarketPosition[]> {
     const addressesToTry: string[] = [];
@@ -899,6 +899,30 @@ export class PolymarketService {
       addressesToTry.push(this.address);
     }
 
+    console.log('[PolymarketService] Configured addresses:', {
+      funderAddress: this.funderAddress,
+      walletAddress: this.address,
+      addressesToTry,
+    });
+
+    // If we have API credentials, try to discover the proxy wallet from CLOB API
+    if (this.apiKey && addressesToTry.length === 0) {
+      try {
+        console.log('[PolymarketService] Trying to discover wallet from CLOB API...');
+        // The authenticated request should use the correct address
+        const response = await this.clobApi.get('/profile');
+        if (response.data?.proxyWallet) {
+          addressesToTry.push(response.data.proxyWallet);
+          console.log(`[PolymarketService] Discovered proxy wallet: ${response.data.proxyWallet}`);
+        }
+        if (response.data?.funderAddress) {
+          addressesToTry.push(response.data.funderAddress);
+        }
+      } catch (err: any) {
+        console.log('[PolymarketService] Could not discover wallet from CLOB:', err.message);
+      }
+    }
+
     if (addressesToTry.length === 0) {
       console.log('[PolymarketService] No address provided, cannot fetch positions');
       return [];
@@ -908,19 +932,23 @@ export class PolymarketService {
 
     for (const addr of addressesToTry) {
       try {
-        // Data API positions endpoint - no auth required, just user address
+        // Data API positions endpoint - try without sizeThreshold to get ALL positions
         console.log(`[PolymarketService] Fetching positions for address: ${addr}`);
         const response = await axios.get('https://data-api.polymarket.com/positions', {
           params: {
-            user: addr,
-            sizeThreshold: 0.0001,  // Exclude closed/zero-size positions
-            limit: 100,
+            user: addr.toLowerCase(), // Ensure lowercase address
+            limit: 500,
           },
           timeout: 15000,
         });
 
         const positions = response.data || [];
-        console.log(`[PolymarketService] Found ${positions.length} positions for ${addr}`);
+        console.log(`[PolymarketService] Raw response for ${addr}: ${positions.length} positions`);
+
+        // Log first few positions for debugging
+        if (positions.length > 0) {
+          console.log(`[PolymarketService] Sample position:`, JSON.stringify(positions[0], null, 2));
+        }
 
         if (positions.length > 0) {
           // Add source address to each position for debugging
@@ -928,13 +956,64 @@ export class PolymarketService {
           allPositions.push(...positions);
         }
       } catch (error: any) {
-        console.error(`[PolymarketService] Error fetching positions for ${addr}:`, error.message);
+        console.error(`[PolymarketService] Error fetching positions for ${addr}:`, error.response?.data || error.message);
       }
     }
 
-    // Deduplicate by asset.token_id if same position found under multiple addresses
-    const uniquePositions = allPositions.filter((pos, index, self) =>
-      index === self.findIndex(p => p.asset?.token_id === pos.asset?.token_id)
+    // If no positions found with configured addresses, try to find them from recent activity
+    if (allPositions.length === 0) {
+      console.log('[PolymarketService] No positions found with configured addresses, checking trade history...');
+      try {
+        const trades = await this.getTradeHistory(10);
+        if (trades.length > 0) {
+          // Extract unique wallet addresses from trades
+          const tradeAddresses = new Set<string>();
+          trades.forEach((t: any) => {
+            if (t.maker) tradeAddresses.add(t.maker);
+            if (t.taker) tradeAddresses.add(t.taker);
+          });
+
+          for (const addr of tradeAddresses) {
+            if (!addressesToTry.includes(addr)) {
+              try {
+                console.log(`[PolymarketService] Trying address from trades: ${addr}`);
+                const response = await axios.get('https://data-api.polymarket.com/positions', {
+                  params: { user: addr, sizeThreshold: 0.0001, limit: 500 },
+                  timeout: 15000,
+                });
+                const positions = response.data || [];
+                if (positions.length > 0) {
+                  console.log(`[PolymarketService] Found ${positions.length} positions for trade address ${addr}`);
+                  positions.forEach((p: any) => p._sourceAddress = addr);
+                  allPositions.push(...positions);
+                }
+              } catch (err: any) {
+                // Skip
+              }
+            }
+          }
+        }
+      } catch (err: any) {
+        console.log('[PolymarketService] Could not fetch trade history:', err.message);
+      }
+    }
+
+    // Deduplicate positions if same position found under multiple addresses
+    // Data API returns tokenId directly on position object, not nested under asset
+    // Use tokenId if available, otherwise use conditionId + outcome as unique key
+    const uniquePositions = allPositions.filter((pos: any, index, self) =>
+      index === self.findIndex((p: any) => {
+        // Primary: use tokenId if available
+        const posTokenId = pos.tokenId || pos.asset?.token_id;
+        const pTokenId = p.tokenId || p.asset?.token_id;
+        if (posTokenId && pTokenId) {
+          return posTokenId === pTokenId;
+        }
+        // Fallback: use conditionId + outcome
+        const posKey = `${pos.conditionId || pos.asset?.condition_id}_${pos.outcome || pos.outcomeIndex}`;
+        const pKey = `${p.conditionId || p.asset?.condition_id}_${p.outcome || p.outcomeIndex}`;
+        return posKey === pKey;
+      })
     );
 
     // Filter out zero-size positions that may still appear due to API lag
@@ -948,16 +1027,121 @@ export class PolymarketService {
   }
 
   /**
+   * Get portfolio summary (total value, P/L, etc.)
+   * Fetches from the Data API profile endpoint
+   */
+  async getPortfolioSummary(): Promise<{
+    portfolioValue: number;
+    cashBalance: number;
+    totalDeposited: number;
+    totalWithdrawn: number;
+    totalPnL: number;
+    positionsValue: number;
+  }> {
+    const addressesToTry: string[] = [];
+    if (this.funderAddress) addressesToTry.push(this.funderAddress);
+    if (this.address && this.address !== this.funderAddress) addressesToTry.push(this.address);
+
+    for (const addr of addressesToTry) {
+      try {
+        console.log(`[PolymarketService] Fetching portfolio summary for: ${addr}`);
+
+        // Fetch profile data which includes portfolio value
+        const profileResponse = await axios.get(`https://data-api.polymarket.com/profile`, {
+          params: { address: addr },
+          timeout: 15000,
+        });
+
+        const profile = profileResponse.data || {};
+
+        // Fetch positions to calculate positions value
+        const positions = await this.getPositions();
+        const positionsValue = positions.reduce((sum: number, pos: any) => {
+          return sum + parseFloat(pos.currentValue || '0');
+        }, 0);
+
+        // Calculate totals from profile data
+        const portfolioValue = parseFloat(profile.portfolioValue || '0') || positionsValue;
+        const totalPnL = parseFloat(profile.pnl || profile.totalPnl || '0');
+
+        console.log(`[PolymarketService] Portfolio summary for ${addr}:`, {
+          portfolioValue,
+          positionsValue,
+          totalPnL,
+        });
+
+        if (portfolioValue > 0 || positionsValue > 0) {
+          return {
+            portfolioValue: portfolioValue || positionsValue,
+            cashBalance: await this.getBalance(),
+            totalDeposited: parseFloat(profile.totalDeposited || '0'),
+            totalWithdrawn: parseFloat(profile.totalWithdrawn || '0'),
+            totalPnL,
+            positionsValue,
+          };
+        }
+      } catch (error: any) {
+        console.log(`[PolymarketService] Profile fetch failed for ${addr}:`, error.message);
+      }
+    }
+
+    // Fallback: calculate from positions
+    const positions = await this.getPositions();
+    const positionsValue = positions.reduce((sum: number, pos: any) => {
+      return sum + parseFloat(pos.currentValue || '0');
+    }, 0);
+    const cashBalance = await this.getBalance();
+
+    return {
+      portfolioValue: positionsValue + cashBalance,
+      cashBalance,
+      totalDeposited: 0,
+      totalWithdrawn: 0,
+      totalPnL: positions.reduce((sum: number, pos: any) => sum + parseFloat(pos.cashPnl || '0'), 0),
+      positionsValue,
+    };
+  }
+
+  /**
    * Get trade history
+   * Uses the Data API activity endpoint with user address
    */
   async getTradeHistory(limit: number = 50): Promise<PolymarketTrade[]> {
-    try {
-      const response = await this.dataApi.get(`/trades?limit=${limit}`);
-      return response.data || [];
-    } catch (error: any) {
-      console.error('[PolymarketService] Error fetching trade history:', error.message);
+    const addressesToTry: string[] = [];
+    if (this.funderAddress) addressesToTry.push(this.funderAddress);
+    if (this.address && this.address !== this.funderAddress) addressesToTry.push(this.address);
+
+    if (addressesToTry.length === 0) {
+      console.log('[PolymarketService] No address provided for trade history');
       return [];
     }
+
+    for (const addr of addressesToTry) {
+      try {
+        console.log(`[PolymarketService] Fetching trade history for: ${addr}`);
+        // Use the activity endpoint which returns trades with market info included
+        const response = await axios.get('https://data-api.polymarket.com/activity', {
+          params: {
+            user: addr.toLowerCase(),
+            limit: limit,
+          },
+          timeout: 15000,
+        });
+
+        const activities = response.data || [];
+        console.log(`[PolymarketService] Got ${activities.length} activities for ${addr}`);
+
+        if (activities.length > 0) {
+          // Log sample activity for debugging
+          console.log(`[PolymarketService] Sample activity:`, JSON.stringify(activities[0], null, 2));
+          return activities;
+        }
+      } catch (error: any) {
+        console.error(`[PolymarketService] Error fetching trade history for ${addr}:`, error.message);
+      }
+    }
+
+    return [];
   }
 
   // ============================================

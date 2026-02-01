@@ -29,6 +29,11 @@ import {
   Sparkles,
   Star,
   Info,
+  Trophy,
+  PieChart,
+  Percent,
+  Activity,
+  Wallet,
 } from 'lucide-react';
 import type {
   PolymarketConfig,
@@ -97,6 +102,14 @@ export default function Gambling() {
   const [stats, setStats] = useState<PolymarketStats | null>(null);
   const [recentActivity, setRecentActivity] = useState<PolymarketExecution[]>([]);
   const [markets, setMarkets] = useState<PolymarketMarket[]>([]);
+  const [portfolio, setPortfolio] = useState<{
+    portfolioValue: number;
+    cashBalance: number;
+    totalDeposited: number;
+    totalWithdrawn: number;
+    totalPnL: number;
+    positionsValue: number;
+  } | null>(null);
   const [scanResult, setScanResult] = useState<{
     marketsScanned: number;
     marketsAfterVolumeFilter?: number;
@@ -193,6 +206,7 @@ export default function Gambling() {
   // History tab filters
   const [historyFilter, setHistoryFilter] = useState<'all' | 'wins' | 'losses' | 'pending'>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [monthlyDisplayMode, setMonthlyDisplayMode] = useState<'usd' | 'percent'>('usd');
 
   // Opportunities sorting
   const [opportunitySort, setOpportunitySort] = useState<{
@@ -233,13 +247,14 @@ export default function Gambling() {
 
     try {
       // Fetch all data in parallel
-      const [balanceRes, configRes, statsRes, positionsRes, betsRes, executionsRes] = await Promise.allSettled([
+      const [balanceRes, configRes, statsRes, positionsRes, betsRes, executionsRes, portfolioRes] = await Promise.allSettled([
         apiService.getPolymarketBalance(),
         apiService.getPolymarketConfig(),
         apiService.getPolymarketStats(),
         apiService.getPolymarketPositions(),
-        apiService.getPolymarketBets(50),
-        apiService.getPolymarketExecutions(20),
+        apiService.getPolymarketBets(100), // Increased limit
+        apiService.getPolymarketExecutions(50), // Increased limit
+        apiService.getPolymarketPortfolio(),
       ]);
 
       // Handle balance
@@ -272,6 +287,11 @@ export default function Gambling() {
       // Handle executions
       if (executionsRes.status === 'fulfilled' && executionsRes.value?.success) {
         setRecentActivity(executionsRes.value.executions || []);
+      }
+
+      // Handle portfolio
+      if (portfolioRes.status === 'fulfilled' && portfolioRes.value?.success) {
+        setPortfolio(portfolioRes.value.portfolio);
       }
 
     } catch (err: any) {
@@ -549,45 +569,71 @@ export default function Gambling() {
         </button>
 
         {expandedSections.quickStats && (
-          <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4">
-            {/* Balance Card */}
-            <div className="p-4 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-xl text-white">
-              <div className="flex items-center gap-2 mb-2">
-                <DollarSign className="h-5 w-5 opacity-80" />
-                <span className="text-sm opacity-80">Balance</span>
+          <div className="mt-4 space-y-4">
+            {/* Portfolio Overview Row */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {/* Portfolio Value Card */}
+              <div className="p-4 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-xl text-white">
+                <div className="flex items-center gap-2 mb-2">
+                  <BarChart3 className="h-5 w-5 opacity-80" />
+                  <span className="text-sm opacity-80">Portfolio</span>
+                </div>
+                <p className="text-2xl font-bold">{formatCurrency(portfolio?.portfolioValue || 0)}</p>
+                <p className="text-sm opacity-80">Total Value</p>
               </div>
-              <p className="text-2xl font-bold">{formatCurrency(balance)}</p>
+
+              {/* Cash Balance Card */}
+              <div className="p-4 bg-gradient-to-br from-emerald-500 to-green-600 rounded-xl text-white">
+                <div className="flex items-center gap-2 mb-2">
+                  <DollarSign className="h-5 w-5 opacity-80" />
+                  <span className="text-sm opacity-80">Cash</span>
+                </div>
+                <p className="text-2xl font-bold">{formatCurrency(balance || portfolio?.cashBalance || 0)}</p>
+                <p className="text-sm opacity-80">Available</p>
+              </div>
+
+              {/* Positions Value Card */}
+              <div className="p-4 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-xl text-white">
+                <div className="flex items-center gap-2 mb-2">
+                  <Target className="h-5 w-5 opacity-80" />
+                  <span className="text-sm opacity-80">Positions</span>
+                </div>
+                <p className="text-2xl font-bold">{formatCurrency(portfolio?.positionsValue || positions.reduce((sum, p) => sum + (p.currentValue || 0), 0))}</p>
+                <p className="text-sm opacity-80">{positions.length} Active</p>
+              </div>
+
+              {/* P/L Card */}
+              <div className={`p-4 rounded-xl ${(portfolio?.totalPnL || stats?.totalProfit || 0) >= 0 ? 'bg-gradient-to-br from-amber-500 to-orange-600' : 'bg-gradient-to-br from-red-500 to-rose-600'} text-white`}>
+                <div className="flex items-center gap-2 mb-2">
+                  {(portfolio?.totalPnL || stats?.totalProfit || 0) >= 0 ? <TrendingUp className="h-5 w-5 opacity-80" /> : <TrendingDown className="h-5 w-5 opacity-80" />}
+                  <span className="text-sm opacity-80">Total P/L</span>
+                </div>
+                <p className="text-2xl font-bold">{formatCurrency(portfolio?.totalPnL || stats?.totalProfit || 0)}</p>
+                <p className="text-sm opacity-80">{stats ? `${stats.wins}W / ${stats.losses}L` : 'All time'}</p>
+              </div>
             </div>
 
-            {/* P/L Card */}
-            <div className={`p-4 rounded-xl ${stats && stats.totalProfit >= 0 ? 'bg-gradient-to-br from-emerald-500 to-green-600' : 'bg-gradient-to-br from-red-500 to-rose-600'} text-white`}>
-              <div className="flex items-center gap-2 mb-2">
-                {stats && stats.totalProfit >= 0 ? <TrendingUp className="h-5 w-5 opacity-80" /> : <TrendingDown className="h-5 w-5 opacity-80" />}
-                <span className="text-sm opacity-80">Total P/L</span>
+            {/* Deposits/Withdrawals Row - only show if we have data */}
+            {(portfolio?.totalDeposited || portfolio?.totalWithdrawn) ? (
+              <div className="grid grid-cols-2 gap-4">
+                <div className="p-3 bg-white dark:bg-slate-700 rounded-lg border border-slate-200 dark:border-slate-600">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-slate-600 dark:text-slate-400">Total Deposited</span>
+                    <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                      {formatCurrency(portfolio?.totalDeposited || 0)}
+                    </span>
+                  </div>
+                </div>
+                <div className="p-3 bg-white dark:bg-slate-700 rounded-lg border border-slate-200 dark:border-slate-600">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-slate-600 dark:text-slate-400">Total Withdrawn</span>
+                    <span className="font-semibold text-red-600 dark:text-red-400">
+                      {formatCurrency(portfolio?.totalWithdrawn || 0)}
+                    </span>
+                  </div>
+                </div>
               </div>
-              <p className="text-2xl font-bold">{stats ? formatCurrency(stats.totalProfit) : '$0.00'}</p>
-              <p className="text-sm opacity-80">{stats ? `${(stats.roi * 100).toFixed(1)}% ROI` : '0% ROI'}</p>
-            </div>
-
-            {/* Win Rate Card */}
-            <div className="p-4 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-xl text-white">
-              <div className="flex items-center gap-2 mb-2">
-                <Target className="h-5 w-5 opacity-80" />
-                <span className="text-sm opacity-80">Win Rate</span>
-              </div>
-              <p className="text-2xl font-bold">{stats ? `${(stats.winRate * 100).toFixed(0)}%` : '0%'}</p>
-              <p className="text-sm opacity-80">{stats ? `${stats.wins}W / ${stats.losses}L` : '0W / 0L'}</p>
-            </div>
-
-            {/* Active Bets Card */}
-            <div className="p-4 bg-gradient-to-br from-amber-500 to-orange-600 rounded-xl text-white">
-              <div className="flex items-center gap-2 mb-2">
-                <Dice5 className="h-5 w-5 opacity-80" />
-                <span className="text-sm opacity-80">Active</span>
-              </div>
-              <p className="text-2xl font-bold">{positions.length}</p>
-              <p className="text-sm opacity-80">{stats ? formatCurrency(stats.currentExposure) : '$0'} at risk</p>
-            </div>
+            ) : null}
           </div>
         )}
       </div>
@@ -642,6 +688,7 @@ export default function Gambling() {
               <div className="p-8 text-center text-slate-500 dark:text-slate-400">
                 <Dice5 className="h-12 w-12 mx-auto mb-3 opacity-50" />
                 <p>No active positions</p>
+                <p className="text-xs mt-2">Positions from Polymarket will appear here</p>
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -650,10 +697,11 @@ export default function Gambling() {
                     <tr>
                       <th className="text-left p-4 text-sm font-medium text-slate-600 dark:text-slate-300">Market</th>
                       <th className="text-center p-4 text-sm font-medium text-slate-600 dark:text-slate-300">Position</th>
-                      <th className="text-right p-4 text-sm font-medium text-slate-600 dark:text-slate-300">Entry</th>
-                      <th className="text-right p-4 text-sm font-medium text-slate-600 dark:text-slate-300">Current</th>
+                      <th className="text-right p-4 text-sm font-medium text-slate-600 dark:text-slate-300">Avg → Now</th>
+                      <th className="text-right p-4 text-sm font-medium text-slate-600 dark:text-slate-300">Cost</th>
+                      <th className="text-right p-4 text-sm font-medium text-slate-600 dark:text-slate-300">Value</th>
                       <th className="text-right p-4 text-sm font-medium text-slate-600 dark:text-slate-300">P/L</th>
-                      <th className="text-right p-4 text-sm font-medium text-slate-600 dark:text-slate-300">Ends In</th>
+                      <th className="text-right p-4 text-sm font-medium text-slate-600 dark:text-slate-300">Ends</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -666,8 +714,13 @@ export default function Gambling() {
 
                       return (
                       <tr key={position.id} className="border-t border-slate-100 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/30">
-                        <td className="p-4">
-                          <p className="font-medium text-slate-800 dark:text-white text-sm">{position.marketQuestion}</p>
+                        <td className="p-4 max-w-[300px]">
+                          <p className="font-medium text-slate-800 dark:text-white text-sm truncate" title={position.marketQuestion}>
+                            {position.marketQuestion}
+                          </p>
+                          <p className="text-xs text-slate-500 dark:text-slate-400">
+                            {position.shares?.toFixed(1) || '0'} shares
+                          </p>
                         </td>
                         <td className="p-4 text-center">
                           <span className={`px-2 py-1 rounded text-xs font-medium ${
@@ -679,10 +732,15 @@ export default function Gambling() {
                           </span>
                         </td>
                         <td className="p-4 text-right text-sm text-slate-600 dark:text-slate-300">
-                          {formatPercent(position.avgPrice)}
+                          <span className="text-slate-500">{(position.avgPrice * 100).toFixed(0)}¢</span>
+                          <span className="mx-1">→</span>
+                          <span className="font-medium">{(position.currentPrice * 100).toFixed(0)}¢</span>
                         </td>
                         <td className="p-4 text-right text-sm text-slate-600 dark:text-slate-300">
-                          {formatPercent(position.currentPrice)}
+                          {formatCurrency(position.cost || 0)}
+                        </td>
+                        <td className="p-4 text-right text-sm font-medium text-slate-800 dark:text-white">
+                          {formatCurrency(position.currentValue || 0)}
                         </td>
                         <td className={`p-4 text-right text-sm font-medium ${
                           position.unrealizedPnL >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'
@@ -709,6 +767,25 @@ export default function Gambling() {
                     })}
                   </tbody>
                 </table>
+                {/* Positions Summary */}
+                <div className="p-4 bg-slate-50 dark:bg-slate-700/50 border-t border-slate-200 dark:border-slate-600">
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-slate-600 dark:text-slate-400">
+                      {positions.length} position{positions.length !== 1 ? 's' : ''}
+                    </span>
+                    <div className="flex gap-6">
+                      <span className="text-slate-600 dark:text-slate-400">
+                        Total Cost: <span className="font-medium text-slate-800 dark:text-white">{formatCurrency(positions.reduce((sum, p) => sum + (p.cost || 0), 0))}</span>
+                      </span>
+                      <span className="text-slate-600 dark:text-slate-400">
+                        Total Value: <span className="font-medium text-slate-800 dark:text-white">{formatCurrency(positions.reduce((sum, p) => sum + (p.currentValue || 0), 0))}</span>
+                      </span>
+                      <span className={`font-medium ${positions.reduce((sum, p) => sum + (p.unrealizedPnL || 0), 0) >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+                        P/L: {positions.reduce((sum, p) => sum + (p.unrealizedPnL || 0), 0) >= 0 ? '+' : ''}{formatCurrency(positions.reduce((sum, p) => sum + (p.unrealizedPnL || 0), 0))}
+                      </span>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
           </div>
@@ -1432,210 +1509,472 @@ export default function Gambling() {
     </div>
   );
 
-  const renderHistoryTab = () => (
-    <div className="space-y-6">
-      {/* Performance Summary */}
-      <div className="mb-2">
-        <button
-          onClick={() => toggleSection('performance')}
-          className="w-full flex items-center justify-between p-4 bg-white dark:bg-slate-800 rounded-xl shadow-sm hover:shadow-md transition-all"
-        >
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-emerald-100 dark:bg-emerald-900/30 rounded-lg">
-              <BarChart3 className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
-            </div>
-            <span className="font-semibold text-slate-800 dark:text-white">Performance Summary</span>
-          </div>
-          {expandedSections.performance ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
-        </button>
+  const renderHistoryTab = () => {
+    // Calculate additional stats from positions and bets
+    const totalPositionsValue = positions.reduce((sum, p) => sum + (p.currentValue || 0), 0);
+    const totalPositionsCost = positions.reduce((sum, p) => sum + (p.cost || 0), 0);
+    const unrealizedPnL = positions.reduce((sum, p) => sum + (p.unrealizedPnL || 0), 0);
+    const winCount = stats?.wins || 0;
+    const lossCount = stats?.losses || 0;
+    const pendingCount = stats?.pending || 0;
+    const winRate = stats?.winRate || 0;
 
-        {expandedSections.performance && stats && (
-          <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="p-4 bg-white dark:bg-slate-800 rounded-xl shadow-sm">
-              <p className="text-sm text-slate-500 dark:text-slate-400">Total Bets</p>
-              <p className="text-2xl font-bold text-slate-800 dark:text-white">{stats.totalBets}</p>
+    return (
+    <div className="space-y-6">
+      {/* Hero Performance Card */}
+      <div className="bg-gradient-to-br from-purple-600 via-indigo-600 to-blue-600 rounded-2xl shadow-xl p-6 text-white">
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-3">
+            <div className="p-3 bg-white/20 rounded-xl backdrop-blur-sm">
+              <Trophy className="h-6 w-6" />
             </div>
-            <div className="p-4 bg-white dark:bg-slate-800 rounded-xl shadow-sm">
-              <p className="text-sm text-slate-500 dark:text-slate-400">Win Rate</p>
-              <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{(stats.winRate * 100).toFixed(0)}%</p>
-            </div>
-            <div className="p-4 bg-white dark:bg-slate-800 rounded-xl shadow-sm">
-              <p className="text-sm text-slate-500 dark:text-slate-400">Total Invested</p>
-              <p className="text-2xl font-bold text-slate-800 dark:text-white">{formatCurrency(stats.totalInvested)}</p>
-            </div>
-            <div className="p-4 bg-white dark:bg-slate-800 rounded-xl shadow-sm">
-              <p className="text-sm text-slate-500 dark:text-slate-400">Total Profit</p>
-              <p className={`text-2xl font-bold ${stats.totalProfit >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
-                {stats.totalProfit >= 0 ? '+' : ''}{formatCurrency(stats.totalProfit)}
-              </p>
-            </div>
-            <div className="p-4 bg-white dark:bg-slate-800 rounded-xl shadow-sm">
-              <p className="text-sm text-slate-500 dark:text-slate-400">ROI</p>
-              <p className={`text-2xl font-bold ${stats.roi >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
-                {stats.roi >= 0 ? '+' : ''}{(stats.roi * 100).toFixed(1)}%
-              </p>
-            </div>
-            <div className="p-4 bg-white dark:bg-slate-800 rounded-xl shadow-sm">
-              <p className="text-sm text-slate-500 dark:text-slate-400">Avg Bet Size</p>
-              <p className="text-2xl font-bold text-slate-800 dark:text-white">{formatCurrency(stats.avgBetSize)}</p>
-            </div>
-            <div className="p-4 bg-white dark:bg-slate-800 rounded-xl shadow-sm">
-              <p className="text-sm text-slate-500 dark:text-slate-400">Best Bet</p>
-              <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">+{formatCurrency(stats.bestBet)}</p>
-            </div>
-            <div className="p-4 bg-white dark:bg-slate-800 rounded-xl shadow-sm">
-              <p className="text-sm text-slate-500 dark:text-slate-400">Worst Bet</p>
-              <p className="text-2xl font-bold text-red-600 dark:text-red-400">{formatCurrency(stats.worstBet)}</p>
+            <div>
+              <h2 className="text-xl font-bold">Performance Overview</h2>
+              <p className="text-white/70 text-sm">Your betting statistics at a glance</p>
             </div>
           </div>
-        )}
+          <div className="text-right">
+            <p className="text-white/70 text-sm">All-Time P/L</p>
+            <p className={`text-3xl font-bold ${(stats?.totalProfit || 0) >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>
+              {(stats?.totalProfit || 0) >= 0 ? '+' : ''}{formatCurrency(stats?.totalProfit || 0)}
+            </p>
+            <p className="text-xs text-white/50 mt-1">
+              {((stats?.roi || 0) * 100).toFixed(1)}% ROI
+            </p>
+          </div>
+        </div>
+
+        {/* Win Rate Visual */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Win Rate Circle */}
+          <div className="bg-white/10 rounded-xl p-5 backdrop-blur-sm">
+            <div className="flex items-center gap-4">
+              <div className="relative w-24 h-24">
+                {/* Background circle */}
+                <svg className="w-24 h-24 transform -rotate-90">
+                  <circle
+                    cx="48"
+                    cy="48"
+                    r="40"
+                    stroke="rgba(255,255,255,0.2)"
+                    strokeWidth="8"
+                    fill="none"
+                  />
+                  {/* Win rate arc */}
+                  <circle
+                    cx="48"
+                    cy="48"
+                    r="40"
+                    stroke={winRate >= 0.5 ? '#34d399' : '#f87171'}
+                    strokeWidth="8"
+                    fill="none"
+                    strokeDasharray={`${winRate * 251.2} 251.2`}
+                    strokeLinecap="round"
+                  />
+                </svg>
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <span className="text-2xl font-bold">{(winRate * 100).toFixed(0)}%</span>
+                </div>
+              </div>
+              <div>
+                <p className="text-white/70 text-sm mb-2">Win Rate</p>
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-1">
+                    <div className="w-3 h-3 rounded-full bg-emerald-400"></div>
+                    <span className="text-sm">{winCount} Wins</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <div className="w-3 h-3 rounded-full bg-red-400"></div>
+                    <span className="text-sm">{lossCount} Losses</span>
+                  </div>
+                </div>
+                {pendingCount > 0 && (
+                  <div className="flex items-center gap-1 mt-1">
+                    <div className="w-3 h-3 rounded-full bg-amber-400"></div>
+                    <span className="text-sm">{pendingCount} Pending</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Key Metrics */}
+          <div className="grid grid-cols-3 gap-3">
+            <div className="bg-white/10 rounded-xl p-4 backdrop-blur-sm">
+              <div className="flex items-center gap-2 mb-1">
+                <Activity className="h-4 w-4 text-white/70" />
+                <span className="text-white/70 text-xs">ROI</span>
+              </div>
+              <p className={`text-xl font-bold ${(stats?.roi || 0) >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>
+                {(stats?.roi || 0) >= 0 ? '+' : ''}{((stats?.roi || 0) * 100).toFixed(1)}%
+              </p>
+            </div>
+            <div className="bg-white/10 rounded-xl p-4 backdrop-blur-sm">
+              <div className="flex items-center gap-2 mb-1">
+                <Wallet className="h-4 w-4 text-white/70" />
+                <span className="text-white/70 text-xs">Cost Basis</span>
+              </div>
+              <p className="text-xl font-bold">{formatCurrency((stats as any)?.positionsCost || stats?.totalInvested || 0)}</p>
+            </div>
+            <div className="bg-white/10 rounded-xl p-4 backdrop-blur-sm">
+              <div className="flex items-center gap-2 mb-1">
+                <TrendingUp className="h-4 w-4 text-emerald-300" />
+                <span className="text-white/70 text-xs">Avg Win</span>
+              </div>
+              <p className="text-xl font-bold text-emerald-300">
+                +{formatCurrency((stats as any)?.avgWin || 0)}
+                <span className="text-sm ml-1 text-emerald-200/70">
+                  ({((stats as any)?.avgWinPercent || 0).toFixed(1)}%)
+                </span>
+              </p>
+            </div>
+            <div className="bg-white/10 rounded-xl p-4 backdrop-blur-sm">
+              <div className="flex items-center gap-2 mb-1">
+                <TrendingUp className="h-4 w-4 text-emerald-300" />
+                <span className="text-white/70 text-xs">Best Win</span>
+              </div>
+              <p className="text-xl font-bold text-emerald-300">+{formatCurrency(stats?.bestBet || 0)}</p>
+            </div>
+            <div className="bg-white/10 rounded-xl p-4 backdrop-blur-sm">
+              <div className="flex items-center gap-2 mb-1">
+                <TrendingDown className="h-4 w-4 text-red-300" />
+                <span className="text-white/70 text-xs">Worst Loss</span>
+              </div>
+              <p className="text-xl font-bold text-red-300">{formatCurrency(stats?.worstBet || 0)}</p>
+            </div>
+            <div className="bg-white/10 rounded-xl p-4 backdrop-blur-sm">
+              <div className="flex items-center gap-2 mb-1">
+                <TrendingDown className="h-4 w-4 text-red-300" />
+                <span className="text-white/70 text-xs">Avg Loss</span>
+              </div>
+              <p className="text-xl font-bold text-red-300">
+                {formatCurrency((stats as any)?.avgLoss || 0)}
+                <span className="text-sm ml-1 text-red-200/70">
+                  ({((stats as any)?.avgLossPercent || 0).toFixed(1)}%)
+                </span>
+              </p>
+            </div>
+          </div>
+        </div>
       </div>
 
-      {/* Bet History */}
-      <div className="mb-2">
-        <button
-          onClick={() => toggleSection('betHistory')}
-          className="w-full flex items-center justify-between p-4 bg-white dark:bg-slate-800 rounded-xl shadow-sm hover:shadow-md transition-all"
-        >
-          <div className="flex items-center gap-3">
+      {/* Stats Cards Row */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm p-4 border-l-4 border-purple-500">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wide">Total Bets</p>
+              <p className="text-2xl font-bold text-slate-800 dark:text-white mt-1">{stats?.totalBets || 0}</p>
+            </div>
             <div className="p-2 bg-purple-100 dark:bg-purple-900/30 rounded-lg">
-              <History className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+              <BarChart3 className="h-5 w-5 text-purple-600 dark:text-purple-400" />
             </div>
-            <span className="font-semibold text-slate-800 dark:text-white">Bet History ({bets.length})</span>
           </div>
-          {expandedSections.betHistory ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
-        </button>
+        </div>
 
-        {expandedSections.betHistory && (
-          <div className="mt-4 bg-white dark:bg-slate-800 rounded-xl shadow-sm overflow-hidden">
-            {/* Filters */}
-            <div className="p-4 border-b border-slate-100 dark:border-slate-700 flex flex-wrap gap-3">
-              <div className="relative flex-1 min-w-[200px]">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                <input
-                  type="text"
-                  placeholder="Search markets..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-9 pr-4 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-sm"
-                />
-              </div>
-              <div className="flex gap-2">
-                {(['all', 'wins', 'losses', 'pending'] as const).map((filter) => (
-                  <button
-                    key={filter}
-                    onClick={() => setHistoryFilter(filter)}
-                    className={`px-3 py-2 text-sm rounded-lg transition-colors ${
-                      historyFilter === filter
-                        ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
-                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-300'
-                    }`}
-                  >
-                    {filter.charAt(0).toUpperCase() + filter.slice(1)}
-                  </button>
-                ))}
-              </div>
-              <button className="flex items-center gap-2 px-3 py-2 text-sm bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-lg">
-                <Download className="h-4 w-4" />
-                Export CSV
-              </button>
+        <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm p-4 border-l-4 border-blue-500">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wide">Open Positions</p>
+              <p className="text-2xl font-bold text-slate-800 dark:text-white mt-1">{positions.length}</p>
             </div>
+            <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
+              <Target className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+            </div>
+          </div>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
+            Value: {formatCurrency(totalPositionsValue)}
+          </p>
+        </div>
 
-            {/* Table */}
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-slate-50 dark:bg-slate-700/50">
-                  <tr>
-                    <th className="text-left p-4 text-sm font-medium text-slate-600 dark:text-slate-300">Date</th>
-                    <th className="text-left p-4 text-sm font-medium text-slate-600 dark:text-slate-300">Market</th>
-                    <th className="text-center p-4 text-sm font-medium text-slate-600 dark:text-slate-300">Position</th>
-                    <th className="text-right p-4 text-sm font-medium text-slate-600 dark:text-slate-300">Amount</th>
-                    <th className="text-right p-4 text-sm font-medium text-slate-600 dark:text-slate-300">Price</th>
-                    <th className="text-center p-4 text-sm font-medium text-slate-600 dark:text-slate-300">Status</th>
-                    <th className="text-right p-4 text-sm font-medium text-slate-600 dark:text-slate-300">P/L</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredBets.map((bet) => (
-                    <tr key={bet.id} className="border-t border-slate-100 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/30">
-                      <td className="p-4 text-sm text-slate-600 dark:text-slate-300">
-                        {new Date(bet.createdAt).toLocaleDateString()}
-                      </td>
-                      <td className="p-4">
-                        <p className="font-medium text-slate-800 dark:text-white text-sm truncate max-w-[300px]">
-                          {bet.marketQuestion}
-                        </p>
-                        <span className="text-xs text-slate-500 dark:text-slate-400">
-                          {bet.strategy === 'external' ? 'Polymarket' : bet.strategy}
-                        </span>
-                      </td>
-                      <td className="p-4 text-center">
-                        <span className={`px-2 py-1 rounded text-xs font-medium ${
-                          bet.side === 'yes'
-                            ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
-                            : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-                        }`}>
-                          {bet.outcomeName}
-                        </span>
-                      </td>
-                      <td className="p-4 text-right text-sm text-slate-600 dark:text-slate-300">
-                        {formatCurrency(bet.amount)}
-                      </td>
-                      <td className="p-4 text-right text-sm text-slate-600 dark:text-slate-300">
-                        {formatPercent(bet.price)}
-                      </td>
-                      <td className="p-4 text-center">
-                        <span className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium ${
-                          bet.status === 'resolved' && bet.profit !== undefined && bet.profit > 0
-                            ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
-                            : bet.status === 'resolved' && bet.profit !== undefined && bet.profit < 0
-                            ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-                            : bet.status === 'filled'
-                            ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
-                            : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
-                        }`}>
-                          {bet.status === 'resolved' && bet.profit !== undefined && bet.profit > 0 && <CheckCircle className="h-3 w-3" />}
-                          {bet.status === 'resolved' && bet.profit !== undefined && bet.profit < 0 && <XCircle className="h-3 w-3" />}
-                          {bet.status === 'filled' && <Clock className="h-3 w-3" />}
-                          {bet.status === 'pending' && <Clock className="h-3 w-3" />}
-                          {bet.status.charAt(0).toUpperCase() + bet.status.slice(1)}
-                        </span>
-                      </td>
-                      <td className={`p-4 text-right text-sm font-medium ${
-                        bet.profit !== undefined && bet.profit >= 0
-                          ? 'text-emerald-600 dark:text-emerald-400'
-                          : 'text-red-600 dark:text-red-400'
-                      }`}>
-                        {bet.profit !== undefined ? (
-                          <>
-                            {bet.profit >= 0 ? '+' : ''}{formatCurrency(bet.profit)}
-                            <span className="block text-xs opacity-70">
-                              {bet.profitPercent !== undefined && (
-                                <>{bet.profitPercent >= 0 ? '+' : ''}{(bet.profitPercent * 100).toFixed(1)}%</>
-                              )}
-                            </span>
-                          </>
-                        ) : (
-                          <span className="text-slate-400">--</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-
-              {filteredBets.length === 0 && (
-                <div className="p-8 text-center text-slate-500 dark:text-slate-400">
-                  <History className="h-12 w-12 mx-auto mb-3 opacity-50" />
-                  <p>No bets found</p>
-                </div>
+        <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm p-4 border-l-4 border-emerald-500">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wide">Unrealized P/L</p>
+              <p className={`text-2xl font-bold mt-1 ${unrealizedPnL >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+                {unrealizedPnL >= 0 ? '+' : ''}{formatCurrency(unrealizedPnL)}
+              </p>
+            </div>
+            <div className={`p-2 rounded-lg ${unrealizedPnL >= 0 ? 'bg-emerald-100 dark:bg-emerald-900/30' : 'bg-red-100 dark:bg-red-900/30'}`}>
+              {unrealizedPnL >= 0 ? (
+                <TrendingUp className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+              ) : (
+                <TrendingDown className="h-5 w-5 text-red-600 dark:text-red-400" />
               )}
             </div>
           </div>
-        )}
+        </div>
+
+        <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm p-4 border-l-4 border-amber-500">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wide">Avg Bet Size</p>
+              <p className="text-2xl font-bold text-slate-800 dark:text-white mt-1">{formatCurrency(stats?.avgBetSize || 0)}</p>
+            </div>
+            <div className="p-2 bg-amber-100 dark:bg-amber-900/30 rounded-lg">
+              <DollarSign className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Monthly Performance Table */}
+      <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm overflow-hidden">
+        <div className="p-4 border-b border-slate-100 dark:border-slate-700">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-indigo-100 dark:bg-indigo-900/30 rounded-lg">
+                <BarChart3 className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-slate-800 dark:text-white">Monthly Performance</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">P/L breakdown by month</p>
+              </div>
+            </div>
+            <div className="flex gap-1 p-1 bg-slate-100 dark:bg-slate-700 rounded-lg">
+              <button
+                onClick={() => setMonthlyDisplayMode('usd')}
+                className={`px-3 py-1.5 text-sm rounded-md transition-all ${
+                  monthlyDisplayMode === 'usd'
+                    ? 'bg-white dark:bg-slate-600 text-indigo-700 dark:text-indigo-400 shadow-sm font-medium'
+                    : 'text-slate-600 dark:text-slate-300'
+                }`}
+              >
+                USD
+              </button>
+              <button
+                onClick={() => setMonthlyDisplayMode('percent')}
+                className={`px-3 py-1.5 text-sm rounded-md transition-all ${
+                  monthlyDisplayMode === 'percent'
+                    ? 'bg-white dark:bg-slate-600 text-indigo-700 dark:text-indigo-400 shadow-sm font-medium'
+                    : 'text-slate-600 dark:text-slate-300'
+                }`}
+              >
+                %
+              </button>
+            </div>
+          </div>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-slate-50 dark:bg-slate-700/50">
+              <tr>
+                {['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'].map((month) => (
+                  <th key={month} className="p-3 text-xs font-semibold text-slate-500 dark:text-slate-400 text-center">
+                    {month}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                {(() => {
+                  // Use monthly P/L from stats (includes closed positions)
+                  const currentYear = new Date().getFullYear();
+                  const monthlyFromStats = (stats as any)?.monthlyPnL || {};
+
+                  return Array(12).fill(null).map((_, idx) => {
+                    const monthKey = `${currentYear}-${String(idx + 1).padStart(2, '0')}`;
+                    const data = monthlyFromStats[monthKey] || { pnl: 0, invested: 0 };
+
+                    const value = monthlyDisplayMode === 'usd'
+                      ? data.pnl
+                      : (data.invested > 0 ? (data.pnl / data.invested) * 100 : 0);
+                    const hasData = data.pnl !== 0 || data.invested !== 0;
+
+                    return (
+                      <td key={idx} className="p-3 text-center">
+                        {hasData ? (
+                          <span className={`text-sm font-semibold ${
+                            value >= 0
+                              ? 'text-emerald-600 dark:text-emerald-400'
+                              : 'text-red-600 dark:text-red-400'
+                          }`}>
+                            {monthlyDisplayMode === 'usd'
+                              ? `${value >= 0 ? '+' : ''}${formatCurrency(value)}`
+                              : `${value >= 0 ? '+' : ''}${value.toFixed(1)}%`
+                            }
+                          </span>
+                        ) : (
+                          <span className="text-sm text-slate-300 dark:text-slate-600">—</span>
+                        )}
+                      </td>
+                    );
+                  });
+                })()}
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Bet History */}
+      <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm overflow-hidden">
+        {/* Header */}
+        <div className="p-4 border-b border-slate-100 dark:border-slate-700">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-purple-100 dark:bg-purple-900/30 rounded-lg">
+                <History className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-slate-800 dark:text-white">Bet History</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">{bets.length} total bets</p>
+              </div>
+            </div>
+            <button className="flex items-center gap-2 px-3 py-2 text-sm bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-lg transition-colors">
+              <Download className="h-4 w-4" />
+              Export
+            </button>
+          </div>
+
+          {/* Filters */}
+          <div className="flex flex-wrap gap-3">
+            <div className="relative flex-1 min-w-[200px]">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search markets..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-9 pr-4 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
+              />
+            </div>
+            <div className="flex gap-1 p-1 bg-slate-100 dark:bg-slate-700 rounded-lg">
+              {(['all', 'wins', 'losses', 'pending'] as const).map((filter) => (
+                <button
+                  key={filter}
+                  onClick={() => setHistoryFilter(filter)}
+                  className={`px-3 py-1.5 text-sm rounded-md transition-all ${
+                    historyFilter === filter
+                      ? 'bg-white dark:bg-slate-600 text-purple-700 dark:text-purple-400 shadow-sm font-medium'
+                      : 'text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-white'
+                  }`}
+                >
+                  {filter === 'all' ? 'All' : filter === 'wins' ? `Wins (${winCount})` : filter === 'losses' ? `Losses (${lossCount})` : `Pending (${pendingCount})`}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Table */}
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-slate-50 dark:bg-slate-700/50">
+              <tr>
+                <th className="text-left p-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Date</th>
+                <th className="text-left p-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Market</th>
+                <th className="text-center p-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Position</th>
+                <th className="text-right p-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Amount</th>
+                <th className="text-right p-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Entry</th>
+                <th className="text-center p-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Status</th>
+                <th className="text-right p-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">P/L</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+              {filteredBets.map((bet, index) => (
+                <tr key={bet.id} className={`hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors ${index % 2 === 0 ? '' : 'bg-slate-50/50 dark:bg-slate-800/50'}`}>
+                  <td className="p-4">
+                    <p className="text-sm font-medium text-slate-800 dark:text-white">
+                      {new Date(bet.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    </p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      {new Date(bet.createdAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                  </td>
+                  <td className="p-4">
+                    <p className="font-medium text-slate-800 dark:text-white text-sm truncate max-w-[280px]" title={bet.marketQuestion}>
+                      {bet.marketQuestion}
+                    </p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                        bet.strategy === 'external'
+                          ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
+                          : bet.strategy === 'manual'
+                          ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
+                          : 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-400'
+                      }`}>
+                        {bet.strategy === 'external' ? 'Polymarket' : bet.strategy || 'Manual'}
+                      </span>
+                    </div>
+                  </td>
+                  <td className="p-4 text-center">
+                    <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${
+                      bet.side === 'yes'
+                        ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+                        : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                    }`}>
+                      {bet.side === 'yes' ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+                      {bet.outcomeName}
+                    </span>
+                  </td>
+                  <td className="p-4 text-right">
+                    <p className="text-sm font-semibold text-slate-800 dark:text-white">{formatCurrency(bet.amount)}</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">{bet.shares?.toFixed(2) || '--'} shares</p>
+                  </td>
+                  <td className="p-4 text-right">
+                    <p className="text-sm font-medium text-slate-800 dark:text-white">{formatPercent(bet.price)}</p>
+                  </td>
+                  <td className="p-4 text-center">
+                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
+                      bet.status === 'resolved' && bet.profit !== undefined && bet.profit > 0
+                        ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+                        : bet.status === 'resolved' && bet.profit !== undefined && bet.profit < 0
+                        ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                        : bet.status === 'filled'
+                        ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
+                        : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+                    }`}>
+                      {bet.status === 'resolved' && bet.profit !== undefined && bet.profit > 0 && <CheckCircle className="h-3.5 w-3.5" />}
+                      {bet.status === 'resolved' && bet.profit !== undefined && bet.profit < 0 && <XCircle className="h-3.5 w-3.5" />}
+                      {(bet.status === 'filled' || bet.status === 'pending') && <Clock className="h-3.5 w-3.5" />}
+                      {bet.status === 'resolved'
+                        ? (bet.profit !== undefined && bet.profit > 0 ? 'Won' : 'Lost')
+                        : bet.status.charAt(0).toUpperCase() + bet.status.slice(1)}
+                    </span>
+                  </td>
+                  <td className="p-4 text-right">
+                    {bet.profit !== undefined ? (
+                      <div>
+                        <p className={`text-sm font-bold ${
+                          bet.profit >= 0
+                            ? 'text-emerald-600 dark:text-emerald-400'
+                            : 'text-red-600 dark:text-red-400'
+                        }`}>
+                          {bet.profit >= 0 ? '+' : ''}{formatCurrency(bet.profit)}
+                        </p>
+                        {bet.profitPercent !== undefined && (
+                          <p className={`text-xs ${bet.profitPercent >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
+                            {bet.profitPercent >= 0 ? '+' : ''}{(bet.profitPercent * 100).toFixed(1)}%
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-sm text-slate-400 dark:text-slate-500">--</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          {filteredBets.length === 0 && (
+            <div className="p-12 text-center">
+              <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-slate-100 dark:bg-slate-700 mb-4">
+                <History className="h-8 w-8 text-slate-400 dark:text-slate-500" />
+              </div>
+              <h3 className="text-lg font-medium text-slate-800 dark:text-white mb-1">No bets found</h3>
+              <p className="text-sm text-slate-500 dark:text-slate-400">
+                {searchQuery ? 'Try a different search term' : 'Your betting history will appear here'}
+              </p>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
+  };
 
   // Show not configured state
   if (!isConfigured) {
@@ -1737,9 +2076,15 @@ export default function Gambling() {
               <span className={`w-2 h-2 rounded-full ${formConfig.enabled ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
               {formConfig.enabled ? 'Active' : 'Paused'}
             </div>
-            <div className="px-4 py-2 bg-white dark:bg-slate-800 rounded-lg shadow-sm">
-              <span className="text-sm text-slate-500 dark:text-slate-400">Balance: </span>
-              <span className="font-bold text-slate-800 dark:text-white">{formatCurrency(balance)}</span>
+            <div className="flex items-center gap-3">
+              <div className="px-4 py-2 bg-white dark:bg-slate-800 rounded-lg shadow-sm">
+                <span className="text-sm text-slate-500 dark:text-slate-400">Portfolio: </span>
+                <span className="font-bold text-purple-600 dark:text-purple-400">{formatCurrency(portfolio?.positionsValue || 0)}</span>
+              </div>
+              <div className="px-4 py-2 bg-white dark:bg-slate-800 rounded-lg shadow-sm">
+                <span className="text-sm text-slate-500 dark:text-slate-400">Cash: </span>
+                <span className="font-bold text-slate-800 dark:text-white">{formatCurrency(balance)}</span>
+              </div>
             </div>
           </div>
         </div>
@@ -1750,7 +2095,7 @@ export default function Gambling() {
         {[
           { id: 'dashboard', label: 'Dashboard', icon: BarChart3 },
           { id: 'strategy', label: 'Strategy', icon: Settings },
-          { id: 'history', label: 'History', icon: History },
+          { id: 'history', label: 'Stats & History', icon: PieChart },
         ].map((tab) => (
           <button
             key={tab.id}

@@ -959,6 +959,20 @@ class ApiService {
   }
 
   /**
+   * Get comprehensive portfolio summary
+   */
+  async getPolymarketPortfolio() {
+    return this.get('/polymarket/portfolio', { headers: this.getPolymarketHeaders() });
+  }
+
+  /**
+   * Debug endpoint to check address configuration and positions
+   */
+  async debugPolymarketAddresses() {
+    return this.get('/polymarket/debug-addresses', { headers: this.getPolymarketHeaders() });
+  }
+
+  /**
    * Get recent execution logs
    */
   async getPolymarketExecutions(limit: number = 20) {

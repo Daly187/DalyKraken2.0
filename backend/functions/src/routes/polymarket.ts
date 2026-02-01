@@ -3,6 +3,7 @@
  */
 
 import { Router, Request, Response } from 'express';
+import axios from 'axios';
 import { db } from '../db.js';
 import { PolymarketService } from '../services/polymarketService.js';
 
@@ -192,6 +193,25 @@ export function createPolymarketRouter(): Router {
   });
 
   /**
+   * GET /polymarket/portfolio
+   * Get comprehensive portfolio summary including positions value, P/L, deposits, withdrawals
+   */
+  router.get('/portfolio', async (req: Request, res: Response) => {
+    try {
+      const polyService = getPolymarketService(req);
+      const portfolio = await polyService.getPortfolioSummary();
+
+      res.json({
+        success: true,
+        portfolio,
+      });
+    } catch (error: any) {
+      console.error('[Polymarket] Error fetching portfolio:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  /**
    * GET /polymarket/positions
    * Get user's open positions
    * Maps Data API response to frontend-expected format
@@ -275,66 +295,114 @@ export function createPolymarketRouter(): Router {
       }
 
       // Fetch external trade history directly from Polymarket API (covers bets made outside this app)
+      // Uses the /activity endpoint which includes market info
       let externalBets: any[] = [];
       try {
-        const trades = await polyService.getTradeHistory(limitNum);
-        const marketCache = new Map<string, any>();
+        const activities = await polyService.getTradeHistory(limitNum);
+        console.log(`[Polymarket] Got ${activities.length} activities from Polymarket`);
 
-        const resolveMarket = async (marketId: string) => {
-          if (marketCache.has(marketId)) return marketCache.get(marketId);
-          try {
-            const market = await polyService.getMarket(marketId);
-            marketCache.set(marketId, market);
-            return market;
-          } catch (err: any) {
-            marketCache.set(marketId, null);
-            return null;
-          }
-        };
-
-        externalBets = await Promise.all(trades.map(async (trade: any) => {
-          const market = trade.market ? await resolveMarket(trade.market) : null;
-          const tokens = market?.tokens || [];
-          const matchedToken = tokens.find((t: any) => t.token_id === trade.asset_id);
-          const outcomeName = matchedToken?.outcome || 'Unknown';
+        externalBets = activities.map((activity: any) => {
+          // Activity endpoint returns: title, slug, conditionId, outcomeIndex, outcome,
+          // side (buy/sell), size, price, usdcSize, timestamp, transactionHash, etc.
+          const outcomeName = activity.outcome || activity.title || 'Unknown';
           const normalizedOutcome = String(outcomeName).toLowerCase();
           const side = normalizedOutcome.includes('no') ? 'no' : 'yes';
 
-          const rawTimestamp = Number(trade.timestamp || 0);
-          const createdAt = rawTimestamp > 1e12
-            ? new Date(rawTimestamp).toISOString()
-            : new Date(rawTimestamp * 1000).toISOString();
+          // Parse timestamp - could be ISO string or unix timestamp
+          let createdAt: string;
+          if (activity.timestamp) {
+            const ts = activity.timestamp;
+            if (typeof ts === 'string' && ts.includes('T')) {
+              createdAt = ts; // Already ISO string
+            } else {
+              const rawTimestamp = Number(ts);
+              createdAt = rawTimestamp > 1e12
+                ? new Date(rawTimestamp).toISOString()
+                : new Date(rawTimestamp * 1000).toISOString();
+            }
+          } else {
+            createdAt = new Date().toISOString();
+          }
 
-          const price = parseFloat(trade.price || '0');
-          const shares = parseFloat(trade.size || '0');
-          const amount = price * shares;
+          const price = parseFloat(activity.price || '0');
+          const shares = parseFloat(activity.size || '0');
+          // usdcSize is the total amount spent/received
+          const amount = parseFloat(activity.usdcSize || '0') || (price * shares);
 
           return {
-            id: `trade_${trade.id}`,
-            marketId: trade.market || 'unknown',
-            marketQuestion: market?.question || 'Unknown Market',
-            outcomeId: trade.asset_id || 'unknown',
+            id: `activity_${activity.transactionHash || activity.id || Math.random().toString(36).substr(2, 9)}`,
+            marketId: activity.conditionId || 'unknown',
+            marketQuestion: activity.title || 'Unknown Market',
+            outcomeId: activity.assetId || activity.tokenId || 'unknown',
             outcomeName,
             side,
             shares,
             amount,
             price,
-            orderId: trade.id,
+            orderId: activity.transactionHash || activity.id,
             status: 'filled',
             strategy: 'external',
             createdAt,
-            externalTradeId: trade.id,
+            externalTradeId: activity.transactionHash || activity.id,
+            tradeType: activity.side || 'buy', // 'buy' or 'sell'
           };
-        }));
+        });
+
+        console.log(`[Polymarket] Mapped ${externalBets.length} external bets`);
+        if (externalBets.length > 0) {
+          console.log('[Polymarket] Sample mapped bet:', JSON.stringify(externalBets[0], null, 2));
+        }
       } catch (externalErr: any) {
         console.log('[Polymarket] Could not fetch external trade history:', externalErr.message);
+      }
+
+      // Also fetch positions to include as "bets" with P/L data
+      // This allows the Wins/Losses filters to work
+      let positionBets: any[] = [];
+      try {
+        const positions = await polyService.getPositions();
+        positionBets = positions.map((pos: any) => {
+          const profit = parseFloat(pos.cashPnl || '0');
+          const profitPercent = parseFloat(pos.percentPnl || '0') / 100; // Convert from percentage
+          const isWin = profit > 0;
+          const isLoss = profit < 0;
+
+          return {
+            id: `position_${pos.conditionId || pos.tokenId || Math.random().toString(36).substr(2, 9)}`,
+            marketId: pos.conditionId || 'unknown',
+            marketQuestion: pos.title || 'Open Position',
+            outcomeId: pos.tokenId || 'unknown',
+            outcomeName: pos.outcome || 'Unknown',
+            side: (pos.outcome || '').toLowerCase().includes('no') ? 'no' : 'yes',
+            shares: parseFloat(pos.size || '0'),
+            amount: parseFloat(pos.initialValue || '0'),
+            price: parseFloat(pos.avgPrice || '0'),
+            currentPrice: parseFloat(pos.curPrice || '0'),
+            orderId: `pos_${pos.conditionId}`,
+            status: isWin || isLoss ? 'resolved' : 'pending', // Mark as resolved if has P/L
+            strategy: 'position',
+            createdAt: pos.timestamp || new Date().toISOString(),
+            profit: profit,
+            profitPercent: profitPercent,
+            currentValue: parseFloat(pos.currentValue || '0'),
+            endDate: pos.endDate,
+            isPosition: true, // Flag to identify position entries
+          };
+        });
+        console.log(`[Polymarket] Added ${positionBets.length} positions as bets with P/L data`);
+      } catch (posErr: any) {
+        console.log('[Polymarket] Could not fetch positions for bets:', posErr.message);
       }
 
       // De-duplicate any external trades already stored as internal bets
       const existingOrderIds = new Set(
         bets.map((b: any) => b.orderId).filter((id: string) => !!id)
       );
+
+      // Merge all sources: Firestore bets, external activities, positions
+      // Positions go first (they have the most complete P/L data)
       const mergedBets = [
+        ...positionBets,
         ...bets,
         ...externalBets.filter((b: any) => !existingOrderIds.has(b.orderId)),
       ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -502,44 +570,228 @@ export function createPolymarketRouter(): Router {
   /**
    * GET /polymarket/stats
    * Get user's performance statistics
+   * Combines Firestore bets + positions data for comprehensive stats
    */
   router.get('/stats', async (req: Request, res: Response) => {
     try {
       const userId = getUserId(req);
+      const polyService = getPolymarketService(req);
 
-      // Get all bets for this user
-      const betsRef = db.collection('polymarketBets')
-        .where('userId', '==', userId);
+      // Get Firestore bets
+      let firestoreBets: any[] = [];
+      try {
+        const betsRef = db.collection('polymarketBets')
+          .where('userId', '==', userId);
+        const snapshot = await betsRef.get();
+        firestoreBets = snapshot.docs.map(doc => doc.data());
+      } catch (err: any) {
+        console.log('[Polymarket] Could not fetch Firestore bets:', err.message);
+      }
 
-      const snapshot = await betsRef.get();
-      const bets = snapshot.docs.map(doc => doc.data());
+      // Get positions for calculating unrealized stats
+      let positions: any[] = [];
+      try {
+        positions = await polyService.getPositions();
+      } catch (err: any) {
+        console.log('[Polymarket] Could not fetch positions for stats:', err.message);
+      }
 
-      // Calculate stats
-      const resolvedBets = bets.filter(b => b.status === 'resolved');
-      const wins = resolvedBets.filter(b => b.profit && b.profit > 0);
-      const losses = resolvedBets.filter(b => b.profit && b.profit < 0);
-      const pending = bets.filter(b => b.status === 'pending' || b.status === 'filled');
+      // Get activity history for comprehensive trade counting
+      let activities: any[] = [];
+      try {
+        activities = await polyService.getTradeHistory(200);
+      } catch (err: any) {
+        console.log('[Polymarket] Could not fetch activity for stats:', err.message);
+      }
 
-      const totalInvested = bets.reduce((sum, b) => sum + (b.amount || 0), 0);
-      const totalProfit = resolvedBets.reduce((sum, b) => sum + (b.profit || 0), 0);
-      const totalReturned = totalInvested + totalProfit;
+      // Calculate stats from positions (open/unrealized)
+      const positionsCount = positions.length;
+      const positionsValue = positions.reduce((sum: number, p: any) => sum + parseFloat(p.currentValue || '0'), 0);
+      const positionsCost = positions.reduce((sum: number, p: any) => sum + parseFloat(p.initialValue || '0'), 0);
+      const unrealizedPnL = positions.reduce((sum: number, p: any) => sum + parseFloat(p.cashPnl || '0'), 0);
+
+      // Calculate stats from activities (total trades)
+      const totalActivities = activities.length;
+
+      // Categorize activities by type
+      // Activity types: 'buy' = bought position, 'sell' = sold position
+      // Also look for type field which might indicate redemption/payout
+      const buyActivities = activities.filter((a: any) =>
+        a.side === 'buy' || a.type === 'buy' || (!a.side && !a.type)
+      );
+      const sellActivities = activities.filter((a: any) =>
+        a.side === 'sell' || a.type === 'sell'
+      );
+      // Redemptions are when markets resolve and you get paid out
+      const redemptionActivities = activities.filter((a: any) =>
+        a.type === 'redeem' || a.type === 'redemption' || a.type === 'payout'
+      );
+
+      console.log(`[Polymarket] Activity breakdown: ${buyActivities.length} buys, ${sellActivities.length} sells, ${redemptionActivities.length} redemptions`);
+
+      // Calculate invested from activities (sum of buy amounts)
+      const investedFromActivities = buyActivities.reduce((sum: number, a: any) => {
+        return sum + parseFloat(a.usdcSize || '0');
+      }, 0);
+
+      // Calculate returned from sell activities
+      const returnedFromSells = sellActivities.reduce((sum: number, a: any) => {
+        return sum + parseFloat(a.usdcSize || '0');
+      }, 0);
+
+      // Calculate realized P/L from closed positions (sells + redemptions - associated buys)
+      // For now, estimate realized P/L as: sells + redemptions - (total buys - current positions cost)
+      const totalRedemptions = redemptionActivities.reduce((sum: number, a: any) => {
+        return sum + parseFloat(a.usdcSize || a.payout || '0');
+      }, 0);
+
+      // Realized P/L = money received from sells/redemptions - money spent on those closed positions
+      // Estimate: if we have X in open positions and spent Y total, then Y-X was spent on closed positions
+      // And we got Z back from sells/redemptions, so realized P/L = Z - (Y - X) = Z - Y + X
+      const realizedPnL = (returnedFromSells + totalRedemptions) - (investedFromActivities - positionsCost);
+      console.log(`[Polymarket] Realized P/L calculation: sells(${returnedFromSells}) + redemptions(${totalRedemptions}) - (invested(${investedFromActivities}) - openCost(${positionsCost})) = ${realizedPnL}`);
+
+      // For wins/losses, we look at positions with positive/negative P/L
+      const winningPositions = positions.filter((p: any) => parseFloat(p.cashPnl || '0') > 0);
+      const losingPositions = positions.filter((p: any) => parseFloat(p.cashPnl || '0') < 0);
+
+      // Combine Firestore resolved bets
+      const resolvedBets = firestoreBets.filter(b => b.status === 'resolved');
+      const firestoreWins = resolvedBets.filter(b => b.profit && b.profit > 0).length;
+      const firestoreLosses = resolvedBets.filter(b => b.profit && b.profit < 0).length;
+      const firestoreProfit = resolvedBets.reduce((sum, b) => sum + (b.profit || 0), 0);
+
+      // Total calculations
+      const totalBets = totalActivities || firestoreBets.length || positionsCount;
+      const wins = winningPositions.length + firestoreWins;
+      const losses = losingPositions.length + firestoreLosses;
+      const pending = positionsCount;
+
+      // Total invested = from activities + from Firestore (avoid double counting)
+      const totalInvested = investedFromActivities || positionsCost || firestoreBets.reduce((sum, b) => sum + (b.amount || 0), 0);
+
+      // Total profit = unrealized from positions + realized from sells + Firestore
+      const totalProfit = unrealizedPnL + firestoreProfit;
+
+      // Best/worst from positions
+      const bestFromPositions = Math.max(0, ...positions.map((p: any) => parseFloat(p.cashPnl || '0')));
+      const worstFromPositions = Math.min(0, ...positions.map((p: any) => parseFloat(p.cashPnl || '0')));
+      const bestFromFirestore = Math.max(0, ...resolvedBets.map(b => b.profit || 0));
+      const worstFromFirestore = Math.min(0, ...resolvedBets.map(b => b.profit || 0));
+
+      // Calculate average win/loss from positions
+      const winningPnLs = positions
+        .map((p: any) => parseFloat(p.cashPnl || '0'))
+        .filter(pnl => pnl > 0);
+      const losingPnLs = positions
+        .map((p: any) => parseFloat(p.cashPnl || '0'))
+        .filter(pnl => pnl < 0);
+
+      const avgWin = winningPnLs.length > 0
+        ? winningPnLs.reduce((a, b) => a + b, 0) / winningPnLs.length
+        : 0;
+      const avgLoss = losingPnLs.length > 0
+        ? losingPnLs.reduce((a, b) => a + b, 0) / losingPnLs.length
+        : 0;
+
+      // Calculate average win/loss percentages from positions
+      const winningPercents = positions
+        .filter((p: any) => parseFloat(p.cashPnl || '0') > 0)
+        .map((p: any) => parseFloat(p.percentPnl || '0'));
+      const losingPercents = positions
+        .filter((p: any) => parseFloat(p.cashPnl || '0') < 0)
+        .map((p: any) => parseFloat(p.percentPnl || '0'));
+
+      const avgWinPercent = winningPercents.length > 0
+        ? winningPercents.reduce((a, b) => a + b, 0) / winningPercents.length
+        : 0;
+      const avgLossPercent = losingPercents.length > 0
+        ? losingPercents.reduce((a, b) => a + b, 0) / losingPercents.length
+        : 0;
+
+      // Calculate invested properly from positions (cost basis)
+      const actualInvested = positionsCost > 0 ? positionsCost : totalInvested;
+
+      // Calculate average bet size from positions (more accurate)
+      const avgBetFromPositions = positionsCount > 0
+        ? positionsCost / positionsCount
+        : (totalBets > 0 ? actualInvested / totalBets : 0);
+
+      // All-time P/L = unrealized from open positions + realized from closed positions + Firestore
+      // Unrealized = current value - cost of open positions
+      // Realized = calculated from activity (sells + redemptions vs buys for closed positions)
+      const allTimePnL = unrealizedPnL + realizedPnL + firestoreProfit;
+      console.log(`[Polymarket] All-time P/L: unrealized(${unrealizedPnL}) + realized(${realizedPnL}) + firestore(${firestoreProfit}) = ${allTimePnL}`);
+
+      // Calculate monthly P/L from activities
+      const monthlyPnL: Record<string, { pnl: number; invested: number }> = {};
+      const currentYear = new Date().getFullYear();
+
+      // Group activities by month and calculate P/L
+      activities.forEach((a: any) => {
+        if (!a.timestamp) return;
+
+        const date = new Date(a.timestamp);
+        if (date.getFullYear() !== currentYear) return;
+
+        const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+        if (!monthlyPnL[monthKey]) {
+          monthlyPnL[monthKey] = { pnl: 0, invested: 0 };
+        }
+
+        const amount = parseFloat(a.usdcSize || '0');
+        const side = a.side || a.type || '';
+
+        if (side === 'buy') {
+          monthlyPnL[monthKey].invested += amount;
+        } else if (side === 'sell' || side === 'redeem' || side === 'redemption') {
+          // Estimate P/L: for sells, we need to compare to original buy price
+          // For redemptions, the full amount is profit if we won
+          monthlyPnL[monthKey].pnl += amount;
+        }
+      });
+
+      // Add unrealized P/L to current month
+      const currentMonthKey = `${currentYear}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
+      if (!monthlyPnL[currentMonthKey]) {
+        monthlyPnL[currentMonthKey] = { pnl: 0, invested: 0 };
+      }
+      monthlyPnL[currentMonthKey].pnl += unrealizedPnL;
+
+      console.log('[Polymarket] Monthly P/L:', monthlyPnL);
 
       const stats = {
-        totalBets: bets.length,
-        wins: wins.length,
-        losses: losses.length,
-        pending: pending.length,
-        winRate: resolvedBets.length > 0 ? wins.length / resolvedBets.length : 0,
-        totalInvested,
-        totalReturned,
-        totalProfit,
-        roi: totalInvested > 0 ? totalProfit / totalInvested : 0,
-        avgBetSize: bets.length > 0 ? totalInvested / bets.length : 0,
-        bestBet: Math.max(0, ...resolvedBets.map(b => b.profit || 0)),
-        worstBet: Math.min(0, ...resolvedBets.map(b => b.profit || 0)),
-        currentExposure: pending.reduce((sum, b) => sum + (b.amount || 0), 0),
+        totalBets,
+        wins,
+        losses,
+        pending,
+        winRate: (wins + losses) > 0 ? wins / (wins + losses) : 0,
+        totalInvested: actualInvested,
+        totalReturned: actualInvested + allTimePnL,
+        totalProfit: allTimePnL,
+        roi: actualInvested > 0 ? allTimePnL / actualInvested : 0,
+        avgBetSize: avgBetFromPositions,
+        bestBet: Math.max(bestFromPositions, bestFromFirestore),
+        worstBet: Math.min(worstFromPositions, worstFromFirestore),
+        currentExposure: positionsValue,
+        // Additional stats
+        openPositions: positionsCount,
+        unrealizedPnL,
+        realizedPnL, // Realized P/L from closed positions
+        positionsValue,
+        positionsCost, // Cost basis for positions
+        // Average win/loss stats
+        avgWin,
+        avgWinPercent,
+        avgLoss,
+        avgLossPercent,
+        // All-time stats
+        allTimePnL,
+        // Monthly breakdown
+        monthlyPnL,
       };
 
+      console.log('[Polymarket] Stats calculated:', stats);
       res.json({ success: true, stats });
     } catch (error: any) {
       console.error('[Polymarket] Error fetching stats:', error);
@@ -847,6 +1099,87 @@ export function createPolymarketRouter(): Router {
         success: false,
         message: `Connection test failed: ${error.message}`,
       });
+    }
+  });
+
+  /**
+   * GET /polymarket/debug-addresses
+   * Debug endpoint to show which addresses are configured and find positions
+   */
+  router.get('/debug-addresses', async (req: Request, res: Response) => {
+    try {
+      const address = req.headers['x-polymarket-address'] as string;
+      const funderAddress = req.headers['x-polymarket-funder-address'] as string;
+
+      const results: any = {
+        configuredAddresses: {
+          walletAddress: address || 'not set',
+          funderAddress: funderAddress || 'not set',
+        },
+        addressesChecked: [],
+        positionsFound: {},
+        rawApiResponses: [],
+      };
+
+      // Check each address - funder first, then wallet
+      const addressesToCheck = [funderAddress, address].filter(Boolean);
+
+      for (const addr of addressesToCheck) {
+        const addrLower = addr.toLowerCase();
+        try {
+          console.log(`[Debug] Fetching positions for: ${addrLower}`);
+          const response = await axios.get('https://data-api.polymarket.com/positions', {
+            params: { user: addrLower, limit: 500 },
+            timeout: 15000,
+          });
+          const positions = response.data || [];
+          console.log(`[Debug] Got ${positions.length} positions for ${addrLower}`);
+
+          results.addressesChecked.push({
+            address: addrLower,
+            positionsCount: positions.length,
+            positions: positions.slice(0, 10).map((p: any) => ({
+              title: p.title || p.question,
+              outcome: p.outcome,
+              size: p.size,
+              currentValue: p.currentValue,
+            })),
+          });
+          results.positionsFound[addrLower] = positions.length;
+
+          // Store raw response for debugging
+          if (positions.length > 0) {
+            results.rawApiResponses.push({
+              address: addrLower,
+              sampleRaw: positions[0],
+            });
+          }
+        } catch (err: any) {
+          results.addressesChecked.push({
+            address: addrLower,
+            error: err.response?.data || err.message,
+          });
+        }
+      }
+
+      // Also check what the positions endpoint returns through our service
+      try {
+        const polyService = getPolymarketService(req);
+        const servicePositions = await polyService.getPositions();
+        results.servicePositionsCount = servicePositions.length;
+        results.servicePositionsSample = servicePositions.slice(0, 3).map((p: any) => ({
+          title: p.title,
+          size: p.size,
+          _sourceAddress: p._sourceAddress,
+        }));
+      } catch (err: any) {
+        results.serviceError = err.message;
+      }
+
+      res.json({ success: true, debug: results });
+    } catch (error: any) {
+      console.error('[Polymarket] Debug error:', error);
+      res.status(500).json({ success: false, error: error.message });
     }
   });
 
