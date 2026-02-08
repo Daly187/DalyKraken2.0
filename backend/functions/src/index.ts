@@ -15,6 +15,7 @@ import { createTradingRouter } from './routes/trading.js';
 import { createTrackerRouter } from './routes/tracker.js';
 import { createNewsRouter } from './routes/news.js';
 import { createPolymarketRouter } from './routes/polymarket.js';
+import { createPmTrackerRouter } from './routes/pmTracker.js';
 import { authenticateToken } from './middleware/auth.js';
 import { DCABotService } from './services/dcaBotService.js';
 import { KrakenService } from './services/krakenService.js';
@@ -135,6 +136,9 @@ app.use('/news', authenticateToken, createNewsRouter(db));
 
 // Mount Polymarket/Gambling routes (protected)
 app.use('/polymarket', authenticateToken, createPolymarketRouter());
+
+// Mount Polymarket Wallet Tracker routes (protected)
+app.use('/polymarket/tracker', authenticateToken, createPmTrackerRouter(db));
 
 // ============================================
 // ACCOUNT ROUTES (Protected)
@@ -2921,6 +2925,103 @@ export const syncKrakenTrades = functions.pubsub
   });
 
 /**
+ * Scheduled function to auto-buy PAXG with excess USD
+ * Runs every 15 minutes - buys PAXG if USD > $200 for > 1 hour
+ */
+export const autoBuyPAXG = functions.pubsub
+  .schedule('*/15 * * * *')
+  .timeZone('America/New_York')
+  .onRun(async () => {
+    console.log('[AutoBuyPAXG] Starting excess USD check...');
+
+    try {
+      const krakenSvc = new KrakenService();
+      const balances = await krakenSvc.getBalance();
+
+      // Calculate total USD balance
+      const usdKeys = ['ZUSD', 'USD'];
+      let usdBalance = 0;
+      for (const key of usdKeys) {
+        if (balances[key]) {
+          usdBalance += parseFloat(balances[key]);
+        }
+      }
+
+      console.log(`[AutoBuyPAXG] Current USD balance: $${usdBalance.toFixed(2)}`);
+
+      const THRESHOLD = 200;
+      const ONE_HOUR_MS = 60 * 60 * 1000;
+
+      // Get/update tracking document
+      const trackingRef = db.collection('systemState').doc('excessUsdTracking');
+      const trackingDoc = await trackingRef.get();
+      const tracking = trackingDoc.exists ? trackingDoc.data() : null;
+
+      if (usdBalance <= THRESHOLD) {
+        // Reset tracking if USD dropped below threshold
+        if (tracking?.exceededAt) {
+          await trackingRef.set({ exceededAt: null, lastChecked: new Date().toISOString() });
+          console.log('[AutoBuyPAXG] USD dropped below $200, reset tracking');
+        }
+        return null;
+      }
+
+      // USD > $200
+      const now = Date.now();
+
+      if (!tracking?.exceededAt) {
+        // First time exceeding - start tracking
+        await trackingRef.set({
+          exceededAt: new Date().toISOString(),
+          lastChecked: new Date().toISOString()
+        });
+        console.log('[AutoBuyPAXG] USD exceeded $200, starting 1-hour timer');
+        return null;
+      }
+
+      // Check if it's been over an hour
+      const exceededAt = new Date(tracking.exceededAt).getTime();
+      const elapsed = now - exceededAt;
+
+      if (elapsed < ONE_HOUR_MS) {
+        const remainingMins = Math.ceil((ONE_HOUR_MS - elapsed) / 60000);
+        console.log(`[AutoBuyPAXG] USD > $200 for ${Math.floor(elapsed / 60000)} mins, ${remainingMins} mins until PAXG buy`);
+        await trackingRef.update({ lastChecked: new Date().toISOString() });
+        return null;
+      }
+
+      // Buy PAXG with excess
+      const excessUsd = usdBalance - THRESHOLD;
+      console.log(`[AutoBuyPAXG] 🔄 Buying PAXG with $${excessUsd.toFixed(2)} excess USD`);
+
+      const paxgTicker = await krakenSvc.getTicker('PAXG/USD');
+      const paxgPrice = paxgTicker.price;
+      const paxgToBuy = (excessUsd * 0.99) / paxgPrice; // 99% to account for fees
+
+      const buyResult = await krakenSvc.placeBuyOrder('PAXG/USD', paxgToBuy, 'market');
+
+      if (buyResult?.txid?.length) {
+        console.log(`[AutoBuyPAXG] ✅ Bought ${paxgToBuy.toFixed(6)} PAXG for ~$${excessUsd.toFixed(2)} (txid: ${buyResult.txid[0]})`);
+        // Reset tracking after successful buy
+        await trackingRef.set({
+          exceededAt: null,
+          lastChecked: new Date().toISOString(),
+          lastBuy: new Date().toISOString(),
+          lastBuyAmount: paxgToBuy,
+          lastBuyUsd: excessUsd
+        });
+      } else {
+        console.error('[AutoBuyPAXG] ❌ PAXG buy failed - no txid returned');
+      }
+
+      return null;
+    } catch (error: any) {
+      console.error('[AutoBuyPAXG] Error:', error.message);
+      return null;
+    }
+  });
+
+/**
  * Scheduled function to monitor depeg opportunities and execute trades
  * Runs every minute
  */
@@ -3171,5 +3272,75 @@ export const updateNewsMarketData = functions.pubsub
     } catch (error: any) {
       console.error('[NewsMarketData] ❌ Update failed:', error.message);
       return { success: false, error: error.message };
+    }
+  });
+
+// ============================================
+// POLYMARKET WALLET TRACKER SCHEDULED FUNCTIONS
+// ============================================
+
+/**
+ * Scheduled function to sync top Polymarket wallets leaderboard
+ * Runs every 6 hours to refresh the leaderboard cache
+ */
+export const syncPmTopWallets = functions.pubsub
+  .schedule('0 */6 * * *') // Every 6 hours
+  .timeZone('America/New_York')
+  .onRun(async (context) => {
+    console.log('[PmWalletTracker] Running scheduled top wallets sync...');
+
+    try {
+      const { PmWalletTrackerService } = await import('./services/pmWalletTrackerService.js');
+      const trackerService = new PmWalletTrackerService(db);
+
+      const result = await trackerService.syncTopWallets();
+
+      console.log(`[PmWalletTracker] Synced ${result.walletsUpdated} top wallets`);
+
+      return {
+        success: result.success,
+        walletsUpdated: result.walletsUpdated,
+        syncedAt: result.syncedAt.toISOString(),
+        errors: result.errors,
+      };
+    } catch (error: any) {
+      console.error('[PmWalletTracker] Error syncing top wallets:', error.message);
+      return {
+        success: false,
+        error: error.message,
+      };
+    }
+  });
+
+/**
+ * Scheduled function to sync all tracked wallets across all users
+ * Runs every 15 minutes to refresh tracked wallet stats
+ */
+export const syncPmTrackedWallets = functions.pubsub
+  .schedule('*/15 * * * *') // Every 15 minutes
+  .timeZone('America/New_York')
+  .onRun(async (context) => {
+    console.log('[PmWalletTracker] Running scheduled tracked wallets sync...');
+
+    try {
+      const { PmWalletTrackerService } = await import('./services/pmWalletTrackerService.js');
+      const trackerService = new PmWalletTrackerService(db);
+
+      const result = await trackerService.syncAllTrackedWallets();
+
+      console.log(`[PmWalletTracker] Synced ${result.walletsUpdated} tracked wallets`);
+
+      return {
+        success: result.success,
+        walletsUpdated: result.walletsUpdated,
+        syncedAt: result.syncedAt.toISOString(),
+        errors: result.errors,
+      };
+    } catch (error: any) {
+      console.error('[PmWalletTracker] Error syncing tracked wallets:', error.message);
+      return {
+        success: false,
+        error: error.message,
+      };
     }
   });

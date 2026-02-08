@@ -1026,6 +1026,106 @@ class ApiService {
     });
   }
 
+  // ============================================
+  // POLYMARKET WALLET TRACKER METHODS
+  // ============================================
+
+  /**
+   * Get top wallets leaderboard
+   */
+  async getTopWallets(options?: {
+    sortBy?: 'pnl7d' | 'pnl30d' | 'roi7d' | 'roi30d' | 'volume30d' | 'winRate7d';
+    limit?: number;
+    offset?: number;
+  }) {
+    const params = new URLSearchParams();
+    if (options?.sortBy) params.append('sortBy', options.sortBy);
+    if (options?.limit) params.append('limit', options.limit.toString());
+    if (options?.offset) params.append('offset', options.offset.toString());
+
+    const queryString = params.toString();
+    return this.get(`/polymarket/tracker/top-wallets${queryString ? `?${queryString}` : ''}`, {
+      headers: this.getPolymarketHeaders(),
+    });
+  }
+
+  /**
+   * Get Polymarket wallet details with positions and trades
+   */
+  async getPmWalletDetails(address: string, options?: {
+    includePositions?: boolean;
+    includeTrades?: boolean;
+    tradeLimit?: number;
+  }) {
+    const params = new URLSearchParams();
+    if (options?.includePositions !== undefined) params.append('includePositions', options.includePositions.toString());
+    if (options?.includeTrades !== undefined) params.append('includeTrades', options.includeTrades.toString());
+    if (options?.tradeLimit) params.append('tradeLimit', options.tradeLimit.toString());
+
+    const queryString = params.toString();
+    return this.get(`/polymarket/tracker/wallet/${address}${queryString ? `?${queryString}` : ''}`, {
+      headers: this.getPolymarketHeaders(),
+    });
+  }
+
+  /**
+   * Get user's tracked portfolio
+   */
+  async getTrackedPortfolio() {
+    return this.get('/polymarket/tracker/portfolio', {
+      headers: this.getPolymarketHeaders(),
+    });
+  }
+
+  /**
+   * Track a wallet
+   */
+  async trackWallet(walletAddress: string, allocationUsd: number, nickname?: string) {
+    return this.post('/polymarket/tracker/track', {
+      walletAddress,
+      allocationUsd,
+      nickname,
+    }, {
+      headers: this.getPolymarketHeaders(),
+    });
+  }
+
+  /**
+   * Update tracking allocation or nickname
+   */
+  async updateTracking(address: string, updates: { allocationUsd?: number; nickname?: string }) {
+    return this.put(`/polymarket/tracker/track/${address}`, updates, {
+      headers: this.getPolymarketHeaders(),
+    });
+  }
+
+  /**
+   * Untrack a wallet
+   */
+  async untrackWallet(address: string) {
+    return this.delete(`/polymarket/tracker/track/${address}`, {
+      headers: this.getPolymarketHeaders(),
+    });
+  }
+
+  /**
+   * Manually sync top wallets leaderboard
+   */
+  async syncTopWallets() {
+    return this.post('/polymarket/tracker/sync/top-wallets', {}, {
+      headers: this.getPolymarketHeaders(),
+    });
+  }
+
+  /**
+   * Manually sync user's tracked portfolio
+   */
+  async syncTrackedPortfolio() {
+    return this.post('/polymarket/tracker/sync/portfolio', {}, {
+      headers: this.getPolymarketHeaders(),
+    });
+  }
+
   /**
    * Get status summary for all strategies
    */

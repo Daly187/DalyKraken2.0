@@ -53,6 +53,7 @@ const newsNavigation = [
 
 const gamblingNavigation = [
   { name: 'Gambling', href: '/gambling', icon: Dice5 },
+  { name: 'Wallet Tracker', href: '/gambling/tracker', icon: Users },
 ];
 
 export default function Sidebar() {

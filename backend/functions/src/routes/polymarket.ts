@@ -886,12 +886,18 @@ export function createPolymarketRouter(): Router {
         configExists: configDoc.exists,
       });
 
-      console.log(`[Polymarket] Using timeframe: ${config.timeframeHours}h (${Math.round((config.timeframeHours || 168) / 24)} days)`);
+      // Handle timeframeHours: 0 means "no time filter" (show all markets)
+      // Use explicit undefined check to allow 0 as a valid value
+      const timeframeHours = config.timeframeHours !== undefined && config.timeframeHours !== null
+        ? config.timeframeHours
+        : 0; // Default to 0 (no filter) to show all markets
 
-      // Get markets closing soon
+      console.log(`[Polymarket] Using timeframe: ${timeframeHours}h (${timeframeHours === 0 ? 'ALL MARKETS' : Math.round(timeframeHours / 24) + ' days'})`);
+
+      // Get markets closing soon (or all markets if timeframeHours is 0)
       const markets = await polyService.getMarketsClosingSoon(
-        config.timeframeHours || 24,
-        config.marketScopeLimit || 100
+        timeframeHours,
+        config.marketScopeLimit || 500
       );
 
       // Filter by volume and liquidity thresholds first
@@ -1007,7 +1013,7 @@ export function createPolymarketRouter(): Router {
         betsPlaced: 0, // Manual scan doesn't auto-place bets
         timestamp: new Date().toISOString(),
         filtersUsed: {
-          timeframeHours: config.timeframeHours,
+          timeframeHours: timeframeHours,
           minProbability: minProb,
           maxProbability: maxProb,
           minVolume: minVolume,
@@ -1030,7 +1036,7 @@ export function createPolymarketRouter(): Router {
           opportunitiesFound: opportunities.length,
           opportunities: opportunities.slice(0, maxOpportunities), // Return more opportunities
           filtersUsed: {
-            timeframeHours: config.timeframeHours,
+            timeframeHours: timeframeHours,
             minProbability: minProb,
             maxProbability: maxProb,
             minVolume: minVolume,

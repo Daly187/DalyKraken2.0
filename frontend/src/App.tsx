@@ -26,6 +26,7 @@ import Stats from '@/pages/Stats';
 import Settings from '@/pages/Settings';
 import News from '@/pages/News';
 import Gambling from '@/pages/Gambling';
+import WalletTracker from '@/pages/WalletTracker';
 
 function App() {
   const isAuthenticated = useStore((state) => state.isAuthenticated);
@@ -63,6 +64,7 @@ function App() {
             <Route path="/settings" element={<Settings />} />
             <Route path="/news" element={<News />} />
             <Route path="/gambling" element={<Gambling />} />
+            <Route path="/gambling/tracker" element={<WalletTracker />} />
           </Route>
 
           {/* Catch all */}
